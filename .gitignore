@@ -1,0 +1,2 @@
+# Comet / OpenSpec skill 运行时（本地安装产物，体积大，可由 `comet init` / `comet update` 重建）
+.pi/skills/
