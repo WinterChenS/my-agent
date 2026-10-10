@@ -86,6 +86,30 @@ export default function ModelsPage() {
   const [modelForm, setModelForm] = useState<ModelForm>(EMPTY_MODEL);
   const [testingId, setTestingId] = useState<number | null>(null);
 
+  /** 把探针失败原因转成可操作的信息（400/404/401/超时分开给提示）。 */
+  function describeFailure(result: { error: string | null }, modelLabel: string) {
+    const raw = result.error ?? "未知原因";
+    const lower = raw.toLowerCase();
+    const hints: string[] = [];
+    if (lower.includes("no model") || lower.includes("not_found") || lower.includes("404")) {
+      hints.push(
+        `模型 ID「${modelLabel}」可能不被该端点支持；错误信息里通常列出了可用模型，请对照修改。`,
+      );
+    }
+    if (lower.includes("401") || lower.includes("invalid_api_key") || lower.includes("unauthorized")) {
+      hints.push("API Key 可能无效，或没有访问该模型的权限。");
+    }
+    if (
+      lower.includes("timeout") ||
+      lower.includes("closedchannel") ||
+      lower.includes("refused") ||
+      lower.includes("connect")
+    ) {
+      hints.push("端点不可达：检查 baseUrl 是否正确、网络是否通。");
+    }
+    return { raw, hint: hints.join(" ") };
+  }
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -166,17 +190,24 @@ export default function ModelsPage() {
     }
   }
 
-  async function runTest(provider: Provider) {
-    setTestingId(provider.id);
+  async function runTest(provider: Provider, model?: ModelInfo) {
+    const fallback = models.find((m) => m.providerId === provider.id);
+    const target = model ?? fallback;
+    const label = target?.modelId ?? "（该供应商下没有模型）";
+    setTestingId(target ? target.id : -provider.id);
     try {
-      const result = await testProvider(provider.id);
+      const result = await testProvider(provider.id, target?.id);
       if (result.ok) {
-        toast.success(`连通成功：${result.latencyMs} ms`);
+        toast.success(`连通成功：${label} · ${result.latencyMs} ms`);
       } else {
-        toast.error(`连通失败：${result.error ?? "未知原因"}`);
+        const { raw, hint } = describeFailure(result, label);
+        toast.error(`连通失败（${label}）`, {
+          description: hint ? `${raw}\n\n💡 ${hint}` : raw,
+          duration: 30000,
+        });
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "测试失败");
+      toast.error(err instanceof Error ? err.message : "测试失败", { duration: 30000 });
     } finally {
       setTestingId(null);
     }
@@ -247,11 +278,16 @@ export default function ModelsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={testingId === p.id}
+                            disabled={testingId != null}
+                            title={
+                              models.find((m) => m.providerId === p.id)
+                                ? `测试该供应商下第一个模型：${models.find((m) => m.providerId === p.id)?.modelId}`
+                                : "该供应商下还没有模型"
+                            }
                             onClick={() => void runTest(p)}
                           >
                             <PlugZap className="size-3.5" />
-                            {testingId === p.id ? "测试中…" : "连通测试"}
+                            {testingId != null && testingId === -p.id ? "测试中…" : "连通测试"}
                           </Button>
                           <Button
                             size="icon"
@@ -349,6 +385,19 @@ export default function ModelsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={testingId != null}
+                            onClick={() => {
+                              const provider = providers.find((p) => p.id === m.providerId);
+                              if (provider) void runTest(provider, m);
+                            }}
+                            title="用这个模型做连通测试"
+                          >
+                            <PlugZap className="size-3.5" />
+                            {testingId === m.id ? "测试中…" : "测试"}
+                          </Button>
                           <Button
                             size="icon"
                             variant="ghost"

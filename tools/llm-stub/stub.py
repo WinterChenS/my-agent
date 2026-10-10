@@ -31,6 +31,10 @@ STUB_DUMP = os.environ.get("STUB_DUMP", "")
 # 触发时会在 stdout 打印命中的完整工具名（含命名空间），便于验收取证。
 STUB_TOOL_NAME = os.environ.get("STUB_TOOL_NAME", "")
 STUB_TOOL_ARGS = os.environ.get("STUB_TOOL_ARGS", "{}")
+# 可选：模拟网关“没有这个模型”的 404（用于验证前端错误提示）。
+# 当请求的 model **包含** STUB_MODEL_404 子串时，返回 404 + 类似网关的错误体（便于用唯一名字测试）。
+STUB_MODEL_404 = os.environ.get("STUB_MODEL_404", "")
+STUB_MODEL_404_HINT = os.environ.get("STUB_MODEL_404_HINT", "deepseek/deepseek-flash, tencent/GLM-5.2")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -77,6 +81,14 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         model = body.get("model", "stub-model")
+        if STUB_MODEL_404 and STUB_MODEL_404 in model:
+            self._json(404, {"error": {
+                "code": None,
+                "message": f'magpie knows no model "{model}"; it has {STUB_MODEL_404_HINT}',
+                "param": None,
+                "type": "not_found_error",
+            }})
+            return
         created = int(time.time())
         usage = {"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16}
         tool_call = self._tool_call_to_emit(body)

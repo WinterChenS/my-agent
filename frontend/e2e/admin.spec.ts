@@ -1,15 +1,88 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 
 /**
- * 管理台四个页面（Task 6.1 的「前端 MCP 管理页」门禁 + 技术方案第 7 节的 models/agents/skills）。
- * 前置：后端与 Vite 已启动；已存在一个 provider/model/agent（见 scripts/add-real-model.sh）。
+ * 管理台页面浏览器验收（技术方案第 7 节 + Task 6.1 的「前端 MCP 管理页」门禁）。
+ *
+ * 设计原则：**测试必须自给自足**——自己造带唯一名称的 fixture，结束后清理，
+ * 绝不断言用户自己维护的数据（踩过坑：同事把演示供应商改名后测试就红了）。
  */
+
+const API = "http://localhost:8080";
+
+async function apiToken(request: APIRequestContext): Promise<string> {
+  const res = await request.post(`${API}/api/auth/login`, {
+    data: { username: "admin", password: "Admin@123" },
+  });
+  const body = await res.json();
+  return body.data.token as string;
+}
+
+async function apiCleanup(request: APIRequestContext, prefix: string) {
+  const token = await apiToken(request);
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const del = async (path: string, id: number) => {
+    await request.delete(`${API}${path}/${id}`, { headers, failOnStatusCode: false });
+  };
+
+  // 顺序：agent -> session -> mcp/skill -> model -> provider（先解绑定）
+  const agents = await (await request.get(`${API}/api/agents?current=1&size=500`, { headers })).json();
+  for (const a of agents.data?.records ?? []) {
+    if (String(a.agentId).startsWith(prefix)) await del("/api/agents", a.id);
+  }
+  const mcp = await (await request.get(`${API}/api/mcp-servers?current=1&size=500`, { headers })).json();
+  for (const m of mcp.data?.records ?? []) {
+    if (String(m.name).startsWith(prefix)) await del("/api/mcp-servers", m.id);
+  }
+  const skills = await (await request.get(`${API}/api/skills?current=1&size=500`, { headers })).json();
+  for (const s of skills.data?.records ?? []) {
+    if (String(s.name).startsWith(prefix)) await del("/api/skills", s.id);
+  }
+  const models = await (await request.get(`${API}/api/models?current=1&size=500`, { headers })).json();
+  for (const m of models.data?.records ?? []) {
+    if (String(m.modelId).startsWith(prefix)) await del("/api/models", m.id);
+  }
+  const providers = await (await request.get(`${API}/api/model-providers?current=1&size=500`, { headers })).json();
+  for (const p of providers.data?.records ?? []) {
+    if (String(p.name).startsWith(prefix)) await del("/api/model-providers", p.id);
+  }
+}
+
+/** 每个用例结束都清理自己造的数据。 */
+test.afterEach(async ({ request }) => {
+  await apiCleanup(request, "e2e-");
+});
 
 async function login(page: import("@playwright/test").Page) {
   await page.goto("/login");
   await page.getByLabel("密码").fill("Admin@123");
   await page.getByRole("button", { name: "登录" }).click();
   await expect(page).toHaveURL(/\/chat/, { timeout: 15_000 });
+}
+
+/** 在模型页新建一个指向本地桩的供应商 + 指定模型，返回两者的名称。 */
+async function createProviderAndModel(
+  page: import("@playwright/test").Page,
+  stamp: number,
+  modelId: string,
+) {
+  const providerName = `e2e-prov-${stamp}`;
+  await page.getByRole("button", { name: "新建供应商" }).click();
+  await page.getByLabel("名称").fill(providerName);
+  await page.getByLabel("Base URL").fill("http://localhost:8099/v1");
+  await page.getByLabel(/API Key/).fill("sk-e2e");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已创建供应商")).toBeVisible({ timeout: 20_000 });
+
+  await page.getByRole("tab", { name: /模型/ }).click();
+  await page.getByRole("button", { name: "新建模型" }).click();
+  await page.getByLabel("模型 ID").fill(modelId);
+  await page.getByLabel("显示名").fill(modelId);
+  await page.getByRole("dialog").locator("select").first().selectOption({ label: providerName });
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已创建模型")).toBeVisible({ timeout: 20_000 });
+
+  return { providerName, modelId };
 }
 
 test("MCP 管理页：列表 / 新建 STDIO / 同步工具 / 工具清单 / 删除", async ({ page }) => {
@@ -21,46 +94,83 @@ test("MCP 管理页：列表 / 新建 STDIO / 同步工具 / 工具清单 / 删�
   await page.getByRole("button", { name: "新建" }).click();
   await page.getByLabel("名称").fill(name);
   await page.getByLabel("命令").fill("cmd");
-  await page.getByLabel("参数（每行一个）").fill("/c\nnpx\n-y\n@modelcontextprotocol/server-everything\nstdio");
+  await page
+    .getByLabel("参数（每行一个）")
+    .fill("/c\nnpx\n-y\n@modelcontextprotocol/server-everything\nstdio");
   await page.getByRole("button", { name: "保存" }).click();
 
-  // 列表出现
   const row = page.getByRole("row", { name: new RegExp(name) });
   await expect(row).toBeVisible({ timeout: 20_000 });
 
-  // 同步工具 -> 出现工具数
+  // 同步工具 -> 工具清单
   await row.getByRole("button", { name: /同步工具/ }).click();
   await expect(page.getByText(/同步成功：\d+ 个工具/)).toBeVisible({ timeout: 60_000 });
-
-  // 工具清单区块出现且含 echo
   await expect(page.getByText(new RegExp(`工具清单：${name}`))).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("cell", { name: "echo", exact: true })).toBeVisible();
 
   await page.screenshot({ path: "../docs/acceptance/task-repair-mcp-page.png", fullPage: true });
 
-  // 删除
   page.on("dialog", (d) => d.accept());
   await row.getByRole("button", { name: "删除" }).click();
   await expect(page.getByText("已删除")).toBeVisible({ timeout: 20_000 });
 });
 
-test("模型页：供应商列表 / 连通测试 / 模型列表", async ({ page }) => {
+test("模型页：自建供应商 + 连通测试 + 模型列表 + api_key 掩码", async ({ page }) => {
   await login(page);
   await page.goto("/admin/models");
   await expect(page.getByRole("heading", { name: "模型配置" })).toBeVisible({ timeout: 15_000 });
 
-  // 供应商 tab 默认打开，应能看到演示供应商
-  await expect(page.getByRole("cell", { name: "本地桩(演示)" })).toBeVisible({ timeout: 15_000 });
-  // api_key 必须是掩码
-  await expect(page.getByRole("cell", { name: "****" }).first()).toBeVisible();
+  const stamp = Date.now();
+  const { providerName } = await createProviderAndModel(page, stamp, `e2e-ok-${stamp}`);
 
-  await page.getByRole("button", { name: /连通测试/ }).first().click();
-  await expect(page.getByText(/连通成功：\d+ ms/)).toBeVisible({ timeout: 40_000 });
+  // 掩码：只断言存在 **** 单元格（不断言具体是哪一行，避免依赖用户数据）
+  await page.getByRole("tab", { name: /供应商/ }).click();
+  await expect(page.getByRole("cell", { name: "****" }).first()).toBeVisible({ timeout: 15_000 });
 
+  // 对自己建的供应商点连通测试（会自动用其第一个模型）
+  const row = page.getByRole("row", { name: new RegExp(providerName) });
+  await row.getByRole("button", { name: /连通测试/ }).click();
+  await expect(page.getByText(/连通成功/)).toBeVisible({ timeout: 40_000 });
+
+  // 模型 tab 能看到自己建的模型（displayName 与 modelId 同名，会命中 2 个单元格，取 first）
   await page.getByRole("tab", { name: /模型/ }).click();
-  await expect(page.getByRole("cell", { name: "stub-model" }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByRole("cell", { name: `e2e-ok-${stamp}` }).first(),
+  ).toBeVisible({ timeout: 15_000 });
 
   await page.screenshot({ path: "../docs/acceptance/task-repair-models-page.png", fullPage: true });
+});
+
+test("模型页：模型 ID 填错时给出可操作的提示，改对后测通", async ({ page }) => {
+  await login(page);
+  await page.goto("/admin/models");
+  await expect(page.getByRole("heading", { name: "模型配置" })).toBeVisible({ timeout: 15_000 });
+
+  const stamp = Date.now();
+  const badId = `e2e-wrong-model-${stamp}`; // 桩对含 "wrong-model" 的名字回 404
+  const goodId = `e2e-good-model-${stamp}`; // 桩对其它名字正常响应
+  await createProviderAndModel(page, stamp, badId);
+
+  // 单测这个模型 -> 应看到可操作提示
+  const row = page.getByRole("row", { name: new RegExp(badId) });
+  await row.getByRole("button", { name: "测试", exact: true }).click();
+  await expect(page.getByText(/连通失败/)).toBeVisible({ timeout: 40_000 });
+  await expect(page.getByText(/可能不被该端点支持/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/deepseek\/deepseek-flash/)).toBeVisible();
+  await page.screenshot({
+    path: "../docs/acceptance/task-repair-model-id-hint.png",
+    fullPage: true,
+  });
+
+  // 改成可用 ID -> 测通
+  await row.getByRole("button", { name: "编辑" }).click();
+  await page.getByLabel("模型 ID").fill(goodId);
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已保存")).toBeVisible({ timeout: 20_000 });
+
+  const fixedRow = page.getByRole("row", { name: new RegExp(goodId) });
+  await fixedRow.getByRole("button", { name: "测试", exact: true }).click();
+  await expect(page.getByText(/连通成功/)).toBeVisible({ timeout: 40_000 });
 });
 
 test("Skill 页：新建 / 版本显示 / 删除", async ({ page }) => {
@@ -86,14 +196,51 @@ test("Skill 页：新建 / 版本显示 / 删除", async ({ page }) => {
   await expect(page.getByText("已删除")).toBeVisible({ timeout: 20_000 });
 });
 
-test("Agent 页：列表展示绑定与权限模式", async ({ page }) => {
+test("Agent 页：可创建带绑定的 Agent 并展示权限模式", async ({ page, request }) => {
+  // 用 API 直接造一个 e2e Agent（避免依赖用户数据），再在页面断言
+  const token = await apiToken(request);
+  const headers = { Authorization: `Bearer ${token}` };
+  const stamp = Date.now();
+
+  const prov = await (
+    await request.post(`${API}/api/model-providers`, {
+      headers,
+      data: {
+        name: `e2e-prov-${stamp}`,
+        providerType: "OPENAI_COMPATIBLE",
+        baseUrl: "http://localhost:8099/v1",
+        apiKey: "sk-e2e",
+        status: "ENABLED",
+      },
+    })
+  ).json();
+  const model = await (
+    await request.post(`${API}/api/models`, {
+      headers,
+      data: { providerId: prov.data.id, modelId: `e2e-ok-${stamp}`, status: "ENABLED" },
+    })
+  ).json();
+  await request.post(`${API}/api/agents`, {
+    headers,
+    data: {
+      name: `e2e-agent-${stamp}`,
+      agentId: `e2e-agent-${stamp}`,
+      sysPrompt: "测试",
+      modelId: model.data.id,
+      permissionMode: "REQUIRE_APPROVAL",
+      status: "ENABLED",
+      skillIds: [],
+      mcpServerIds: [],
+    },
+  });
+
   await login(page);
   await page.goto("/admin/agents");
   await expect(page.getByRole("heading", { name: "Agent 配置" })).toBeVisible({ timeout: 15_000 });
 
-  const row = page.getByRole("row", { name: /stub-demo-agent/ });
+  const row = page.getByRole("row", { name: new RegExp(`e2e-agent-${stamp}`) });
   await expect(row).toBeVisible({ timeout: 15_000 });
-  await expect(row.getByText("直接执行")).toBeVisible();
+  await expect(row.getByText("需要审批（HITL）")).toBeVisible();
 
   await page.screenshot({ path: "../docs/acceptance/task-repair-agents-page.png", fullPage: true });
 });
