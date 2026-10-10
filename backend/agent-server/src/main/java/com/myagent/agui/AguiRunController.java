@@ -1,9 +1,11 @@
 package com.myagent.agui;
 
+import com.myagent.approval.service.ApprovalService;
 import com.myagent.auth.JwtPrincipal;
 import com.myagent.chat.entity.ChatSession;
 import com.myagent.chat.service.ChatSessionService;
 import com.myagent.common.BizException;
+import io.agentscope.core.agui.AguiInterruptConstants;
 import io.agentscope.core.agui.adapter.AguiAdapterConfig;
 import io.agentscope.core.agui.adapter.AguiAgentAdapter;
 import io.agentscope.core.agui.adapter.AguiAgentAdapterFactory;
@@ -45,6 +47,7 @@ public class AguiRunController {
     private final AguiAdapterConfig adapterConfig;
     private final AgentFactory agentFactory;
     private final ChatSessionService chatSessionService;
+    private final ApprovalService approvalService;
     private final AguiAgentAdapterFactory adapterFactory = AguiAgentAdapterFactory.defaultFactory();
 
     public AguiRunController(
@@ -52,12 +55,14 @@ public class AguiRunController {
             AguiEventEncoder eventEncoder,
             AguiAdapterConfig adapterConfig,
             AgentFactory agentFactory,
-            ChatSessionService chatSessionService) {
+            ChatSessionService chatSessionService,
+            ApprovalService approvalService) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.adapterConfig = adapterConfig;
         this.agentFactory = agentFactory;
         this.chatSessionService = chatSessionService;
+        this.approvalService = approvalService;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -97,18 +102,19 @@ public class AguiRunController {
         AguiAgentAdapter adapter = adapterFactory.create(agentFactory.build(agentDbId), adapterConfig);
         StringBuilder assistantText = new StringBuilder();
         List<String> customEventNames = new ArrayList<>();
+        List<AguiEvent.Interrupt> interrupts = new ArrayList<>();
 
         Disposable subscription = adapter.run(input).subscribe(
                 event -> {
                     send(emitter, event);
-                    collect(event, assistantText, customEventNames);
+                    collect(event, assistantText, customEventNames, interrupts);
                 },
                 error -> {
                     log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
                     sendRunError(emitter, threadId, input.getRunId(), error);
-                    finish(emitter, session.getId(), assistantText, customEventNames);
+                    finish(emitter, session.getId(), assistantText, customEventNames, interrupts);
                 },
-                () -> finish(emitter, session.getId(), assistantText, customEventNames));
+                () -> finish(emitter, session.getId(), assistantText, customEventNames, interrupts));
 
         emitter.onCompletion(subscription::dispose);
         emitter.onTimeout(() -> {
@@ -138,7 +144,11 @@ public class AguiRunController {
     }
 
     private void finish(
-            SseEmitter emitter, Long sessionId, StringBuilder assistantText, List<String> customEventNames) {
+            SseEmitter emitter,
+            Long sessionId,
+            StringBuilder assistantText,
+            List<String> customEventNames,
+            List<AguiEvent.Interrupt> interrupts) {
         try {
             chatSessionService.appendMessage(
                     sessionId, "ASSISTANT", assistantText.toString(), meta(customEventNames));
@@ -146,11 +156,36 @@ public class AguiRunController {
         } catch (Exception ex) {
             log.error("落库 assistant 消息失败 sessionId={}", sessionId, ex);
         }
+        // 被权限系统拦截的工具调用：落库为待审批（HITL 主链路）
+        for (AguiEvent.Interrupt interrupt : interrupts) {
+            try {
+                approvalService.recordPending(
+                        sessionId,
+                        interrupt.id(),
+                        asString(interrupt.metadata() == null
+                                ? null
+                                : interrupt.metadata().get(AguiInterruptConstants.METADATA_TOOL_NAME)),
+                        extractArgs(interrupt));
+            } catch (Exception ex) {
+                log.error("落库待审批记录失败 interruptId={}", interrupt.id(), ex);
+            }
+        }
         try {
             emitter.complete();
         } catch (Exception ex) {
             log.debug("SSE 关闭失败: {}", ex.getMessage());
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> extractArgs(AguiEvent.Interrupt interrupt) {
+        Object raw = interrupt.metadata() == null
+                ? null
+                : interrupt.metadata().get(AguiInterruptConstants.METADATA_TOOL_INPUT);
+        if (raw instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        return raw == null ? null : Map.of("raw", raw);
     }
 
     private void persistUserMessage(Long sessionId, RunAgentInput input) {
@@ -167,11 +202,20 @@ public class AguiRunController {
         }
     }
 
-    private static void collect(AguiEvent event, StringBuilder assistantText, List<String> customNames) {
+    private static void collect(
+            AguiEvent event,
+            StringBuilder assistantText,
+            List<String> customNames,
+            List<AguiEvent.Interrupt> interrupts) {
         if (event instanceof AguiEvent.TextMessageContent content && content.delta() != null) {
             assistantText.append(content.delta());
         } else if (event instanceof AguiEvent.Custom custom && custom.name() != null) {
             customNames.add(custom.name());
+        } else if (event instanceof AguiEvent.RunFinished finished
+                && finished.outcome() instanceof AguiEvent.RunFinishedInterruptOutcome interruptOutcome
+                && interruptOutcome.interrupts() != null) {
+            // 需要人工审批：收集 interrupt 以便落库
+            interrupts.addAll(interruptOutcome.interrupts());
         }
     }
 

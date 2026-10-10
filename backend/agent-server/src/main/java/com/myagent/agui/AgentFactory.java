@@ -16,8 +16,10 @@ import com.myagent.common.CryptoService;
 import com.myagent.skillconfig.mapper.SkillMapper;
 import io.agentscope.core.model.ChatModelBase;
 import io.agentscope.core.model.GenerateOptions;
+import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionMode;
+import io.agentscope.core.permission.PermissionRule;
 import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -197,9 +199,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .skillRepository(skillRepositorySync.newRepository())
                 .skillFilter(skillFilter)
                 .toolkit(toolkit)
-                .permissionContext(PermissionContextState.builder()
-                        .mode(toPermissionMode(agent.getPermissionMode()))
-                        .build())
+                .permissionContext(buildPermissionContext(agent.getPermissionMode(), mcpServers))
                 .build();
         log.info(
                 "构建 Agent 完成: {} (mode={}, skills={}, mcpServers={})",
@@ -210,16 +210,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         return built;
     }
 
-    /**
-     * 平台权限模式 → AgentScope 权限模式。
-     *
-     * <p>AgentScope 的枚举语义与平台配置并非一一对应，这里显式映射并记录理由：
-     * <ul>
-     *   <li>{@code ALWAYS_ALLOW} → {@code BYPASS}：跳过权限检查，直接执行
-     *   <li>{@code ALWAYS_DENY} → {@code DONT_ASK}：不询问，直接拒绝
-     *   <li>{@code REQUIRE_APPROVAL} → {@code DEFAULT}：需要时发起审批（HITL 主链路）
-     * </ul>
-     */
+    /** 权限模式 → AgentScope 权限模式。 */
     static PermissionMode toPermissionMode(String platformMode) {
         String mode = platformMode == null ? "" : platformMode.trim().toUpperCase();
         return switch (mode) {
@@ -227,6 +218,38 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             case "ALWAYS_DENY" -> PermissionMode.DONT_ASK;
             default -> PermissionMode.DEFAULT;
         };
+    }
+
+    /**
+     * 构建权限上下文。
+     *
+     * <p>实测结论（Task 7.1）：仅把 mode 设为 DEFAULT **不会**触发审批——工具会直接执行。
+     * 要真正拦下来，必须显式添加 {@link PermissionBehavior#ASK} 规则。因此
+     * {@code REQUIRE_APPROVAL} 会对绑定的 MCP 工具逐个加 ask 规则（名字来自工具缓存），
+     * 并额外加一条 {@code "*"} 通配尝试。
+     */
+    static PermissionContextState buildPermissionContext(String platformMode, List<McpServer> mcpServers) {
+        PermissionContextState.Builder builder =
+                PermissionContextState.builder().mode(toPermissionMode(platformMode));
+        if (!"REQUIRE_APPROVAL".equalsIgnoreCase(platformMode == null ? "" : platformMode.trim())) {
+            return builder.build();
+        }
+        java.util.Set<String> toolNames = new java.util.LinkedHashSet<>();
+        toolNames.add("*");
+        for (McpServer server : mcpServers) {
+            // 工具名来自 sync-tools 写入的 tool_cache
+            if (server.getToolCache() != null) {
+                server.getToolCache().stream()
+                        .map(entry -> entry.get("name"))
+                        .filter(java.util.Objects::nonNull)
+                        .map(String::valueOf)
+                        .forEach(toolNames::add);
+            }
+        }
+        for (String toolName : toolNames) {
+            builder.addAskRule(toolName, new PermissionRule(toolName, null, PermissionBehavior.ASK, "myagent"));
+        }
+        return builder.build();
     }
 
     @Override
