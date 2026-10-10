@@ -3,17 +3,21 @@ package com.myagent.agui;
 import com.myagent.agentconfig.cache.AgentCacheInvalidator;
 import com.myagent.agentconfig.entity.Agent;
 import com.myagent.agentconfig.mapper.AgentMapper;
+import com.myagent.agentconfig.mapper.AgentSkillMapper;
 import com.myagent.common.BizException;
 import com.myagent.modelconfig.entity.LlmModel;
 import com.myagent.modelconfig.entity.LlmProvider;
 import com.myagent.modelconfig.mapper.LlmModelMapper;
 import com.myagent.modelconfig.mapper.LlmProviderMapper;
 import com.myagent.common.CryptoService;
+import com.myagent.skillconfig.mapper.SkillMapper;
 import io.agentscope.core.model.ChatModelBase;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionMode;
+import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.harness.agent.HarnessAgent;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
@@ -44,6 +48,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     private final CryptoService cryptoService;
     private final ModelFactory modelFactory;
     private final AguiProperties aguiProperties;
+    private final SkillRepositorySync skillRepositorySync;
+    private final AgentSkillMapper agentSkillMapper;
+    private final SkillMapper skillMapper;
 
     private final Map<Long, HarnessAgent> cache = new ConcurrentHashMap<>();
 
@@ -53,13 +60,19 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             LlmProviderMapper llmProviderMapper,
             CryptoService cryptoService,
             ModelFactory modelFactory,
-            AguiProperties aguiProperties) {
+            AguiProperties aguiProperties,
+            SkillRepositorySync skillRepositorySync,
+            AgentSkillMapper agentSkillMapper,
+            SkillMapper skillMapper) {
         this.agentMapper = agentMapper;
         this.llmModelMapper = llmModelMapper;
         this.llmProviderMapper = llmProviderMapper;
         this.cryptoService = cryptoService;
         this.modelFactory = modelFactory;
         this.aguiProperties = aguiProperties;
+        this.skillRepositorySync = skillRepositorySync;
+        this.agentSkillMapper = agentSkillMapper;
+        this.skillMapper = skillMapper;
     }
 
     /** 按 Agent 主键构建（带缓存）。 */
@@ -141,7 +154,15 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             options.maxTokens(agent.getMaxTokens());
         }
 
-        // TODO(P5): 装载绑定的 Skill（官方 skill-postgresql-repository）
+        // Skill：官方仓库 + 按绑定过滤（只暴露该 Agent 绑定的启用 Skill）
+        List<Long> boundSkillIds = agentSkillMapper.findSkillIds(agent.getId());
+        List<String> boundSkillNames = boundSkillIds.isEmpty()
+                ? List.of()
+                : skillMapper.findNamesByIds(boundSkillIds);
+        SkillFilter skillFilter = boundSkillNames.isEmpty()
+                ? SkillFilter.none()
+                : SkillFilter.only(boundSkillNames.toArray(String[]::new));
+
         // TODO(P6): 装载绑定的 MCP Server 工具（官方 McpClientManager）
 
         HarnessAgent built = HarnessAgent.builder()
@@ -152,11 +173,17 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .maxIters(agent.getMaxIterations() == null ? 20 : agent.getMaxIterations())
                 .workspace(java.nio.file.Path.of(aguiProperties.workspaceRoot()))
                 .generateOptions(options.build())
+                .skillRepository(skillRepositorySync.newRepository())
+                .skillFilter(skillFilter)
                 .permissionContext(PermissionContextState.builder()
                         .mode(toPermissionMode(agent.getPermissionMode()))
                         .build())
                 .build();
-        log.info("构建 Agent 完成: {} (mode={})", agent.getAgentId(), agent.getPermissionMode());
+        log.info(
+                "构建 Agent 完成: {} (mode={}, skills={})",
+                agent.getAgentId(),
+                agent.getPermissionMode(),
+                boundSkillNames);
         return built;
     }
 

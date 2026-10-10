@@ -20,6 +20,12 @@ HOST = os.environ.get("HOST", "127.0.0.1")
 REPLY = os.environ.get("STUB_REPLY", "stub-ok")
 # 每个流式分片之间的延迟（毫秒）。默认 0；浏览器验收时调大以便观察到“逐字出现”。
 CHUNK_DELAY_MS = int(os.environ.get("STUB_CHUNK_DELAY_MS", "0"))
+# 可选标记：若收到的请求体里出现 STUB_MARKER，则回复 STUB_MARKER_REPLY。
+# 用于验证“模型真的收到了某段内容”（例如 Skill 注入）。
+STUB_MARKER = os.environ.get("STUB_MARKER", "")
+STUB_MARKER_REPLY = os.environ.get("STUB_MARKER_REPLY", "MARKER-SEEN")
+# 可选：把最近一次收到的请求体写到该文件，便于对照“模型实际收到了什么”。
+STUB_DUMP = os.environ.get("STUB_DUMP", "")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -42,6 +48,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
+        if STUB_DUMP:
+            try:
+                # 追写所有请求（一次对话可能包含主对话 + 记忆抽取等多个调用）
+                with open(STUB_DUMP, "ab") as fh:
+                    fh.write(b"\n=====REQUEST=====\n")
+                    fh.write(raw)
+            except OSError:
+                pass
         try:
             body = json.loads(raw or b"{}")
         except json.JSONDecodeError:
@@ -60,9 +74,10 @@ class Handler(BaseHTTPRequestHandler):
         model = body.get("model", "stub-model")
         created = int(time.time())
         usage = {"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16}
+        reply = self._reply_for(raw)
 
         if body.get("stream"):
-            self._stream(model, created, usage)
+            self._stream(model, created, usage, reply)
         else:
             self._json(200, {
                 "id": "chatcmpl-stub",
@@ -71,13 +86,24 @@ class Handler(BaseHTTPRequestHandler):
                 "model": model,
                 "choices": [{
                     "index": 0,
-                    "message": {"role": "assistant", "content": REPLY},
+                    "message": {"role": "assistant", "content": reply},
                     "finish_reason": "stop",
                 }],
                 "usage": usage,
             })
 
-    def _stream(self, model, created, usage):
+    @staticmethod
+    def _reply_for(raw: bytes) -> str:
+        """若配置了 STUB_MARKER 且请求体包含它，就回一个可识别的标记，证明模型确实收到了该内容。"""
+        if STUB_MARKER:
+            try:
+                if STUB_MARKER.encode("utf-8") in raw:
+                    return f"{REPLY} {STUB_MARKER_REPLY}"
+            except Exception:  # 标记匹配失败不应影响服务
+                pass
+        return REPLY
+
+    def _stream(self, model, created, usage, reply):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -96,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         chunk({"role": "assistant", "content": ""})
-        for piece in [REPLY[i:i + 3] for i in range(0, len(REPLY), 3)]:
+        for piece in [reply[i:i + 3] for i in range(0, len(reply), 3)]:
             if CHUNK_DELAY_MS > 0:
                 time.sleep(CHUNK_DELAY_MS / 1000.0)
             chunk({"content": piece})
