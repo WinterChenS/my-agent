@@ -1,28 +1,64 @@
 package com.myagent.config;
 
+import com.myagent.auth.JwtAuthFilter;
+import com.myagent.auth.JwtService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * Phase 0 骨架的最小安全配置：仅保证 {@code /api/health} 可达。
+ * 安全规则（技术方案第 8 节）。
  *
- * <p>Phase 1.2 会替换为完整规则（JWT 过滤器、按角色放行、{@code /agui/run} 鉴权）。
+ * <ul>
+ *   <li>放行：{@code /api/auth/login}、{@code /api/health}
+ *   <li>配置类接口：GET 需已认证，写操作需 ADMIN
+ *   <li>其余（含 {@code /agui/**} 与 {@code /api/audit/**}）需已认证
+ * </ul>
  */
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
+    private static final String[] CONFIG_PATHS = {
+        "/api/model-providers/**",
+        "/api/models/**",
+        "/api/agents/**",
+        "/api/skills/**",
+        "/api/mcp-servers/**"
+    };
+
+    private final JwtService jwtService;
+    private final RestAuthEntryPoint authEntryPoint;
+    private final RestAccessDeniedHandler accessDeniedHandler;
+
+    public SecurityConfig(
+            JwtService jwtService,
+            RestAuthEntryPoint authEntryPoint,
+            RestAccessDeniedHandler accessDeniedHandler) {
+        this.jwtService = jwtService;
+        this.authEntryPoint = authEntryPoint;
+        this.accessDeniedHandler = accessDeniedHandler;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+                .exceptionHandling(e -> e.authenticationEntryPoint(authEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/auth/login", "/api/health").permitAll()
+                        .requestMatchers(HttpMethod.GET, CONFIG_PATHS).authenticated()
+                        .requestMatchers(CONFIG_PATHS).hasRole("ADMIN")
+                        .anyRequest().authenticated())
+                .addFilterBefore(new JwtAuthFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
