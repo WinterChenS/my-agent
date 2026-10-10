@@ -27,8 +27,15 @@ const CARD_BY_NAME: Record<string, CardKind> = {
 export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
   switch (event.type) {
     case "RUN_STARTED":
-      // 新的一轮：从空树开始
-      return { items: [], status: "running", runId: event.runId ?? null };
+      // 新一轮：清空上一轮的展示项，但**保留已决定的审批卡**——
+      // 用户刚批准/拒绝的记录不应因为 resume 把树重置而消失。
+      return {
+        items: state.items.filter(
+          (item) => item.kind === "approval" && item.status !== "pending",
+        ),
+        status: "running",
+        runId: event.runId ?? null,
+      };
 
     case "TEXT_MESSAGE_START":
       return {

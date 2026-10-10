@@ -53,6 +53,7 @@ public class AguiRunController {
     private final ChatSessionService chatSessionService;
     private final ApprovalService approvalService;
     private final TokenUsageRecorder tokenUsageRecorder;
+    private final AguiSseSanitizer sseSanitizer;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -61,7 +62,8 @@ public class AguiRunController {
             AgentFactory agentFactory,
             ChatSessionService chatSessionService,
             ApprovalService approvalService,
-            TokenUsageRecorder tokenUsageRecorder) {
+            TokenUsageRecorder tokenUsageRecorder,
+            AguiSseSanitizer sseSanitizer) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
@@ -69,6 +71,7 @@ public class AguiRunController {
         this.chatSessionService = chatSessionService;
         this.approvalService = approvalService;
         this.tokenUsageRecorder = tokenUsageRecorder;
+        this.sseSanitizer = sseSanitizer;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -179,7 +182,8 @@ public class AguiRunController {
 
     private void send(SseEmitter emitter, AguiEvent event) {
         try {
-            emitter.send(SseEmitter.event().data(eventEncoder.encodeToJson(event)));
+            // 去掉 null 字段：官方客户端 Zod 校验不接受 null（见 AguiSseSanitizer 注释）
+            emitter.send(SseEmitter.event().data(sseSanitizer.stripNulls(eventEncoder.encodeToJson(event))));
         } catch (Exception ex) {
             // 客户端断开是正常情况：不向上抛，避免影响其他请求。
             log.debug("SSE 发送失败（客户端可能已断开）: {}", ex.getMessage());
@@ -189,8 +193,8 @@ public class AguiRunController {
     private void sendRunError(SseEmitter emitter, String threadId, String runId, Throwable error) {
         try {
             emitter.send(SseEmitter.event()
-                    .data(eventEncoder.encodeToJson(new AguiEvent.RunError(
-                            threadId, runId, String.valueOf(error.getMessage()), "RUN_FAILED"))));
+                    .data(sseSanitizer.stripNulls(eventEncoder.encodeToJson(new AguiEvent.RunError(
+                            threadId, runId, String.valueOf(error.getMessage()), "RUN_FAILED")))));
         } catch (Exception ex) {
             log.debug("SSE 错误事件发送失败: {}", ex.getMessage());
         }
