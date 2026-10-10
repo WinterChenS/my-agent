@@ -2,6 +2,7 @@ package com.myagent.agentconfig.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.myagent.agentconfig.cache.AgentCacheInvalidator;
 import com.myagent.agentconfig.dto.AgentRequest;
 import com.myagent.agentconfig.dto.AgentResponse;
 import com.myagent.agentconfig.entity.Agent;
@@ -31,16 +32,19 @@ public class AgentConfigService {
     private final AgentSkillMapper agentSkillMapper;
     private final AgentMcpServerMapper agentMcpServerMapper;
     private final LlmModelMapper llmModelMapper;
+    private final AgentCacheInvalidator cacheInvalidator;
 
     public AgentConfigService(
             AgentMapper agentMapper,
             AgentSkillMapper agentSkillMapper,
             AgentMcpServerMapper agentMcpServerMapper,
-            LlmModelMapper llmModelMapper) {
+            LlmModelMapper llmModelMapper,
+            AgentCacheInvalidator cacheInvalidator) {
         this.agentMapper = agentMapper;
         this.agentSkillMapper = agentSkillMapper;
         this.agentMcpServerMapper = agentMcpServerMapper;
         this.llmModelMapper = llmModelMapper;
+        this.cacheInvalidator = cacheInvalidator;
     }
 
     public PageResult<AgentResponse> list(long current, long size) {
@@ -82,6 +86,8 @@ public class AgentConfigService {
         agentMapper.updateById(agent);
 
         replaceBindings(id, request.skillIds(), request.mcpServerIds());
+        // 配置变更后让运行中的 Agent 实例失效，新会话即生效。
+        cacheInvalidator.invalidate(id);
         return toResponse(agent);
     }
 
@@ -92,6 +98,7 @@ public class AgentConfigService {
         agentSkillMapper.deleteByAgentId(id);
         agentMcpServerMapper.deleteByAgentId(id);
         agentMapper.deleteById(id);
+        cacheInvalidator.invalidate(id);
     }
 
     /** 整体替换绑定：先校验全部 id 存在，再写入，保证不产生半更新。 */

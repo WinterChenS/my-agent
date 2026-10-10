@@ -2,6 +2,7 @@ package com.myagent.modelconfig.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.myagent.agentconfig.cache.AgentCacheInvalidator;
 import com.myagent.common.BizException;
 import com.myagent.common.CryptoService;
 import com.myagent.common.PageResult;
@@ -34,16 +35,19 @@ public class ModelConfigService {
     private final LlmModelMapper modelMapper;
     private final CryptoService cryptoService;
     private final ModelConnectivityProbe connectivityProbe;
+    private final AgentCacheInvalidator cacheInvalidator;
 
     public ModelConfigService(
             LlmProviderMapper providerMapper,
             LlmModelMapper modelMapper,
             CryptoService cryptoService,
-            ModelConnectivityProbe connectivityProbe) {
+            ModelConnectivityProbe connectivityProbe,
+            AgentCacheInvalidator cacheInvalidator) {
         this.providerMapper = providerMapper;
         this.modelMapper = modelMapper;
         this.cryptoService = cryptoService;
         this.connectivityProbe = connectivityProbe;
+        this.cacheInvalidator = cacheInvalidator;
     }
 
     // ===================== provider =====================
@@ -73,6 +77,7 @@ public class ModelConfigService {
         provider.setApiKeyCipher(cryptoService.encrypt(request.apiKey()));
         provider.setStatus(normalizeStatus(request.status()));
         providerMapper.insert(provider);
+        cacheInvalidator.invalidateAll();
         return toProviderResponse(provider);
     }
 
@@ -90,6 +95,7 @@ public class ModelConfigService {
             provider.setApiKeyCipher(cryptoService.encrypt(request.apiKey()));
         }
         providerMapper.updateById(provider);
+        cacheInvalidator.invalidateAll();
         return toProviderResponse(provider);
     }
 
@@ -102,6 +108,7 @@ public class ModelConfigService {
             throw BizException.conflict("该供应商下仍有 " + modelCount + " 个模型，无法删除");
         }
         providerMapper.deleteById(id);
+        cacheInvalidator.invalidateAll();
     }
 
     /** 连通性测试：对该供应商下第一个模型发一次最小补全。 */
@@ -157,6 +164,7 @@ public class ModelConfigService {
         model.setParams(request.params() == null ? Map.of() : request.params());
         model.setStatus(normalizeStatus(request.status()));
         modelMapper.insert(model);
+        cacheInvalidator.invalidateAll();
         return toModelResponse(model);
     }
 
@@ -171,6 +179,7 @@ public class ModelConfigService {
         model.setParams(request.params() == null ? Map.of() : request.params());
         model.setStatus(normalizeStatus(request.status()));
         modelMapper.updateById(model);
+        cacheInvalidator.invalidateAll();
         return toModelResponse(model);
     }
 
@@ -182,6 +191,7 @@ public class ModelConfigService {
             throw BizException.conflict("该模型被 " + referencing + " 个 Agent 引用，无法删除");
         }
         modelMapper.deleteById(id);
+        cacheInvalidator.invalidateAll();
     }
 
     // ===================== helpers =====================
