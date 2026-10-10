@@ -127,10 +127,10 @@ test("模型页：自建供应商 + 连通测试 + 模型列表 + api_key 掩码
   await page.getByRole("tab", { name: /供应商/ }).click();
   await expect(page.getByRole("cell", { name: "****" }).first()).toBeVisible({ timeout: 15_000 });
 
-  // 对自己建的供应商点连通测试（会自动用其第一个模型）
+  // 对自己建的供应商点「测试全部」（逐个模型测）
   const row = page.getByRole("row", { name: new RegExp(providerName) });
-  await row.getByRole("button", { name: /连通测试/ }).click();
-  await expect(page.getByText(/连通成功/)).toBeVisible({ timeout: 40_000 });
+  await row.getByRole("button", { name: /测试全部/ }).click();
+  await expect(page.getByText(/全部通过/)).toBeVisible({ timeout: 60_000 });
 
   // 模型 tab 能看到自己建的模型（displayName 与 modelId 同名，会命中 2 个单元格，取 first）
   await page.getByRole("tab", { name: /模型/ }).click();
@@ -171,6 +171,36 @@ test("模型页：模型 ID 填错时给出可操作的提示，改对后测通"
   const fixedRow = page.getByRole("row", { name: new RegExp(goodId) });
   await fixedRow.getByRole("button", { name: "测试", exact: true }).click();
   await expect(page.getByText(/连通成功/)).toBeVisible({ timeout: 40_000 });
+});
+
+test("模型页：模型 ID 含斜杠（如 deepseek/xxx）能正确保存与测试", async ({ page }) => {
+  await login(page);
+  await page.goto("/admin/models");
+  await expect(page.getByRole("heading", { name: "模型配置" })).toBeVisible({ timeout: 15_000 });
+
+  const stamp = Date.now();
+  const slashId = `deepseek/deepseek-flash-${stamp}`;
+  await createProviderAndModel(page, stamp, `e2e-base-${stamp}`);
+
+  // 点模型 ID 单元格 -> 改成带斜杠的 ID -> 保存 -> 能测通
+  await page
+    .getByRole("row", { name: new RegExp(`e2e-base-${stamp}`) })
+    .getByRole("cell", { name: `e2e-base-${stamp}` })
+    .first()
+    .click();
+  await page.getByLabel("模型 ID").fill(slashId);
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已保存")).toBeVisible({ timeout: 20_000 });
+
+  const row = page.getByRole("row", { name: new RegExp(slashId.replace("/", "\\/")) });
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.getByRole("button", { name: "测试", exact: true }).click();
+  await expect(page.getByText(/连通成功/)).toBeVisible({ timeout: 40_000 });
+
+  await page.screenshot({
+    path: "../docs/acceptance/task-repair-models-tab.png",
+    fullPage: true,
+  });
 });
 
 test("Skill 页：新建 / 版本显示 / 删除", async ({ page }) => {

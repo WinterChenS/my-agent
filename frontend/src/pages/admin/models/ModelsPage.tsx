@@ -190,6 +190,40 @@ export default function ModelsPage() {
     }
   }
 
+  /** 依次测试该供应商下所有模型，逐个报结果（避免“静默只用第一个模型”的歧义）。 */
+  async function testAll(provider: Provider) {
+    const list = models.filter((m) => m.providerId === provider.id);
+    if (list.length === 0) {
+      toast.error("该供应商下还没有模型，先在「模型」页建一个");
+      return;
+    }
+    setTestingId(-provider.id);
+    const failures: string[] = [];
+    let passed = 0;
+    for (const m of list) {
+      try {
+        const result = await testProvider(provider.id, m.id);
+        if (result.ok) {
+          passed += 1;
+        } else {
+          const { raw, hint } = describeFailure(result, m.modelId);
+          failures.push(`${m.modelId}：${hint ? `${raw} 💡 ${hint}` : raw}`);
+        }
+      } catch (err) {
+        failures.push(`${m.modelId}：${err instanceof Error ? err.message : "测试失败"}`);
+      }
+    }
+    setTestingId(null);
+    if (failures.length === 0) {
+      toast.success("全部通过", { description: `${passed}/${list.length} 个模型连通正常` });
+    } else {
+      toast.error(`${passed}/${list.length} 个模型通过`, {
+        description: failures.join("\n\n"),
+        duration: 40000,
+      });
+    }
+  }
+
   async function runTest(provider: Provider, model?: ModelInfo) {
     const fallback = models.find((m) => m.providerId === provider.id);
     const target = model ?? fallback;
@@ -278,16 +312,21 @@ export default function ModelsPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={testingId != null}
+                            disabled={
+                              testingId != null ||
+                              models.filter((m) => m.providerId === p.id).length === 0
+                            }
                             title={
-                              models.find((m) => m.providerId === p.id)
-                                ? `测试该供应商下第一个模型：${models.find((m) => m.providerId === p.id)?.modelId}`
+                              models.filter((m) => m.providerId === p.id).length > 0
+                                ? "依次测试该供应商下所有模型（单模型测试在「模型」页每行）"
                                 : "该供应商下还没有模型"
                             }
-                            onClick={() => void runTest(p)}
+                            onClick={() => void testAll(p)}
                           >
                             <PlugZap className="size-3.5" />
-                            {testingId != null && testingId === -p.id ? "测试中…" : "连通测试"}
+                            {testingId === -p.id
+                              ? "测试中…"
+                              : `测试全部（${models.filter((m) => m.providerId === p.id).length}）`}
                           </Button>
                           <Button
                             size="icon"
@@ -368,7 +407,26 @@ export default function ModelsPage() {
                 <TableBody>
                   {models.map((m) => (
                     <TableRow key={m.id}>
-                      <TableCell className="font-mono text-xs">{m.modelId}</TableCell>
+                      <TableCell
+                        className="cursor-pointer font-mono text-xs underline decoration-dotted underline-offset-4"
+                        title="点击修改模型 ID"
+                        onClick={() => {
+                          const params = (m.params ?? {}) as Record<string, unknown>;
+                          setModelForm({
+                            id: m.id,
+                            providerId: m.providerId,
+                            modelId: m.modelId,
+                            displayName: m.displayName ?? "",
+                            temperature:
+                              params.temperature != null ? String(params.temperature) : "",
+                            maxTokens: params.maxTokens != null ? String(params.maxTokens) : "",
+                            status: m.status,
+                          });
+                          setModelDialog(true);
+                        }}
+                      >
+                        {m.modelId}
+                      </TableCell>
                       <TableCell>{m.displayName ?? "-"}</TableCell>
                       <TableCell className="text-xs">
                         {providers.find((p) => p.id === m.providerId)?.name ?? m.providerId}
