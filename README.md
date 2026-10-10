@@ -64,6 +64,50 @@ cd backend/agent-server && mvn verify
 cd frontend && npm run lint && npm run build && npx vitest run
 ```
 
+## 验收脚本（可一键复跑）
+
+所有脚本都在 `scripts/`，每份都自带断言与证据输出：
+
+| 脚本 | 覆盖 | 关键断言 |
+|---|---|---|
+| `verify-p5-skills.sh` | Skill 同步与绑定生效 | 绑定 Agent 的提示词含 Skill 名称/描述、回复带桩标记；未绑定对照组无标记；官方仓库存有完整内容 |
+| `verify-p6-mcp.sh` | MCP 注册与真实调用 | sync-tools 得工具清单；`TOOL_CALL_START/RESULT`；结果来自 MCP server 真实回显 |
+| `verify-p7-hitl.sh` | HITL 审批链路 | 拦截无 TOOL_CALL_RESULT；`approval_record` PENDING；批准后 resume 且工具真执行；拒绝不执行；越权 403；重复 409 |
+| `verify-p72-cards.sh` | 确认卡 / 映射卡 | CUSTOM 事件 data 逐字段符合冻结契约 |
+| `verify-p8-audit.sh` | Token 审计 | summary/byModel/byDay；records 分页；ADMIN 看全员；USER 查他人 403 |
+| `verify-p9-acceptance.sh` | **全链路剧本 + 浏览器截图** | Playwright：工具卡 / 审批卡批准 / 拒绝 / 审计看板 |
+| `e2e-chat.sh` | 聊天主链路浏览器验收 | 流式气泡逐字出现、刷新后历史仍在、断连错误态 |
+
+## 验收证据
+
+截图归档在 `docs/acceptance/`：
+
+| 文件 | 对应门禁 |
+|---|---|
+| `task-4.3-chat-streaming.png` | 流式气泡逐字出现 |
+| `task-4.3-chat-history.png` | 刷新后历史回放 |
+| `task-4.3-chat-error-state.png` | 后端不可用：错误态 + 重试 + 输入不丢 |
+| `task-8.2-audit-dashboard.png` | 审计看板展示真实数据 |
+| `task-8.2-audit-filtered.png` | 日期筛选生效（筛选后为空） |
+| `task-9.1-tool-call-card.png` | 工具调用卡（参数 + 结果） |
+| `task-9.1-approval-card.png` | **审批卡**（工具名 + 参数 + 批准/拒绝） |
+| `task-9.1-approval-approved.png` | 批准后卡片置灰、执行继续 |
+| `task-9.1-approval-denied.png` | 拒绝后卡片置灰、不执行 |
+
+## 已知环境偏离（相对《技术方案》）
+
+| 项 | 方案 | 实际 | 原因 |
+|---|---|---|---|
+| Flyway | 10.x | **11.7.2** | PG 18 需 ≥11；Flyway 12 移除了 Boot 3.3.5 依赖的 `cleanOnValidationError` |
+| Redis db | db0/db1 | **db10/db11** | db0/db1 已被同实例其他应用占用 |
+| 集成测试 | Testcontainers | 连内网**专用测试库** | 机器未安装 Docker |
+| 前端 Markdown | 未指定库 | 新增 `react-markdown` | 方案要求 Markdown 渲染气泡但未指定实现 |
+
+## 未完成 / 超出当前范围
+
+- 管理台前端页面（模型/Agent/Skill/MCP）目前是占位页，**后端接口均已就绪可用 curl 调用**
+- 见 `docs/backlog.md`
+
 ## 数据库
 
 - 应用库：`agent_platform`（Flyway 管理，DDL 只允许出现在 `src/main/resources/db/migration/`）
