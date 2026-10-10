@@ -1,6 +1,7 @@
 package com.myagent.agui;
 
 import com.myagent.approval.service.ApprovalService;
+import com.myagent.audit.service.TokenUsageRecorder;
 import com.myagent.auth.JwtPrincipal;
 import com.myagent.chat.entity.ChatSession;
 import com.myagent.chat.service.ChatSessionService;
@@ -51,6 +52,7 @@ public class AguiRunController {
     private final AgentFactory agentFactory;
     private final ChatSessionService chatSessionService;
     private final ApprovalService approvalService;
+    private final TokenUsageRecorder tokenUsageRecorder;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -58,13 +60,15 @@ public class AguiRunController {
             AguiRequestProcessor requestProcessor,
             AgentFactory agentFactory,
             ChatSessionService chatSessionService,
-            ApprovalService approvalService) {
+            ApprovalService approvalService,
+            TokenUsageRecorder tokenUsageRecorder) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
         this.agentFactory = agentFactory;
         this.chatSessionService = chatSessionService;
         this.approvalService = approvalService;
+        this.tokenUsageRecorder = tokenUsageRecorder;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -118,6 +122,9 @@ public class AguiRunController {
         StringBuilder assistantText = new StringBuilder();
         List<String> customEventNames = new ArrayList<>();
         List<AguiEvent.Interrupt> interrupts = new ArrayList<>();
+        // 该 run 的 token 归属信息（模型/供应商）只需解析一次
+        TokenUsageRecorder.TokenContext tokenContext = tokenUsageRecorder.resolveContext(agentDbId);
+        String runId = input.getRunId();
 
         Disposable subscription = requestProcessor
                 .process(contextRequest)
@@ -126,6 +133,7 @@ public class AguiRunController {
                         event -> {
                             send(emitter, event);
                             collect(event, assistantText, customEventNames, interrupts);
+                            recordTokenUsage(event, userId, session.getId(), agentDbId, tokenContext, runId);
                         },
                         error -> {
                             log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
@@ -140,6 +148,33 @@ public class AguiRunController {
             emitter.complete();
         });
         return emitter;
+    }
+
+    /**
+     * 采集 token 用量：AG-UI 的 CUSTOM / token_usage 事件（每位模型调用一次）。
+     *
+     * <p>payload 形如 {@code {"delta":{"inputTokens":..,"outputTokens":..,"totalTokens":..},
+     * "cumulative":{...},"modelCall":{"replyId":..}}}；取 {@code delta} 落库。
+     */
+    private void recordTokenUsage(
+            AguiEvent event,
+            Long userId,
+            Long sessionId,
+            Long agentDbId,
+            TokenUsageRecorder.TokenContext context,
+            String runId) {
+        if (!(event instanceof AguiEvent.Custom custom)
+                || !"token_usage".equals(custom.name())
+                || !(custom.value() instanceof Map<?, ?> rawValue)) {
+            return;
+        }
+        Object delta = rawValue.get("delta");
+        if (!(delta instanceof Map<?, ?> rawDelta)) {
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> deltaMap = (Map<String, Object>) rawDelta;
+        tokenUsageRecorder.record(userId, sessionId, agentDbId, context, runId, deltaMap);
     }
 
     private void send(SseEmitter emitter, AguiEvent event) {
