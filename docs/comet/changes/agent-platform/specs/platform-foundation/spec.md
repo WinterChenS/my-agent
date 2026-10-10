@@ -24,7 +24,7 @@ docs/                     # 技术方案、任务列表、Comet 产物
 ## 持久化基线
 
 - 迁移脚本仅允许位于 `backend/agent-server/src/main/resources/db/migration/`，使用 Flyway。
-- Flyway 版本需支持 PostgreSQL 18（实际服务端版本），采用 12.x 覆盖 Spring Boot 3.3.5 的版本管理。
+- Flyway 采用 11.7.2：需同时满足两点——能对 PostgreSQL 18（实测服务端 18.3）执行迁移，且保留 Spring Boot 3.3.5 `FlywayAutoConfiguration` 依赖的 API（Flyway 12 已移除该方法，会导致启动失败）。
 - `V1__init.sql` 建立表：`sys_user`、`llm_provider`、`llm_model`、`skill`、`mcp_server`、`agent`、`agent_skill`、`agent_mcp_server`、`chat_session`、`chat_message`、`token_usage`、`approval_record`。
 - 除关联表外每表含 `id BIGSERIAL PRIMARY KEY`、`created_at TIMESTAMPTZ`、`updated_at TIMESTAMPTZ`。
 - `V2__seed.sql` 插入管理员 `admin`（BCrypt 哈希）与一条 `DISABLED` 状态的示例 provider/model。

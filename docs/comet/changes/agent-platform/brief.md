@@ -99,7 +99,7 @@
 
 - D1 工具链（实测）：使用机器上已存在且符合方案的版本，不新装工具。JDK 21 = `C:\Program Files\Java\jdk-21.0.3+9`；Maven = `C:\tools\apache-maven-3.9.16`；Node = `D:\Program Files\nodejs`（v24 + npm 11，方案要求 Node 20 LTS，用更新的可用版本）；PATH 默认的 Java 8 / Node 16 不使用。
 - D2 无 Docker（实测：未安装 docker，亦无可用 WSL 发行版）→ Testcontainers 不可用。集成测试改为连接内网真实 PostgreSQL 与 Redis，使用**专用测试库/空 db**，测试数据用完清理；G5 的 `mvn verify` 仍作为门禁执行。偏离理由：机器无容器运行时，而方案要求真实集成验证。
-- D3 数据库版本（实测）：内网 PostgreSQL 为 **18.3**，方案假设 16；Flyway 10.x（Boot 3.3.5 管理版本）不支持 PG 18，改用 **Flyway 12.x**（本地已缓存 12.4.0）覆盖 Boot 版本管理。偏离理由：版本不支持会导致迁移直接失败。
+- D3 数据库版本（实测）：内网 PostgreSQL 为 **18.3**，方案假设 16；Flyway 10.x（Boot 3.3.5 管理版本）不支持 PG 18，需 >= 11。构建期实测发现 **Flyway 12.x 已移除 `cleanOnValidationError(boolean)`**，而 Boot 3.3.5 的 `FlywayAutoConfiguration` 会调用它，启动直接失败（BeanCreationException）。因此最终采用 **Flyway 11.7.2**：既保留该 API，又能连 PG 18，应用启动与 v1–v3 迁移均已实测成功。Flyway 对 PG 18 仍输出“未测试”警告（其官方支持上限声明为 17），已记为已知风险。
 - D4 Redis db 冲突（实测）：`db0`（569 keys）与 `db1`（1833 keys）已被其他应用占用，方案指定的 `db0/db1` 会与既有数据冲突。改用 **db10（会话）/ db11（缓存）**（实测为空），并统一 key 前缀 `myagent:`。偏离理由：避免污染共享实例中其他应用的数据。
 - D5 目标库不存在（实测）：`agent_platform` 库尚未创建；`app_user` 具备 CREATEDB/SUPERUSER 权限。实现阶段创建 `agent_platform`（应用）与 `agent_platform_test`（集成测试）。Redis 与 PostgreSQL 均监听于 localhost 且可达。
 - D6 工件可达性（实测）：Maven Central 与 npm registry 均可访问；方案 2.1 中全部 `io.agentscope:*:2.0.3` 坐标在 Central 存在（`agentscope-harness`、`extensions-agui`、`extensions-model-openai`、`extensions-model-dashscope`、`extensions-redis`、`extensions-postgresql`、`extensions-skills`）。因此 G1 的坐标可用，无需换版本。
