@@ -19,14 +19,19 @@ PORT = int(os.environ.get("PORT", "8099"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 REPLY = os.environ.get("STUB_REPLY", "stub-ok")
 # 每个流式分片之间的延迟（毫秒）。默认 0；浏览器验收时调大以便观察到“逐字出现”。
-CHUNK_DELAY_MS = int(os.environ.get("STUB_CHUNK_DELAY_MS", "0"))
+# 默认给每片之间一点延迟（毫秒）：否则所有分片会在 1ms 内到达，客户端会合并成一次渲染，
+# 导致「逐字流式」在浏览器里不可观测（测试与体验都受影响）。
+CHUNK_DELAY_MS = int(os.environ.get("STUB_CHUNK_DELAY_MS", "250"))
 # 可选标记：若收到的请求体里出现 STUB_MARKER，则回复 STUB_MARKER_REPLY。
 # 用于验证“模型真的收到了某段内容”（例如 Skill 注入）。
 STUB_MARKER = os.environ.get("STUB_MARKER", "")
 STUB_MARKER_REPLY = os.environ.get("STUB_MARKER_REPLY", "MARKER-SEEN")
 # 可选：模拟厂商对 max_tokens 的范围限制（如 DeepSeek 的 [1, 393216]）。
 # 设为整数上限；超过则返回 400 + 类似厂商的错误体（用于回归“非法配置要在测试阶段暴露”）。
-STUB_MAX_TOKENS_LIMIT = os.environ.get("STUB_MAX_TOKENS_LIMIT", "")
+STUB_MAX_TOKENS_LIMIT = os.environ.get("STUB_MAX_TOKENS_LIMIT", "393216")  # 默认模拟厂商上限
+# 可选：用「模型名」当回复内容（前缀 stub-ok）。用于需要“较长回复”来稳定观测流式的测试，
+# 这样测试可以按模型名精确知道期望文本，且长度可控（模型名取长一点即可）。
+STUB_REPLY_FROM_MODEL = os.environ.get("STUB_REPLY_FROM_MODEL", "1")
 # 可选：把最近一次收到的请求体写到该文件，便于对照“模型实际收到了什么”。
 STUB_DUMP = os.environ.get("STUB_DUMP", "")
 # 可选：让桩模拟“模型要调用工具”（用于验证 MCP 工具与 HITL 审批链路）。
@@ -34,9 +39,12 @@ STUB_DUMP = os.environ.get("STUB_DUMP", "")
 # 触发时会在 stdout 打印命中的完整工具名（含命名空间），便于验收取证。
 STUB_TOOL_NAME = os.environ.get("STUB_TOOL_NAME", "")
 STUB_TOOL_ARGS = os.environ.get("STUB_TOOL_ARGS", "{}")
+# 可选：一次 run 里连续发起几轮工具调用（用于验证“连续工具调用折叠成组”）。
+# 默认 1；桩会数请求里已有的 tool 结果条数，未达上限就再发一次工具调用。
+STUB_TOOL_ROUNDS = int(os.environ.get("STUB_TOOL_ROUNDS", "1"))
 # 可选：模拟网关“没有这个模型”的 404（用于验证前端错误提示）。
 # 当请求的 model **包含** STUB_MODEL_404 子串时，返回 404 + 类似网关的错误体（便于用唯一名字测试）。
-STUB_MODEL_404 = os.environ.get("STUB_MODEL_404", "")
+STUB_MODEL_404 = os.environ.get("STUB_MODEL_404", "wrong-model")  # 默认开启：名字含它即回 404
 STUB_MODEL_404_HINT = os.environ.get("STUB_MODEL_404_HINT", "deepseek/deepseek-flash, tencent/GLM-5.2")
 
 
@@ -111,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
             if tool_call:
                 self._stream_tool_call(model, created, usage, tool_call)
             else:
-                self._stream(model, created, usage, self._reply_for(raw))
+                self._stream(model, created, usage, self._reply_text(body))
         else:
             message = {"role": "assistant", "content": self._reply_for(raw)}
             finish = "stop"
@@ -139,9 +147,9 @@ class Handler(BaseHTTPRequestHandler):
         tools = body.get("tools") or []
         if not tools:
             return None
-        for m in body.get("messages") or []:
-            if m.get("role") == "tool":
-                return None  # 已经执行过工具，该收尾了
+        tool_done = sum(1 for m in (body.get("messages") or []) if m.get("role") == "tool")
+        if tool_done >= STUB_TOOL_ROUNDS:
+            return None  # 已达到设定轮数，该收尾了
         wanted = STUB_TOOL_NAME.lower()
         for t in tools:
             fn = (t or {}).get("function") or {}
@@ -149,7 +157,7 @@ class Handler(BaseHTTPRequestHandler):
             if wanted in name.lower():
                 print(f"TOOL-CALL-HIT={name}", flush=True)
                 return {
-                    "id": "call_stub_1",
+                    "id": f"call_stub_{tool_done + 1}",
                     "type": "function",
                     "function": {"name": name, "arguments": STUB_TOOL_ARGS},
                 }
@@ -199,6 +207,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(f"data: {json.dumps(final, ensure_ascii=False)}\n\n".encode("utf-8"))
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
+
+    def _reply_text(self, body) -> str:
+        if STUB_REPLY_FROM_MODEL:
+            return f"stub-ok {body.get('model', '')}"
+        return self._reply_for(b"")
 
     @staticmethod
     def _reply_for(raw: bytes) -> str:

@@ -57,7 +57,8 @@ async function createStubAgent(request: APIRequestContext, stamp: number) {
       mcpServerIds: [],
     },
   });
-  return { agentId, providerId: provider.data.id };
+  // 桩的回复 = "stub-ok <modelId>"（便于测试精确知道期望文本）
+  return { agentId, providerId: provider.data.id, expectedReply: `stub-ok e2e-chat-model-${stamp}` };
 }
 
 /** 清理本次测试造的数据（含这些 Agent 产生的会话）。 */
@@ -119,27 +120,39 @@ async function loginAndSelectAgent(page: Page, agentName: string) {
 }
 
 test("登录 → 发消息 → 流式气泡 → 刷新回放", async ({ page, request }) => {
-  const { agentId } = await createStubAgent(request, Date.now());
+  const { agentId, expectedReply } = await createStubAgent(request, Date.now());
   const input = await loginAndSelectAgent(page, agentId);
 
   await input.fill("你好，请回复");
+
+  // 先开始采样再回车：流式窗口可能很短，等断言完再采样会漏掉中间态（曾经因此偶发失败）
+  // 采样必须用 evaluate 直接读 DOM：locator.innerText() 会“自动等待”，
+  // 在流式窗口很短时会把中间态一次性跳过（曾经因此偶发只采到 1 个状态）
+  const readAssistant = () =>
+    page.evaluate(() => {
+      const all = document.querySelectorAll('[data-testid="assistant-text"]');
+      const last = all[all.length - 1];
+      return last ? (last.textContent ?? "") : "";
+    });
+  const snapshots: string[] = [];
+  const sampling = (async () => {
+    const deadline = Date.now() + 40_000;
+    while (Date.now() < deadline) {
+      const text = (await readAssistant().catch(() => "")) ?? "";
+      if (text && text !== snapshots[snapshots.length - 1]) snapshots.push(text);
+      if (text.includes("stub-ok") && text === expectedReply) return;
+      await page.waitForTimeout(10);
+      void deadline;
+    }
+  })();
+
   await input.press("Enter");
 
   // 用户气泡立即出现（用 testid 断言，不依赖文本——模型回复里也可能出现同样内容）
   await expect(page.locator('[data-testid="user-text"]').last()).toHaveText("你好，请回复");
-
-  // 采样助手气泡：至少 2 个不同中间态 => 确实是逐字流式
-  const assistant = page.locator('[data-testid="assistant-text"]').last();
-  const snapshots: string[] = [];
-  const deadline = Date.now() + 40_000;
-  while (Date.now() < deadline) {
-    const text = (await assistant.innerText().catch(() => "")) ?? "";
-    if (text && text !== snapshots[snapshots.length - 1]) snapshots.push(text);
-    if (text.includes("stub-ok")) break;
-    await page.waitForTimeout(30);
-  }
+  await sampling;
   expect(snapshots.length, `采样到的流式中间态: ${JSON.stringify(snapshots)}`).toBeGreaterThanOrEqual(2);
-  expect(snapshots[snapshots.length - 1]).toContain("stub-ok");
+  expect(snapshots[snapshots.length - 1]).toBe(expectedReply);
 
   await page.screenshot({ path: "../docs/acceptance/task-4.3-chat-streaming.png", fullPage: true });
 
@@ -192,8 +205,8 @@ test("后端不可用时显示错误态且不白屏", async ({ page }) => {
   await input.fill("这条应该失败");
   await input.press("Enter");
 
-  // 页面不能白屏：侧边栏、输入框仍在，且有错误提示与重试入口
-  await expect(page.getByText("my-agent")).toBeVisible();
+  // 页面不能白屏：侧边栏仍在（用精确匹配，避免与模型回复里的项目路径 D:\project\my-agent 撞车）
+  await expect(page.getByText("my-agent", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "重试" })).toBeVisible({ timeout: 20_000 });
   // 失败时不能把用户输入弄丢
   await expect(input).toHaveValue("这条应该失败");

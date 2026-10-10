@@ -34,10 +34,21 @@ test("剧本 1：普通工具调用卡（ALWAYS_ALLOW + MCP）", async ({ page }
   await input.fill("请调用 echo 工具");
   await input.press("Enter");
 
-  // 工具调用卡：折叠标题里应出现工具名 echo
-  const toolCard = page.locator("button", { hasText: "echo" }).first();
-  await expect(toolCard).toBeVisible({ timeout: 40_000 });
-  await toolCard.click();
+  // 若多个工具调用被折叠成一组，先展开
+  const groupToggle = page.getByRole("button", { name: /执行了 \d+ 个工具/ });
+  if (await groupToggle.count()) {
+    await groupToggle.first().click();
+  }
+
+  // 工具调用行：应出现工具名 echo
+  const toolRow = page.locator("button", { hasText: "echo" }).first();
+  await expect(toolRow).toBeVisible({ timeout: 40_000 });
+
+  // 紧凑性断言：收起状态下的工具行不应再是一张大卡片（用户反馈“工具气泡太大”）
+  const box = await toolRow.boundingBox();
+  expect(box!.height, "工具行高度应保持紧凑（<40px）").toBeLessThan(40);
+
+  await toolRow.click();
   // 展开后可见参数与结果
   await expect(page.getByText("参数").first()).toBeVisible();
   await expect(page.getByText("结果").first()).toBeVisible({ timeout: 40_000 });

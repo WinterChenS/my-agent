@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MessageBubble } from "@/components/chat/MessageBubble";
-import { ToolCallCard } from "@/components/cards/ToolCallCard";
+import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
 import { JsonCard } from "@/components/cards/JsonCard";
 import { ApprovalCard } from "@/components/cards/ApprovalCard";
 import { ConfirmCard } from "@/components/cards/ConfirmCard";
@@ -15,7 +15,9 @@ import { createChatAgent } from "@/lib/agui/agent";
 import { initialChatState, markApproval, reduceEvent, replayMessages } from "@/lib/agui/reducer";
 import type { ChatSession } from "@/api/types";
 import type { AgentSummary } from "@/api/types";
-import type { ChatState, ConfirmCardData, MappingCardData } from "@/lib/agui/types";
+import type { ChatItem, ChatState, ConfirmCardData, MappingCardData } from "@/lib/agui/types";
+
+type ToolItem = Extract<ChatItem, { kind: "tool" }>;
 import {
   createSession,
   deleteSession,
@@ -251,6 +253,86 @@ export default function ChatPage() {
     await runTurn(session, { text: value });
   }
 
+  /**
+   * 把消息树渲染成节点。
+   *
+   * <p>连续的「工具调用」会合成一组（默认折叠）——一次任务可能产生十几个工具调用，
+   * 逐个铺开会把聊天记录淹没，而且每个都单独成卡时又高又胖（用户反馈“太大”）。
+   */
+  function renderItemNodes() {
+    const nodes: React.ReactNode[] = [];
+    const items = chat.items;
+    let i = 0;
+    while (i < items.length) {
+      const item = items[i];
+
+      if (item.kind === "tool") {
+        const group: ToolItem[] = [];
+        while (i < items.length && items[i].kind === "tool") {
+          group.push(items[i] as ToolItem);
+          i += 1;
+        }
+        nodes.push(
+          group.length === 1 ? (
+            <ToolCallCard key={group[0].id} item={group[0]} />
+          ) : (
+            <ToolCallGroup key={group[0].id} items={group} />
+          ),
+        );
+        continue;
+      }
+
+      if (item.kind === "text") {
+        nodes.push(
+          <MessageBubble
+            key={item.id}
+            role={item.role}
+            content={item.content}
+            streaming={item.streaming}
+          />,
+        );
+      } else if (item.kind === "approval") {
+        nodes.push(
+          <ApprovalCard
+            key={item.id}
+            toolName={item.toolName}
+            args={item.args}
+            message={item.message}
+            status={item.status}
+            busy={busy}
+            onDecide={(decision) => void decide(item.interruptId, decision)}
+          />,
+        );
+      } else if (item.kind === "card") {
+        if (item.card === "confirm") {
+          nodes.push(
+            <ConfirmCard
+              key={item.id}
+              data={item.data as ConfirmCardData}
+              busy={busy}
+              onChoose={(value) => void chooseOption(value)}
+            />,
+          );
+        } else if (item.card === "mapping") {
+          nodes.push(<MappingCard key={item.id} data={item.data as MappingCardData} />);
+        } else {
+          nodes.push(
+            <JsonCard key={item.id} name={`${item.name}（${item.card}）`} data={item.data} />,
+          );
+        }
+      } else {
+        nodes.push(
+          <Card key={item.id} className="border-destructive/50 p-3 text-sm">
+            <span className="text-destructive">运行出错：</span> {item.message}
+            {item.code && <span className="text-muted-foreground"> ({item.code})</span>}
+          </Card>,
+        );
+      }
+      i += 1;
+    }
+    return nodes;
+  }
+
   return (
     <div className="flex h-screen">
       <aside className="flex w-64 shrink-0 flex-col border-r">
@@ -319,56 +401,7 @@ export default function ChatPage() {
               输入一句话开始对话。回复会以流式气泡出现。
             </Card>
           )}
-          {chat.items.map((item) => {
-            if (item.kind === "text") {
-              return (
-                <MessageBubble
-                  key={item.id}
-                  role={item.role}
-                  content={item.content}
-                  streaming={item.streaming}
-                />
-              );
-            }
-            if (item.kind === "tool") {
-              return <ToolCallCard key={item.id} item={item} />;
-            }
-            if (item.kind === "approval") {
-              return (
-                <ApprovalCard
-                  key={item.id}
-                  toolName={item.toolName}
-                  args={item.args}
-                  message={item.message}
-                  status={item.status}
-                  busy={busy}
-                  onDecide={(decision) => void decide(item.interruptId, decision)}
-                />
-              );
-            }
-            if (item.kind === "card") {
-              if (item.card === "confirm") {
-                return (
-                  <ConfirmCard
-                    key={item.id}
-                    data={item.data as ConfirmCardData}
-                    busy={busy}
-                    onChoose={(value) => void chooseOption(value)}
-                  />
-                );
-              }
-              if (item.card === "mapping") {
-                return <MappingCard key={item.id} data={item.data as MappingCardData} />;
-              }
-              return <JsonCard key={item.id} name={`${item.name}（${item.card}）`} data={item.data} />;
-            }
-            return (
-              <Card key={item.id} className="border-destructive/50 p-3 text-sm">
-                <span className="text-destructive">运行出错：</span> {item.message}
-                {item.code && <span className="text-muted-foreground"> ({item.code})</span>}
-              </Card>
-            );
-          })}
+          {renderItemNodes()}
           <div ref={bottomRef} />
         </div>
 
