@@ -25,6 +25,14 @@ async function apiCleanup(request: APIRequestContext, prefix: string) {
     await request.delete(`${API}${path}/${id}`, { headers, failOnStatusCode: false });
   };
 
+  // 先算出“属于本次测试”的供应商 id（必须在删模型之前算）
+  const providers = await (await request.get(`${API}/api/model-providers?current=1&size=500`, { headers })).json();
+  const e2eProviderIds = new Set<number>(
+    (providers.data?.records ?? [])
+      .filter((p: { name: string }) => String(p.name).startsWith(prefix))
+      .map((p: { id: number }) => p.id),
+  );
+
   // 顺序：agent -> session -> mcp/skill -> model -> provider（先解绑定）
   const agents = await (await request.get(`${API}/api/agents?current=1&size=500`, { headers })).json();
   for (const a of agents.data?.records ?? []) {
@@ -40,12 +48,11 @@ async function apiCleanup(request: APIRequestContext, prefix: string) {
   }
   const models = await (await request.get(`${API}/api/models?current=1&size=500`, { headers })).json();
   for (const m of models.data?.records ?? []) {
-    if (String(m.modelId).startsWith(prefix)) await del("/api/models", m.id);
+    // 也删掉“属于 e2e 供应商”的模型：用例可能把模型改名成不含 e2e- 的值
+    const ownedByE2eProvider = e2eProviderIds.has(Number(m.providerId));
+    if (String(m.modelId).startsWith(prefix) || ownedByE2eProvider) await del("/api/models", m.id);
   }
-  const providers = await (await request.get(`${API}/api/model-providers?current=1&size=500`, { headers })).json();
-  for (const p of providers.data?.records ?? []) {
-    if (String(p.name).startsWith(prefix)) await del("/api/model-providers", p.id);
-  }
+  for (const id of e2eProviderIds) await del("/api/model-providers", id);
 }
 
 /** 每个用例结束都清理自己造的数据。 */
