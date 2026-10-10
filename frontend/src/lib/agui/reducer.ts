@@ -27,14 +27,13 @@ const CARD_BY_NAME: Record<string, CardKind> = {
 export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
   switch (event.type) {
     case "RUN_STARTED":
-      // 新一轮：清空上一轮的展示项，但**保留已决定的审批卡**——
-      // 用户刚批准/拒绝的记录不应因为 resume 把树重置而消失。
+      // 新的一轮：**只改运行状态，不清空消息树**。
+      // 一次会话的 items 是“跨轮累积”的；之前这里 filter 掉非审批卡项，
+      // 导致用户一发消息就把历史对话和自己刚发的气泡全抹掉（用户实测回归）。
       return {
-        items: state.items.filter(
-          (item) => item.kind === "approval" && item.status !== "pending",
-        ),
+        ...state,
         status: "running",
-        runId: event.runId ?? null,
+        runId: event.runId ?? state.runId,
       };
 
     case "TEXT_MESSAGE_START":

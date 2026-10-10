@@ -313,7 +313,7 @@ export default function ChatPage() {
           </select>
         </header>
 
-        <div className="flex-1 space-y-3 overflow-auto p-4">
+        <div className="flex-1 space-y-4 overflow-auto p-4">
           {chat.items.length === 0 && (
             <Card className="text-muted-foreground p-6 text-center text-sm">
               输入一句话开始对话。回复会以流式气泡出现。
@@ -321,7 +321,14 @@ export default function ChatPage() {
           )}
           {chat.items.map((item) => {
             if (item.kind === "text") {
-              return <MessageBubble key={item.id} role={item.role} content={item.content} />;
+              return (
+                <MessageBubble
+                  key={item.id}
+                  role={item.role}
+                  content={item.content}
+                  streaming={item.streaming}
+                />
+              );
             }
             if (item.kind === "tool") {
               return <ToolCallCard key={item.id} item={item} />;

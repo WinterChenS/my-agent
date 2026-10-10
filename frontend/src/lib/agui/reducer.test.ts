@@ -122,15 +122,18 @@ describe("reduceEvent：错误与状态", () => {
     expect(after).toBe(before);
   });
 
-  it("新一轮 RUN_STARTED 重置消息树", () => {
+  it("新一轮 RUN_STARTED 不清空历史（跨轮累积）", () => {
     const first = applyAll([
       { type: "RUN_STARTED" },
       { type: "TEXT_MESSAGE_START", messageId: "m1" },
-      { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "旧内容" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "第一轮回复" },
+      { type: "RUN_FINISHED" },
     ]);
     const second = reduceEvent(first, { type: "RUN_STARTED", runId: "r2" });
-    expect(second.items).toHaveLength(0);
+    // 回归：曾因 RUN_STARTED 重置，导致“回复后会话被清空”
+    expect(second.items).toHaveLength(1);
     expect(second.status).toBe("running");
+    expect(second.runId).toBe("r2");
   });
 
   it("新一轮 RUN_STARTED 保留已决定的审批卡（resume 后审批记录不丢）", () => {
@@ -150,10 +153,11 @@ describe("reduceEvent：错误与状态", () => {
     const approved = markApproval(decided, "i1", "approved");
 
     const next = reduceEvent(approved, { type: "RUN_STARTED", runId: "r2" });
-    expect(next.items).toHaveLength(1);
-    const kept = next.items[0];
-    expect(kept.kind).toBe("approval");
-    if (kept.kind === "approval") {
+    // 审批卡与历史文本都保留
+    expect(next.items).toHaveLength(2);
+    const kept = next.items.find((i) => i.kind === "approval");
+    expect(kept?.kind).toBe("approval");
+    if (kept?.kind === "approval") {
       expect(kept.status).toBe("approved");
     }
   });
