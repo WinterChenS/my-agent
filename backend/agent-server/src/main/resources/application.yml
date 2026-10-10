@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: agent-server
+  profiles:
+    active: dev
+  jackson:
+    default-property-inclusion: non_null
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 8080
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+
+myagent:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-jwt-secret-change-me-0123456789abcdef}
+    expire-minutes: 720
+  crypto:
+    key: ${AGENT_CRYPTO_KEY:dev-only-crypto-key-change-me-0123456789}

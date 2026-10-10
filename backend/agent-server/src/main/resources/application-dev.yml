@@ -1,0 +1,19 @@
+# 仅 dev profile。内网环境，按《技术方案.md》第 10 节允许明文。
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/agent_platform
+    username: app_user
+    password: CHANGE_ME
+    driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: CHANGE_ME
+      # 偏离方案：db0/db1 已被同实例其他应用占用，改用空闲的 db10（会话）/ db11（缓存）
+      database: 10
+      timeout: 5s
+
+logging:
+  level:
+    com.myagent: debug
