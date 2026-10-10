@@ -191,6 +191,35 @@ test("多轮对话：发第二条不会清空之前的对话（回归）", async
   await page.screenshot({ path: "../docs/acceptance/chat-bubbles.png", fullPage: true });
 });
 
+test("布局：会话区收窄并居中，输入框与消息区同宽同位置", async ({ page, request }) => {
+  // 用一个宽窗口，否则看不出“太宽”的问题
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const { agentId } = await createStubAgent(request, Date.now());
+  await loginAndSelectAgent(page, agentId);
+
+  const section = page.locator("main > div > section");
+  const sBox = (await section.boundingBox())!;
+  const sCenter = sBox.x + sBox.width / 2;
+
+  const msgCol = page.locator('[data-testid="chat-column"]');
+  const msgBox = (await msgCol.boundingBox())!;
+  const inputCol = page.getByPlaceholder("输入消息，回车发送").locator("xpath=..");
+  const inBox = (await inputCol.boundingBox())!;
+
+  // 收窄：远小于可用宽度（max-w-3xl = 768）
+  expect(msgBox.width, "消息区应明显窄于可用宽度").toBeLessThan(sBox.width * 0.7);
+  expect(Math.round(msgBox.width)).toBe(768);
+
+  // 居中：两者中心与所在区域中心一致（容差 2px）
+  expect(Math.abs(sCenter - (msgBox.x + msgBox.width / 2))).toBeLessThanOrEqual(2);
+  expect(Math.abs(sCenter - (inBox.x + inBox.width / 2))).toBeLessThanOrEqual(2);
+
+  // 输入框与消息区同宽
+  expect(Math.round(inBox.width)).toBe(Math.round(msgBox.width));
+
+  await page.screenshot({ path: "../docs/acceptance/chat-layout-wide.png" });
+});
+
 test("后端不可用时显示错误态且不白屏", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("密码").fill("Admin@123");

@@ -375,46 +375,53 @@ export default function ChatPage() {
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 border-b p-3">
-          <span className="text-sm font-medium">聊天</span>
-          {chat.status === "running" && <Badge variant="secondary">生成中…</Badge>}
-          {chat.status === "error" && <Badge variant="destructive">出错</Badge>}
-          <select
-            className="border-input ml-auto h-8 rounded-md border bg-transparent px-2 text-sm"
-            value={agentId ?? ""}
-            onChange={(e) => setAgentId(e.target.value ? Number(e.target.value) : null)}
-            disabled={!!session}
-            title={session ? "已有会话时不可切换 Agent" : "选择 Agent"}
-          >
-            {agents.length === 0 && <option value="">（暂无 Agent）</option>}
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+        <header className="border-b p-3">
+          <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
+            <span className="text-sm font-medium">聊天</span>
+            {chat.status === "running" && <Badge variant="secondary">生成中…</Badge>}
+            {chat.status === "error" && <Badge variant="destructive">出错</Badge>}
+            <select
+              className="border-input ml-auto h-8 rounded-md border bg-transparent px-2 text-sm"
+              value={agentId ?? ""}
+              onChange={(e) => setAgentId(e.target.value ? Number(e.target.value) : null)}
+              disabled={!!session}
+              title={session ? "已有会话时不可切换 Agent" : "选择 Agent"}
+            >
+              {agents.length === 0 && <option value="">（暂无 Agent）</option>}
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </header>
 
-        <div className="flex-1 space-y-4 overflow-auto p-4">
-          {chat.items.length === 0 && (
-            <Card className="text-muted-foreground p-6 text-center text-sm">
-              输入一句话开始对话。回复会以流式气泡出现。
-            </Card>
-          )}
-          {renderItemNodes()}
-          <div ref={bottomRef} />
+        <div className="flex-1 overflow-auto">
+          <div data-testid="chat-column" className="mx-auto w-full max-w-3xl space-y-4 p-4">
+            {chat.items.length === 0 && (
+              <Card className="text-muted-foreground p-6 text-center text-sm">
+                输入一句话开始对话。回复会以流式气泡出现。
+              </Card>
+            )}
+            {renderItemNodes()}
+            <div ref={bottomRef} />
+          </div>
         </div>
 
         {error && (
-          <div className="border-destructive/40 bg-destructive/10 mx-4 mb-2 rounded-md border p-2 text-sm">
-            {error}
-            <Button variant="link" size="sm" onClick={() => void send()}>
-              重试
-            </Button>
+          <div className="mx-auto w-full max-w-3xl px-4 pb-2">
+            <div className="border-destructive/40 bg-destructive/10 rounded-md border p-2 text-sm">
+              {error}
+              <Button variant="link" size="sm" onClick={() => void send()}>
+                重试
+              </Button>
+            </div>
           </div>
         )}
 
-        <div className="flex items-center gap-2 border-t p-3">
+        <div className="border-t p-3">
+          <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
           <Input
             value={input}
             placeholder="输入消息，回车发送"
@@ -430,6 +437,7 @@ export default function ChatPage() {
           <Button onClick={() => void send()} disabled={busy || !input.trim()}>
             <Send className="size-4" />
           </Button>
+          </div>
         </div>
       </section>
     </div>
