@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialChatState, reduceEvent, replayMessages } from "@/lib/agui/reducer";
+import { initialChatState, markApproval, reduceEvent, replayMessages } from "@/lib/agui/reducer";
 import type { AguiEventLike, ChatState } from "@/lib/agui/types";
 
 function applyAll(events: AguiEventLike[]): ChatState {
@@ -131,6 +131,60 @@ describe("reduceEvent：错误与状态", () => {
     const second = reduceEvent(first, { type: "RUN_STARTED", runId: "r2" });
     expect(second.items).toHaveLength(0);
     expect(second.status).toBe("running");
+  });
+});
+
+describe("reduceEvent：RUN_FINISHED 的 interrupt（HITL 审批）", () => {
+  const interruptRun = {
+    type: "RUN_FINISHED",
+    runId: "r1",
+    outcome: {
+      type: "interrupt",
+      interrupts: [
+        {
+          id: "abc:call_1",
+          reason: "tool_call",
+          message: "Tool 'echo' requires user confirmation before execution",
+          toolCallId: "call_1",
+          metadata: { toolName: "echo", toolInput: { message: "hi" } },
+        },
+      ],
+    },
+  } as unknown as AguiEventLike;
+
+  it("interrupt 生成审批卡并带上工具名与入参", () => {
+    const state = applyAll([{ type: "RUN_STARTED" }, interruptRun]);
+
+    expect(state.status).toBe("finished");
+    expect(state.items).toHaveLength(1);
+    const item = state.items[0];
+    expect(item.kind).toBe("approval");
+    if (item.kind === "approval") {
+      expect(item.interruptId).toBe("abc:call_1");
+      expect(item.toolName).toBe("echo");
+      expect(item.args).toEqual({ message: "hi" });
+      expect(item.status).toBe("pending");
+    }
+  });
+
+  it("markApproval 把卡片置为已批准/已拒绝", () => {
+    const state = applyAll([{ type: "RUN_STARTED" }, interruptRun]);
+    const approved = markApproval(state, "abc:call_1", "approved");
+    const item = approved.items[0];
+    if (item.kind === "approval") {
+      expect(item.status).toBe("approved");
+    }
+    const denied = markApproval(state, "abc:call_1", "denied");
+    const deniedItem = denied.items[0];
+    if (deniedItem.kind === "approval") {
+      expect(deniedItem.status).toBe("denied");
+    }
+  });
+
+  it("普通 RUN_FINISHED（无 interrupt）不产生审批卡", () => {
+    const state = applyAll([{ type: "RUN_STARTED" }, { type: "RUN_FINISHED" }]);
+    expect(state.status).toBe("finished");
+    expect(state.items).toHaveLength(0);
   });
 });
 

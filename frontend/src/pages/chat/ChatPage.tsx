@@ -8,9 +8,14 @@ import { Input } from "@/components/ui/input";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { ToolCallCard } from "@/components/cards/ToolCallCard";
 import { JsonCard } from "@/components/cards/JsonCard";
+import { ApprovalCard } from "@/components/cards/ApprovalCard";
+import { ConfirmCard } from "@/components/cards/ConfirmCard";
+import { MappingCard } from "@/components/cards/MappingCard";
 import { createChatAgent } from "@/lib/agui/agent";
-import { initialChatState, reduceEvent, replayMessages } from "@/lib/agui/reducer";
-import type { ChatState } from "@/lib/agui/types";
+import { initialChatState, markApproval, reduceEvent, replayMessages } from "@/lib/agui/reducer";
+import type { ChatSession } from "@/api/types";
+import type { AgentSummary } from "@/api/types";
+import type { ChatState, ConfirmCardData, MappingCardData } from "@/lib/agui/types";
 import {
   createSession,
   deleteSession,
@@ -18,7 +23,7 @@ import {
   listMessages,
   listSessions,
 } from "@/api/sessions";
-import type { AgentSummary, ChatSession } from "@/api/types";
+import { decideApproval } from "@/api/approvals";
 
 export default function ChatPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -73,7 +78,7 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView?.({ behavior: "smooth" });
   }, [chat.items]);
 
   async function openSession(target: ChatSession) {
@@ -107,6 +112,52 @@ export default function ChatPage() {
     }
   }
 
+  /** 发起一轮 /agui/run；text 与 resume 二选一。 */
+  async function runTurn(
+    active: ChatSession,
+    options: { text?: string; resume?: { interruptId: string; status: string; payload?: unknown }[] },
+  ) {
+    const agent = agentRef.current ?? (agentRef.current = createChatAgent());
+    agent.threadId = active.threadId!;
+    if (options.text) {
+      agent.messages = [
+        { id: crypto.randomUUID(), role: "user", content: options.text },
+      ] as typeof agent.messages;
+    } else {
+      agent.messages = [] as typeof agent.messages;
+    }
+
+    setChat((prev) => ({ ...prev, status: "running" }));
+    setBusy(true);
+    try {
+      await agent.runAgent(
+        {
+          forwardedProps: { agentId: active.agentId ?? agentId },
+          resume: options.resume as never,
+        },
+        {
+          onEvent: ({ event }) => {
+            setChat((prev) => reduceEvent(prev, event as never));
+          },
+          onRunFailed: ({ error: runError }) => {
+            setError(runError.message);
+            setChat((prev) => ({ ...prev, status: "error" }));
+          },
+        },
+      );
+      setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
+      await refreshSessions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "发送失败，可重试");
+      setChat((prev) => ({ ...prev, status: "error" }));
+      if (options.text) {
+        setInput(options.text);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function send() {
     const text = input.trim();
     if (!text || busy) {
@@ -135,12 +186,6 @@ export default function ChatPage() {
       return;
     }
 
-    const agent = agentRef.current ?? (agentRef.current = createChatAgent());
-    agent.threadId = active.threadId;
-    agent.messages = [
-      { id: crypto.randomUUID(), role: "user", content: text },
-    ] as typeof agent.messages;
-
     setInput("");
     setChat((prev) => ({
       items: [
@@ -156,31 +201,54 @@ export default function ChatPage() {
       status: "running",
       runId: null,
     }));
+    await runTurn(active, { text });
+  }
 
-    setBusy(true);
-    try {
-      await agent.runAgent(
-        { forwardedProps: { agentId: active.agentId ?? agentId } },
-        {
-          onEvent: ({ event }) => {
-            setChat((prev) => reduceEvent(prev, event as never));
-          },
-          onRunFailed: ({ error: runError }) => {
-            setError(runError.message);
-            setChat((prev) => ({ ...prev, status: "error" }));
-          },
-        },
-      );
-      setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
-      await refreshSessions();
-    } catch (err) {
-      // 失败时把内容还给用户：否则“重试”按钮没有任何可重发的内容。
-      setError(err instanceof Error ? err.message : "发送失败，可重试");
-      setChat((prev) => ({ ...prev, status: "error" }));
-      setInput(text);
-    } finally {
-      setBusy(false);
+  /** 审批决定 -> 记录结果 -> 用 resume 唤醒被拦截的执行。 */
+  async function decide(interruptId: string, decision: "APPROVED" | "DENIED") {
+    if (busy || !session) {
+      return;
     }
+    setError(null);
+    try {
+      const result = await decideApproval(interruptId, decision);
+      setChat((prev) =>
+        markApproval(prev, interruptId, decision === "APPROVED" ? "approved" : "denied"),
+      );
+      await runTurn(session, {
+        resume: [
+          {
+            interruptId,
+            status: result.resumeStatus,
+            payload: decision === "APPROVED" ? { approved: true } : { approved: false },
+          },
+        ],
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "审批失败");
+    }
+  }
+
+  /** 确认卡回传选项：作为一条用户消息继续该 run。 */
+  async function chooseOption(value: string) {
+    if (busy || !session) {
+      return;
+    }
+    setChat((prev) => ({
+      items: [
+        ...prev.items,
+        {
+          kind: "text",
+          id: `local-user-${Date.now()}`,
+          role: "user",
+          content: value,
+          streaming: false,
+        },
+      ],
+      status: "running",
+      runId: null,
+    }));
+    await runTurn(session, { text: value });
   }
 
   return (
@@ -258,7 +326,33 @@ export default function ChatPage() {
             if (item.kind === "tool") {
               return <ToolCallCard key={item.id} item={item} />;
             }
+            if (item.kind === "approval") {
+              return (
+                <ApprovalCard
+                  key={item.id}
+                  toolName={item.toolName}
+                  args={item.args}
+                  message={item.message}
+                  status={item.status}
+                  busy={busy}
+                  onDecide={(decision) => void decide(item.interruptId, decision)}
+                />
+              );
+            }
             if (item.kind === "card") {
+              if (item.card === "confirm") {
+                return (
+                  <ConfirmCard
+                    key={item.id}
+                    data={item.data as ConfirmCardData}
+                    busy={busy}
+                    onChoose={(value) => void chooseOption(value)}
+                  />
+                );
+              }
+              if (item.card === "mapping") {
+                return <MappingCard key={item.id} data={item.data as MappingCardData} />;
+              }
               return <JsonCard key={item.id} name={`${item.name}（${item.card}）`} data={item.data} />;
             }
             return (

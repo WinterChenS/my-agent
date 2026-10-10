@@ -21,10 +21,36 @@ export interface MappingCardData {
 
 export type CardKind = "approval" | "confirm" | "mapping" | "unknown";
 
+/** AG-UI 的 interrupt（HITL）；字段与官方 Interrupt 类型一致。 */
+export interface InterruptLike {
+  id: string;
+  reason?: string;
+  message?: string;
+  toolCallId?: string;
+  responseSchema?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RunFinishedInterruptOutcomeLike {
+  type?: string;
+  interrupts?: InterruptLike[];
+}
+
+export type ApprovalStatus = "pending" | "approved" | "denied";
+
 export type ChatItem =
   | { kind: "text"; id: string; role: "user" | "assistant"; content: string; streaming: boolean }
   | { kind: "tool"; id: string; name: string; args: string; result: string | null; state: "args" | "ready" | "done" }
   | { kind: "card"; id: string; card: CardKind; name: string; data: unknown }
+  | {
+      kind: "approval";
+      id: string;
+      interruptId: string;
+      toolName: string;
+      args: unknown;
+      message: string | null;
+      status: ApprovalStatus;
+    }
   | { kind: "error"; id: string; message: string; code: string | null };
 
 export type ChatStatus = "idle" | "running" | "finished" | "error";
@@ -49,4 +75,6 @@ export interface AguiEventLike {
   message?: string;
   code?: string;
   runId?: string;
+  /** RUN_FINISHED 的 outcome；interrupt 类型表示需要人工介入。 */
+  outcome?: RunFinishedInterruptOutcomeLike;
 }

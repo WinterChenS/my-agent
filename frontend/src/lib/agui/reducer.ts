@@ -126,12 +126,48 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
       };
 
     case "RUN_FINISHED":
-      return { ...state, status: "finished" };
+      return applyRunFinished(state, event);
 
     default:
       // 未声明的事件（含 STATE_SNAPSHOT / STATE_DELTA / REASONING_*）不改变展示树
       return state;
   }
+}
+
+function applyRunFinished(state: ChatState, event: AguiEventLike): ChatState {
+  const interrupts = event.outcome?.interrupts ?? [];
+  if (interrupts.length === 0) {
+    return { ...state, status: "finished" };
+  }
+  // 需要人工审批：把每个 interrupt 变成一张审批卡（工具名/入参来自 metadata）
+  const cards: ChatItem[] = interrupts.map((interrupt, index) => ({
+    kind: "approval" as const,
+    id: `approval-${interrupt.id || index}`,
+    interruptId: interrupt.id,
+    toolName: asString(interrupt.metadata?.toolName) ?? interrupt.toolCallId ?? "未知工具",
+    args: interrupt.metadata?.toolInput ?? interrupt.metadata?.toolContent ?? null,
+    message: interrupt.message ?? null,
+    status: "pending" as const,
+  }));
+  return { ...state, status: "finished", items: [...state.items, ...cards] };
+}
+
+/** 审批卡状态更新（决策后由页面调用）。 */
+export function markApproval(
+  state: ChatState,
+  interruptId: string,
+  status: "approved" | "denied",
+): ChatState {
+  return {
+    ...state,
+    items: state.items.map((item) =>
+      item.kind === "approval" && item.interruptId === interruptId ? { ...item, status } : item,
+    ),
+  };
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function applyCustom(state: ChatState, event: AguiEventLike): ChatState {
