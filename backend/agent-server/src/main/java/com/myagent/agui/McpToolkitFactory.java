@@ -39,9 +39,15 @@ public class McpToolkitFactory {
      * 构建 Toolkit 并注册给定的 MCP Server。
      *
      * <p>单个 Server 注册失败不影响其它 Server（由官方 registrar 逐个处理并记录）。
+     *
+     * @param includeDemoTools 是否额外注册 demo 卡片工具（仅 demo-agent）
      */
-    public Toolkit buildToolkit(List<McpServer> servers) {
+    public Toolkit buildToolkit(List<McpServer> servers, boolean includeDemoTools) {
         Toolkit toolkit = new Toolkit();
+        if (includeDemoTools) {
+            DemoCardTools.tools().forEach(toolkit::registerAgentTool);
+            log.info("已注册 {} 个 demo 卡片工具", DemoCardTools.tools().size());
+        }
         if (servers == null || servers.isEmpty()) {
             return toolkit;
         }

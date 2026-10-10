@@ -186,7 +186,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                         com.baomidou.mybatisplus.core.toolkit.Wrappers.<McpServer>lambdaQuery()
                                 .in(McpServer::getId, boundMcpIds)
                                 .eq(McpServer::getStatus, "ENABLED"));
-        Toolkit toolkit = mcpToolkitFactory.buildToolkit(mcpServers);
+        Toolkit toolkit = mcpToolkitFactory.buildToolkit(mcpServers, isDemoAgent(agent.getAgentId()));
 
         HarnessAgent built = HarnessAgent.builder()
                 .name(agent.getName())
@@ -219,6 +219,13 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             case "ALWAYS_DENY" -> PermissionMode.DONT_ASK;
             default -> PermissionMode.DEFAULT;
         };
+    }
+
+    /** demo-agent 的标识前缀；带该前缀的 Agent 额外获得 demo 卡片工具（Task 7.2）。 */
+    private static final String DEMO_AGENT_PREFIX = "demo";
+
+    static boolean isDemoAgent(String agentId) {
+        return agentId != null && agentId.trim().toLowerCase().startsWith(DEMO_AGENT_PREFIX);
     }
 
     /**
