@@ -11,6 +11,7 @@ import com.myagent.modelconfig.dto.ModelRequest;
 import com.myagent.modelconfig.dto.ProviderRequest;
 import com.myagent.modelconfig.service.ModelConfigService;
 import io.agentscope.core.permission.PermissionMode;
+import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -129,5 +130,20 @@ class AgentFactoryTest {
         assertThat(AgentFactory.toPermissionMode("ALWAYS_DENY")).isEqualTo(PermissionMode.DONT_ASK);
         assertThat(AgentFactory.toPermissionMode("REQUIRE_APPROVAL")).isEqualTo(PermissionMode.DEFAULT);
         assertThat(AgentFactory.toPermissionMode(null)).isEqualTo(PermissionMode.DEFAULT);
+    }
+
+    @Test
+    void 仅REQUIRE_APPROVAL会为工具加ASK规则() {
+        Toolkit toolkit = new Toolkit();
+
+        // 其余模式不加 ask 规则（实测：仅设 DEFAULT 模式拦不住工具）
+        assertThat(AgentFactory.buildPermissionContext("ALWAYS_ALLOW", toolkit).getAskRules()).isEmpty();
+        assertThat(AgentFactory.buildPermissionContext("ALWAYS_DENY", toolkit).getAskRules()).isEmpty();
+
+        // REQUIRE_APPROVAL 必须加，且至少包含通配（用于覆盖 Agent 实际拥有的工具）
+        var context = AgentFactory.buildPermissionContext("REQUIRE_APPROVAL", toolkit);
+        assertThat(context.getAskRules()).isNotEmpty();
+        assertThat(context.getAskRules().keySet()).contains("*");
+        assertThat(context.getMode()).isEqualTo(PermissionMode.DEFAULT);
     }
 }

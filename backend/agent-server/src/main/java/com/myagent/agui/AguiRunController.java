@@ -6,14 +6,14 @@ import com.myagent.chat.entity.ChatSession;
 import com.myagent.chat.service.ChatSessionService;
 import com.myagent.common.BizException;
 import io.agentscope.core.agui.AguiInterruptConstants;
-import io.agentscope.core.agui.adapter.AguiAdapterConfig;
-import io.agentscope.core.agui.adapter.AguiAgentAdapter;
-import io.agentscope.core.agui.adapter.AguiAgentAdapterFactory;
 import io.agentscope.core.agui.encoder.AguiEventEncoder;
 import io.agentscope.core.agui.event.AguiEvent;
 import io.agentscope.core.agui.model.AguiMessage;
 import io.agentscope.core.agui.model.RunAgentInput;
+import io.agentscope.core.agui.processor.AguiRequestProcessor;
 import io.agentscope.core.agui.runtime.AguiRequestBodyParser;
+import io.agentscope.core.agui.runtime.AguiRuntimeContextRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,8 +33,11 @@ import reactor.core.Disposable;
 /**
  * AG-UI 聊天入口：{@code POST /agui/run}（SSE）。
  *
- * <p>链路：解析 {@code RunAgentInput} → 按 threadId 定位/创建会话 → {@link AgentFactory} 构建 Agent
- * → 官方 {@link AguiAgentAdapter} 产出事件流 → 官方 {@link AguiEventEncoder} 编码为 SSE → 落库会话消息。
+ * <p>链路：官方 {@link AguiRequestBodyParser} 解析 → 按 threadId 定位/创建平台会话 →
+ * 官方 {@link AguiRequestProcessor} 处理（含 HITL resume）→ 官方编码器输出 SSE → 落库。
+ *
+ * <p>注意：**必须走 processor 管线**。直接调 {@code adapter.run(input)} 时 AG-UI 的
+ * {@code resume} 不会被翻译成 AgentScope 需要的确认信息，恢复执行会失败（Task 7.1 实测）。
  */
 @RestController
 public class AguiRunController {
@@ -44,22 +47,21 @@ public class AguiRunController {
 
     private final AguiRequestBodyParser requestParser;
     private final AguiEventEncoder eventEncoder;
-    private final AguiAdapterConfig adapterConfig;
+    private final AguiRequestProcessor requestProcessor;
     private final AgentFactory agentFactory;
     private final ChatSessionService chatSessionService;
     private final ApprovalService approvalService;
-    private final AguiAgentAdapterFactory adapterFactory = AguiAgentAdapterFactory.defaultFactory();
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
             AguiEventEncoder eventEncoder,
-            AguiAdapterConfig adapterConfig,
+            AguiRequestProcessor requestProcessor,
             AgentFactory agentFactory,
             ChatSessionService chatSessionService,
             ApprovalService approvalService) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
-        this.adapterConfig = adapterConfig;
+        this.requestProcessor = requestProcessor;
         this.agentFactory = agentFactory;
         this.chatSessionService = chatSessionService;
         this.approvalService = approvalService;
@@ -67,7 +69,9 @@ public class AguiRunController {
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter run(
-            @RequestBody String rawBody, @AuthenticationPrincipal JwtPrincipal principal) {
+            @RequestBody String rawBody,
+            @AuthenticationPrincipal JwtPrincipal principal,
+            HttpServletRequest httpRequest) {
         Long userId = principal == null ? null : principal.userId();
         if (userId == null) {
             throw BizException.unauthorized("未登录");
@@ -92,29 +96,43 @@ public class AguiRunController {
         ChatSession session = existing.orElseGet(
                 () -> chatSessionService.createForThread(userId, threadId, agentDbId));
 
-        // 用户消息先落库（此时 assistant 还未产生）。
-        persistUserMessage(session.getId(), input);
+        // resume 场景下不重复记录用户消息
+        if (input.getResume() == null || input.getResume().isEmpty()) {
+            persistUserMessage(session.getId(), input);
+        }
 
-        SseEmitter emitter = new SseEmitter(adapterConfig.getRunTimeout() == null
-                ? 0L
-                : adapterConfig.getRunTimeout().toMillis());
+        // 把用户身份通过 servlet 属性传给 runtime context 解析器（避免可伪造的请求头）
+        httpRequest.setAttribute(PlatformRuntimeContextResolver.USER_ID_ATTRIBUTE, userId);
 
-        AguiAgentAdapter adapter = adapterFactory.create(agentFactory.build(agentDbId), adapterConfig);
+        AguiRuntimeContextRequest<HttpServletRequest> contextRequest =
+                AguiRuntimeContextRequest.<HttpServletRequest>builder()
+                        .input(input)
+                        .pathAgentId(StringUtils.hasText(agentRef) ? agentRef : String.valueOf(agentDbId))
+                        .transport(AguiRuntimeContextRequest.Transport.MVC)
+                        .method("POST")
+                        .path("/agui/run")
+                        .nativeRequest(httpRequest)
+                        .build();
+
+        SseEmitter emitter = new SseEmitter(0L);
         StringBuilder assistantText = new StringBuilder();
         List<String> customEventNames = new ArrayList<>();
         List<AguiEvent.Interrupt> interrupts = new ArrayList<>();
 
-        Disposable subscription = adapter.run(input).subscribe(
-                event -> {
-                    send(emitter, event);
-                    collect(event, assistantText, customEventNames, interrupts);
-                },
-                error -> {
-                    log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
-                    sendRunError(emitter, threadId, input.getRunId(), error);
-                    finish(emitter, session.getId(), assistantText, customEventNames, interrupts);
-                },
-                () -> finish(emitter, session.getId(), assistantText, customEventNames, interrupts));
+        Disposable subscription = requestProcessor
+                .process(contextRequest)
+                .events()
+                .subscribe(
+                        event -> {
+                            send(emitter, event);
+                            collect(event, assistantText, customEventNames, interrupts);
+                        },
+                        error -> {
+                            log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
+                            sendRunError(emitter, threadId, input.getRunId(), error);
+                            finish(emitter, session.getId(), assistantText, customEventNames, interrupts);
+                        },
+                        () -> finish(emitter, session.getId(), assistantText, customEventNames, interrupts));
 
         emitter.onCompletion(subscription::dispose);
         emitter.onTimeout(() -> {
@@ -195,8 +213,7 @@ public class AguiRunController {
         for (int i = input.getMessages().size() - 1; i >= 0; i--) {
             AguiMessage message = input.getMessages().get(i);
             if ("user".equalsIgnoreCase(message.getRole())) {
-                chatSessionService.appendMessage(
-                        sessionId, "USER", message.getTextContent(), null);
+                chatSessionService.appendMessage(sessionId, "USER", message.getTextContent(), null);
                 return;
             }
         }
@@ -214,7 +231,6 @@ public class AguiRunController {
         } else if (event instanceof AguiEvent.RunFinished finished
                 && finished.outcome() instanceof AguiEvent.RunFinishedInterruptOutcome interruptOutcome
                 && interruptOutcome.interrupts() != null) {
-            // 需要人工审批：收集 interrupt 以便落库
             interrupts.addAll(interruptOutcome.interrupts());
         }
     }

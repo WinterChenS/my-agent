@@ -199,7 +199,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .skillRepository(skillRepositorySync.newRepository())
                 .skillFilter(skillFilter)
                 .toolkit(toolkit)
-                .permissionContext(buildPermissionContext(agent.getPermissionMode(), mcpServers))
+                // 权限上下文必须在 toolkit 之后构建：ask 规则要覆盖 Agent 实际拥有的工具
+                .permissionContext(buildPermissionContext(agent.getPermissionMode(), toolkit))
                 .build();
         log.info(
                 "构建 Agent 完成: {} (mode={}, skills={}, mcpServers={})",
@@ -224,11 +225,12 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
      * 构建权限上下文。
      *
      * <p>实测结论（Task 7.1）：仅把 mode 设为 DEFAULT **不会**触发审批——工具会直接执行。
-     * 要真正拦下来，必须显式添加 {@link PermissionBehavior#ASK} 规则。因此
-     * {@code REQUIRE_APPROVAL} 会对绑定的 MCP 工具逐个加 ask 规则（名字来自工具缓存），
-     * 并额外加一条 {@code "*"} 通配尝试。
+     * 要真正拦下来，必须显式添加 {@link PermissionBehavior#ASK} 规则。
+     *
+     * <p>ask 规则直接取自 Agent 实际拥有的工具（{@link Toolkit#getToolNames()}），而不是仅靠
+     * 同步过的工具缓存——否则同步未跑或失败时会漏拦。
      */
-    static PermissionContextState buildPermissionContext(String platformMode, List<McpServer> mcpServers) {
+    static PermissionContextState buildPermissionContext(String platformMode, Toolkit toolkit) {
         PermissionContextState.Builder builder =
                 PermissionContextState.builder().mode(toPermissionMode(platformMode));
         if (!"REQUIRE_APPROVAL".equalsIgnoreCase(platformMode == null ? "" : platformMode.trim())) {
@@ -236,15 +238,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         }
         java.util.Set<String> toolNames = new java.util.LinkedHashSet<>();
         toolNames.add("*");
-        for (McpServer server : mcpServers) {
-            // 工具名来自 sync-tools 写入的 tool_cache
-            if (server.getToolCache() != null) {
-                server.getToolCache().stream()
-                        .map(entry -> entry.get("name"))
-                        .filter(java.util.Objects::nonNull)
-                        .map(String::valueOf)
-                        .forEach(toolNames::add);
-            }
+        if (toolkit != null) {
+            toolNames.addAll(toolkit.getToolNames());
         }
         for (String toolName : toolNames) {
             builder.addAskRule(toolName, new PermissionRule(toolName, null, PermissionBehavior.ASK, "myagent"));
