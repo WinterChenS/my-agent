@@ -1,0 +1,190 @@
+schema: comet.native.v4
+name: agent-platform
+language: zh-CN
+phase: build
+status: active
+state_version: 3
+brief: brief.md
+document_constraints_version: 2
+shape_confirmation_hash: bf510315d0dc49b88ef257c1a445f42f4307c90075700b3dad65ab287229d082
+spec_changes:
+  - capability: agent-configuration
+    operation: create
+    source: specs/agent-configuration/spec.md
+  - capability: agui-chat
+    operation: create
+    source: specs/agui-chat/spec.md
+  - capability: llm-configuration
+    operation: create
+    source: specs/llm-configuration/spec.md
+  - capability: mcp-integration
+    operation: create
+    source: specs/mcp-integration/spec.md
+  - capability: platform-foundation
+    operation: create
+    source: specs/platform-foundation/spec.md
+  - capability: skill-configuration
+    operation: create
+    source: specs/skill-configuration/spec.md
+  - capability: token-audit
+    operation: create
+    source: specs/token-audit/spec.md
+workspace:
+  isolation: current
+  change_branch: master
+  target_branch: master
+  finish: null
+loop:
+  stage: building
+  goal_cycle: 1
+  iteration: 1
+  attempt: 0
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: submit-builder-candidate
+acceptance:
+  - id: A1
+    source: brief.md
+    text: 输入：`POST /api/auth/login {"username":"admin","password":"Admin@123"}`
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: 期望：`{"code":0,"data":{"token":"<JWT>","user":{"id":1,"username":"admin","role":"ADMIN"}}}`
+    result: pending
+    reason: null
+  - id: A3
+    source: brief.md
+    text: 输入：无 token 访问 `GET /api/auth/me`
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: 期望：401；带 token 时返回当前用户 2. 大模型配置
+    result: pending
+    reason: null
+  - id: A5
+    source: brief.md
+    text: 输入：新建 provider（含 api_key）后 `GET /api/model-providers`
+    result: pending
+    reason: null
+  - id: A6
+    source: brief.md
+    text: 期望：响应中 api_key 显示为 `****`，无明文；更新时不传 api_key 则保留旧密钥
+    result: pending
+    reason: null
+  - id: A7
+    source: brief.md
+    text: 输入：`POST /api/model-providers/{id}/test`
+    result: pending
+    reason: null
+  - id: A8
+    source: brief.md
+    text: 期望：`{"ok":true,"latencyMs":<n>}`；密钥无效时 `{"ok":false,"error":"..."}` 且 HTTP
+      非 500 3. Agent 配置与绑定
+    result: pending
+    reason: null
+  - id: A9
+    source: brief.md
+    text: 输入：`POST /api/agents`（含 `skillIds:[1]`、`mcpServerIds:[1]`）
+    result: pending
+    reason: null
+  - id: A10
+    source: brief.md
+    text: 期望：`GET /api/agents/{id}` 回读含两个绑定数组；重复 `agent_id` 返回业务错误码 4. AG-UI 聊天主链路
+    result: pending
+    reason: null
+  - id: A11
+    source: brief.md
+    text: 输入：`curl -N -X POST /agui/run`（SSE，带 Bearer 与 `RunAgentInput`）
+    result: pending
+    reason: null
+  - id: A12
+    source: brief.md
+    text: 期望：事件序列含 `RUN_STARTED` → `TEXT_MESSAGE_START/CONTENT/END` →
+      `RUN_FINISHED`；结束后 `chat_session`、`chat_message` 有对应行；前端气泡流式出现且刷新后历史仍在 5.
+      MCP
+    result: pending
+    reason: null
+  - id: A13
+    source: brief.md
+    text: 输入：`POST /api/mcp-servers/{id}/sync-tools`（指向真实测试 MCP server）
+    result: pending
+    reason: null
+  - id: A14
+    source: brief.md
+    text: 期望：返回非空工具清单并写入 `tool_cache`；错误地址返回业务错误与原因
+    result: pending
+    reason: null
+  - id: A15
+    source: brief.md
+    text: 输入：绑定该 server 后对话要求调用其工具
+    result: pending
+    reason: null
+  - id: A16
+    source: brief.md
+    text: 期望：出现 `TOOL_CALL_*` 事件且工具名带命名空间 6. HITL 卡片
+    result: pending
+    reason: null
+  - id: A17
+    source: brief.md
+    text: 输入：`REQUIRE_APPROVAL` 模式下触发工具调用的对话
+    result: pending
+    reason: null
+  - id: A18
+    source: brief.md
+    text: 期望：页面出现审批卡 → 点"批准" → 工具真实执行、run 继续；点"拒绝" → 收到拒绝反馈文本；`approval_record` 状态按
+      PENDING→APPROVED/DENIED 流转；非 session 属主调用 decide 返回 403
+    result: pending
+    reason: null
+  - id: A19
+    source: brief.md
+    text: 输入：`demo-agent` 发送 `confirm_card` / `mapping_card` CUSTOM 事件
+    result: pending
+    reason: null
+  - id: A20
+    source: brief.md
+    text: 期望：两种卡片按契约字段渲染，回传后 run 继续；未知 CUSTOM 事件降级为 JSON 折叠卡且不崩溃 7. Token 审计
+    result: pending
+    reason: null
+  - id: A21
+    source: brief.md
+    text: 输入：完成 3 次对话后 `GET /api/audit/token/summary?userId=1&from=...&to=...`
+    result: pending
+    reason: null
+  - id: A22
+    source: brief.md
+    text: 期望：返回非零 token 且 `byModel`、`byDay` 结构正确
+    result: pending
+    reason: null
+  - id: A23
+    source: brief.md
+    text: 输入：USER 角色查询他人数据 / ADMIN 查询全员
+    result: pending
+    reason: null
+  - id: A24
+    source: brief.md
+    text: 期望：前者被拒，后者成功
+    result: pending
+    reason: null
+builder_handoff: null
+blockers: []
+verification: null
+history: []
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-10-10T06:10:59.039Z
