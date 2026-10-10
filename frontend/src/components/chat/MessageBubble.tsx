@@ -16,7 +16,10 @@ export function MessageBubble({ role, content }: { role: "user" | "assistant"; c
         {isUser ? (
           <p className="whitespace-pre-wrap">{content}</p>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none [&_pre]:overflow-auto">
+          <div
+            data-testid="assistant-text"
+            className="prose prose-sm dark:prose-invert max-w-none [&_pre]:overflow-auto"
+          >
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
         )}

@@ -53,3 +53,7 @@ pnpm-debug.log*
 # ===== Agent 运行时工作区（HarnessAgent 产生的 memory / events，属于运行时状态） =====
 .agentscope/
 .myagent-workspace/
+
+# ===== 验收产物的瞬时部分（截图保留，报告/trace 不入库） =====
+docs/acceptance/playwright-report/
+frontend/test-results/

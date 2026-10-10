@@ -1,0 +1,13 @@
+{
+  "name": "__AGENT_NAME__",
+  "agentId": "__AGENT_NAME__",
+  "sysPrompt": "你是验收助手，回复末尾加【OK】。",
+  "modelId": __MODEL_ID__,
+  "temperature": 0.2,
+  "maxTokens": 256,
+  "permissionMode": "ALWAYS_ALLOW",
+  "maxIterations": 5,
+  "status": "ENABLED",
+  "skillIds": [],
+  "mcpServerIds": []
+}

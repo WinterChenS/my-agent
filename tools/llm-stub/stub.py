@@ -18,6 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("PORT", "8099"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 REPLY = os.environ.get("STUB_REPLY", "stub-ok")
+# 每个流式分片之间的延迟（毫秒）。默认 0；浏览器验收时调大以便观察到“逐字出现”。
+CHUNK_DELAY_MS = int(os.environ.get("STUB_CHUNK_DELAY_MS", "0"))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -95,6 +97,8 @@ class Handler(BaseHTTPRequestHandler):
 
         chunk({"role": "assistant", "content": ""})
         for piece in [REPLY[i:i + 3] for i in range(0, len(REPLY), 3)]:
+            if CHUNK_DELAY_MS > 0:
+                time.sleep(CHUNK_DELAY_MS / 1000.0)
             chunk({"content": piece})
         chunk({}, finish="stop")
 

@@ -1,0 +1,7 @@
+{
+  "name": "E2E-Chat-Provider-__RUN_ID__",
+  "providerType": "OPENAI_COMPATIBLE",
+  "baseUrl": "http://localhost:__STUB_PORT__/v1",
+  "apiKey": "sk-e2e",
+  "status": "ENABLED"
+}

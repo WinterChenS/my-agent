@@ -1,0 +1,6 @@
+{
+  "providerId": __PROVIDER_ID__,
+  "modelId": "stub-model-__RUN_ID__",
+  "displayName": "桩模型-__RUN_ID__（UTF-8 中文）",
+  "status": "ENABLED"
+}

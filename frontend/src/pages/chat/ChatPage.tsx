@@ -32,6 +32,7 @@ export default function ChatPage() {
 
   const agentRef = useRef<HttpAgent | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const bootstrapped = useRef(false);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -42,7 +43,6 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    void refreshSessions();
     listAgents()
       .then((page) => {
         setAgents(page.records);
@@ -51,7 +51,26 @@ export default function ChatPage() {
       .catch(() => {
         /* 无 Agent 时由下方提示引导 */
       });
-  }, [refreshSessions]);
+  }, []);
+
+  // 首次加载：恢复最近一次会话，让刷新后历史仍在（Task 4.3 门禁）。
+  useEffect(() => {
+    if (bootstrapped.current) {
+      return;
+    }
+    bootstrapped.current = true;
+    void (async () => {
+      try {
+        const list = await listSessions();
+        setSessions(list);
+        if (list.length > 0) {
+          await openSession(list[0]);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "加载会话失败");
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -155,8 +174,10 @@ export default function ChatPage() {
       setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
       await refreshSessions();
     } catch (err) {
+      // 失败时把内容还给用户：否则“重试”按钮没有任何可重发的内容。
       setError(err instanceof Error ? err.message : "发送失败，可重试");
       setChat((prev) => ({ ...prev, status: "error" }));
+      setInput(text);
     } finally {
       setBusy(false);
     }
