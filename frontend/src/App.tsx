@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth";
 import LoginPage from "@/pages/login/LoginPage";
 import ChatPage from "@/pages/chat/ChatPage";
+import AuditPage from "@/pages/admin/audit/AuditPage";
 
 interface NavItem {
   to: string;
@@ -112,7 +113,7 @@ export default function App() {
         <Route path="admin/agents" element={<Placeholder title="Agent 配置" />} />
         <Route path="admin/skills" element={<Placeholder title="Skill 配置" />} />
         <Route path="admin/mcp" element={<Placeholder title="MCP 配置" />} />
-        <Route path="admin/audit" element={<Placeholder title="Token 审计" />} />
+        <Route path="admin/audit" element={<AuditPage />} />
         <Route path="*" element={<Placeholder title="页面不存在" />} />
       </Route>
     </Routes>
