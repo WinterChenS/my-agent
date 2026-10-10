@@ -65,6 +65,7 @@ async function createProviderAndModel(
   page: import("@playwright/test").Page,
   stamp: number,
   modelId: string,
+  maxTokens?: string,
 ) {
   const providerName = `e2e-prov-${stamp}`;
   await page.getByRole("button", { name: "新建供应商" }).click();
@@ -78,6 +79,9 @@ async function createProviderAndModel(
   await page.getByRole("button", { name: "新建模型" }).click();
   await page.getByLabel("模型 ID").fill(modelId);
   await page.getByLabel("显示名").fill(modelId);
+  if (maxTokens) {
+    await page.getByLabel(/最大输出 tokens/).fill(maxTokens);
+  }
   await page.getByRole("dialog").locator("select").first().selectOption({ label: providerName });
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("已创建模型")).toBeVisible({ timeout: 20_000 });
@@ -156,7 +160,8 @@ test("模型页：模型 ID 填错时给出可操作的提示，改对后测通"
   await row.getByRole("button", { name: "测试", exact: true }).click();
   await expect(page.getByText(/连通失败/)).toBeVisible({ timeout: 40_000 });
   await expect(page.getByText(/可能不被该端点支持/)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/deepseek\/deepseek-flash/)).toBeVisible();
+  // 网关原始错误体也应一并展示（用不会与用户数据撞车的片段断言）
+  await expect(page.getByText(/knows no model/).first()).toBeVisible();
   await page.screenshot({
     path: "../docs/acceptance/task-repair-model-id-hint.png",
     fullPage: true,
@@ -193,14 +198,58 @@ test("模型页：模型 ID 含斜杠（如 deepseek/xxx）能正确保存与测
   await expect(page.getByText("已保存")).toBeVisible({ timeout: 20_000 });
 
   const row = page.getByRole("row", { name: new RegExp(slashId.replace("/", "\\/")) });
-  await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.getByRole("button", { name: "测试", exact: true }).click();
+  await expect(row.first()).toBeVisible({ timeout: 15_000 });
+  await row.first().getByRole("button", { name: "测试", exact: true }).click();
   await expect(page.getByText(/连通成功/)).toBeVisible({ timeout: 40_000 });
 
   await page.screenshot({
     path: "../docs/acceptance/task-repair-models-tab.png",
     fullPage: true,
   });
+});
+
+test("模型页：max_tokens 超出厂商范围时，测试阶段就报错（用户实测场景）", async ({ page }) => {
+  await login(page);
+  await page.goto("/admin/models");
+  await expect(page.getByRole("heading", { name: "模型配置" })).toBeVisible({ timeout: 15_000 });
+
+  const stamp = Date.now();
+  const modelId = `e2e-maxtok-${stamp}`;
+
+  // 新建时填一个“像上下文长度”的值：界面应立刻给提醒
+  await page.getByRole("button", { name: "新建供应商" }).click();
+  await page.getByLabel("名称").fill(`e2e-prov-${stamp}`);
+  await page.getByLabel("Base URL").fill("http://localhost:8099/v1");
+  await page.getByLabel(/API Key/).fill("sk-e2e");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已创建供应商")).toBeVisible({ timeout: 20_000 });
+
+  await page.getByRole("tab", { name: /模型/ }).click();
+  await page.getByRole("button", { name: "新建模型" }).click();
+  await page.getByLabel("模型 ID").fill(modelId);
+  await page.getByLabel(/最大输出 tokens/).fill("1000000");
+  // 界面警示（不靠外部知识就知道填错了）
+  await expect(page.getByText(/看起来像“上下文长度”/)).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("dialog").locator("select").first().selectOption({ label: `e2e-prov-${stamp}` });
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已创建模型")).toBeVisible({ timeout: 20_000 });
+
+  // 测试：此时必须暴露真实的非法配置（v1 因探针硬写 max_tokens=8 而给了假绿灯）
+  const row = page.getByRole("row", { name: new RegExp(modelId) });
+  await row.getByRole("button", { name: "测试", exact: true }).click();
+  await expect(page.getByText(/valid range|Invalid max_tokens/)).toBeVisible({ timeout: 40_000 });
+  await page.screenshot({
+    path: "../docs/acceptance/task-repair-maxtokens-hint.png",
+    fullPage: true,
+  });
+
+  // 改成合理值 -> 测通
+  await row.getByRole("button", { name: "编辑" }).click();
+  await page.getByLabel(/最大输出 tokens/).fill("8192");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("已保存")).toBeVisible({ timeout: 20_000 });
+  await row.getByRole("button", { name: "测试", exact: true }).click();
+  await expect(page.getByText(/连通成功/)).toBeVisible({ timeout: 40_000 });
 });
 
 test("Skill 页：新建 / 版本显示 / 删除", async ({ page }) => {

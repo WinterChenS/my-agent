@@ -25,7 +25,7 @@ public class AguiModelConnectivityProbe implements ModelConnectivityProbe {
 
     private static final Logger log = LoggerFactory.getLogger(AguiModelConnectivityProbe.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
-    private static final int PROBE_MAX_TOKENS = 8;
+    private static final int PROBE_FALLBACK_MAX_TOKENS = 8;
     private static final String PROBE_PROMPT = "hi";
 
     private final ModelFactory modelFactory;
@@ -49,7 +49,10 @@ public class AguiModelConnectivityProbe implements ModelConnectivityProbe {
             ChatModelBase model = modelFactory.create(providerType, baseUrl, apiKey, modelId, params, false);
             Msg msg = Msg.builderForRole(MsgRole.USER).textContent(PROBE_PROMPT).build();
             GenerateOptions options = GenerateOptions.builder()
-                    .maxTokens(PROBE_MAX_TOKENS)
+                    // 关键：模型配了 maxTokens 就用配置值。
+                    // 若这里硬写一个小值（v1 写死 8），就会出现“测试通过、一对话就 400”
+                    // —— 非法配置必须在测试阶段就暴露（用户实测踩过）。
+                    .maxTokens(effectiveMaxTokens(params))
                     .stream(false)
                     .build();
 
@@ -69,8 +72,18 @@ public class AguiModelConnectivityProbe implements ModelConnectivityProbe {
         }
     }
 
-    private static long elapsed(long startNanos) {
-        return (System.nanoTime() - startNanos) / 1_000_000;
+    /** 模型配置的 maxTokens（没配就用小兜底值）。 */
+    static int effectiveMaxTokens(Map<String, Object> params) {
+        if (params != null) {
+            Object value = params.get("maxTokens");
+            if (value instanceof Number number && number.intValue() > 0) {
+                return number.intValue();
+            }
+        }
+        return PROBE_FALLBACK_MAX_TOKENS;
+    }
+
+    private static long elapsed(long startNanos) {        return (System.nanoTime() - startNanos) / 1_000_000;
     }
 
     private static String rootMessage(Throwable ex) {

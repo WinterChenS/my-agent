@@ -36,6 +36,7 @@ import {
   type Provider,
   type ProviderType,
 } from "@/api/models";
+import { maxTokensWarning } from "@/lib/utils";
 
 interface ProviderForm {
   id: number | null;
@@ -633,14 +634,22 @@ export default function ModelsPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                maxTokens
+                最大输出 tokens（max_tokens）
                 <Input
                   value={modelForm.maxTokens}
                   onChange={(e) => setModelForm({ ...modelForm, maxTokens: e.target.value })}
-                  placeholder="2048"
+                  placeholder="留空=模型默认，常见 8192"
                 />
               </label>
             </div>
+            <p className="text-muted-foreground -mt-1 text-xs">
+              ℹ️ max_tokens 是「单次生成的输出上限」，**不是**上下文长度（能塞多长的对话由模型决定）。
+            </p>
+            {maxTokensWarning(modelForm.maxTokens) && (
+              <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-700">
+                ⚠️ {maxTokensWarning(modelForm.maxTokens)}
+              </p>
+            )}
             <label className="space-y-1 text-sm">
               状态
               <select

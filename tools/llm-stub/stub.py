@@ -24,6 +24,9 @@ CHUNK_DELAY_MS = int(os.environ.get("STUB_CHUNK_DELAY_MS", "0"))
 # 用于验证“模型真的收到了某段内容”（例如 Skill 注入）。
 STUB_MARKER = os.environ.get("STUB_MARKER", "")
 STUB_MARKER_REPLY = os.environ.get("STUB_MARKER_REPLY", "MARKER-SEEN")
+# 可选：模拟厂商对 max_tokens 的范围限制（如 DeepSeek 的 [1, 393216]）。
+# 设为整数上限；超过则返回 400 + 类似厂商的错误体（用于回归“非法配置要在测试阶段暴露”）。
+STUB_MAX_TOKENS_LIMIT = os.environ.get("STUB_MAX_TOKENS_LIMIT", "")
 # 可选：把最近一次收到的请求体写到该文件，便于对照“模型实际收到了什么”。
 STUB_DUMP = os.environ.get("STUB_DUMP", "")
 # 可选：让桩模拟“模型要调用工具”（用于验证 MCP 工具与 HITL 审批链路）。
@@ -89,6 +92,17 @@ class Handler(BaseHTTPRequestHandler):
                 "type": "not_found_error",
             }})
             return
+        if STUB_MAX_TOKENS_LIMIT:
+            limit = int(STUB_MAX_TOKENS_LIMIT)
+            sent = body.get("max_tokens")
+            if isinstance(sent, int) and sent > limit:
+                self._json(400, {"error": {
+                    "code": None,
+                    "message": f"DeepSeek: Invalid max_tokens value, the valid range of max_tokens is [1, {limit}]",
+                    "param": None,
+                    "type": "invalid_request_error",
+                }})
+                return
         created = int(time.time())
         usage = {"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16}
         tool_call = self._tool_call_to_emit(body)

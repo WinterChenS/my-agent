@@ -32,6 +32,7 @@ import {
 import { listModels, type ModelInfo } from "@/api/models";
 import { listSkills, type SkillInfo } from "@/api/skills";
 import { listMcpServers, type McpServerInfo } from "@/api/mcp";
+import { maxTokensWarning } from "@/lib/utils";
 
 interface FormState {
   id: number | null;
@@ -341,10 +342,11 @@ export default function AgentsPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                maxTokens
+                最大输出 tokens（max_tokens）
                 <Input
                   value={form.maxTokens}
                   onChange={(e) => setForm({ ...form, maxTokens: e.target.value })}
+                  placeholder="留空=用模型默认"
                 />
               </label>
               <label className="space-y-1 text-sm">
@@ -355,6 +357,11 @@ export default function AgentsPage() {
                 />
               </label>
             </div>
+            {maxTokensWarning(form.maxTokens) && (
+              <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-700">
+                ⚠️ {maxTokensWarning(form.maxTokens)}
+              </p>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1 text-sm">
