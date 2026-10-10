@@ -15,6 +15,10 @@ import { useAuthStore } from "@/stores/auth";
 import LoginPage from "@/pages/login/LoginPage";
 import ChatPage from "@/pages/chat/ChatPage";
 import AuditPage from "@/pages/admin/audit/AuditPage";
+import ModelsPage from "@/pages/admin/models/ModelsPage";
+import AgentsPage from "@/pages/admin/agents/AgentsPage";
+import SkillsPage from "@/pages/admin/skills/SkillsPage";
+import McpPage from "@/pages/admin/mcp/McpPage";
 
 interface NavItem {
   to: string;
@@ -109,10 +113,10 @@ export default function App() {
       >
         <Route index element={<Navigate to="/chat" replace />} />
         <Route path="chat" element={<ChatPage />} />
-        <Route path="admin/models" element={<Placeholder title="模型配置" />} />
-        <Route path="admin/agents" element={<Placeholder title="Agent 配置" />} />
-        <Route path="admin/skills" element={<Placeholder title="Skill 配置" />} />
-        <Route path="admin/mcp" element={<Placeholder title="MCP 配置" />} />
+        <Route path="admin/models" element={<ModelsPage />} />
+        <Route path="admin/agents" element={<AgentsPage />} />
+        <Route path="admin/skills" element={<SkillsPage />} />
+        <Route path="admin/mcp" element={<McpPage />} />
         <Route path="admin/audit" element={<AuditPage />} />
         <Route path="*" element={<Placeholder title="页面不存在" />} />
       </Route>

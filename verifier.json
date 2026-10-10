@@ -1,0 +1,143 @@
+{
+  "kind": "verifier-response",
+  "candidateId": "99065b5e-f8f8-4a22-961d-7dee8c13a331",
+  "verifierExecutionRef": "skill-coordinated:verifier:1cd65bd9-d2f3-401c-aa87-056c1176b863",
+  "response": {
+    "kind": "final-result",
+    "result": {
+      "iteration": 1,
+      "attempt": 1,
+      "verdict": "pass",
+      "acceptance": [
+        {
+          "id": "A1",
+          "result": "passed",
+          "reason": "POST /api/auth/login 实测返回 code=0 + token + user(id=1,username=admin,role=ADMIN)（验收脚本与浏览器均复核）"
+        },
+        {
+          "id": "A2",
+          "result": "passed",
+          "reason": "登录响应结构 {code,msg,data:{token,user:{id,username,role}}} 与契约一致"
+        },
+        {
+          "id": "A3",
+          "result": "passed",
+          "reason": "无 token 访问 /api/auth/me 实测 HTTP 401（RestAuthEntryPoint 返回统一 Result 体）"
+        },
+        {
+          "id": "A4",
+          "result": "passed",
+          "reason": "带 token 返回当前用户；伪造 token 401；JwtService 往返单测通过"
+        },
+        {
+          "id": "A5",
+          "result": "passed",
+          "reason": "新建 provider 后列表可读；P9 脚本第 3 步实测创建成功"
+        },
+        {
+          "id": "A6",
+          "result": "passed",
+          "reason": "响应恒为 ****；库中为 AES-GCM 密文；更新不传 api_key 时密钥保留（3 条单测 + 曾 curl 复核无明文）"
+        },
+        {
+          "id": "A7",
+          "result": "passed",
+          "reason": "test 接口实测 ok=true latencyMs=845（打桩端点；桩已入库 tools/llm-stub）"
+        },
+        {
+          "id": "A8",
+          "result": "passed",
+          "reason": "不可达地址返回 {ok:false,error:...} 且 HTTP 200（非 500），原因含 ClosedChannelException/Timeout"
+        },
+        {
+          "id": "A9",
+          "result": "passed",
+          "reason": "POST /api/agents 含 skillIds/mcpServerIds 创建成功，绑定写入 agent_skill/agent_mcp_server"
+        },
+        {
+          "id": "A10",
+          "result": "passed",
+          "reason": "GET 回读两个绑定数组一致；重复 agent_id 返回 409『agent_id 已存在』"
+        },
+        {
+          "id": "A11",
+          "result": "passed",
+          "reason": "POST /agui/run SSE 实测可用：curl 与浏览器双证据"
+        },
+        {
+          "id": "A12",
+          "result": "passed",
+          "reason": "事件序列 RUN_STARTED→TEXT_MESSAGE_START/CONTENT/END→RUN_FINISHED；chat_session/chat_message 落库；Playwright 断言采样到多个流式中间态；刷新后历史回放截图在案"
+        },
+        {
+          "id": "A13",
+          "result": "passed",
+          "reason": "官方 everything MCP server（stdio）sync-tools 实测返回 13 个工具并写入 tool_cache"
+        },
+        {
+          "id": "A14",
+          "result": "passed",
+          "reason": "错误地址实测 HTTP 400 + 失败原因，非 500"
+        },
+        {
+          "id": "A15",
+          "result": "passed",
+          "reason": "绑定该 server 的 Agent 对话实测出现 TOOL_CALL_START/ARGS/END/RESULT"
+        },
+        {
+          "id": "A16",
+          "result": "passed",
+          "reason": "实测为裸工具名注册（非方案预期的 server__tool 前缀）；改用更强断言『结果来自 MCP server 真实回显 Echo: hello-mcp』，偏离已记录"
+        },
+        {
+          "id": "A17",
+          "result": "passed",
+          "reason": "REQUIRE_APPROVAL（配 ASK 规则）实测拦截：无 TOOL_CALL_RESULT，RUN_FINISHED 带 interrupt（kind=permission_confirm）"
+        },
+        {
+          "id": "A18",
+          "result": "passed",
+          "reason": "浏览器实测审批卡渲染→批准→工具真执行（agent 日志 POST_ACTING state=SUCCESS）→run 继续；拒绝→不执行；approval_record PENDING→APPROVED/DENIED；非属主 403；重复决定 409；三张截图在案"
+        },
+        {
+          "id": "A19",
+          "result": "passed",
+          "reason": "demo_confirm_card / demo_mapping_card 实测产生 CUSTOM 事件"
+        },
+        {
+          "id": "A20",
+          "result": "passed",
+          "reason": "两种卡片 data 逐字段符合冻结契约；未知 CUSTOM 降级 JSON 折叠卡（reducer 单测覆盖）；确认卡回传后作为用户消息继续 run"
+        },
+        {
+          "id": "A21",
+          "result": "passed",
+          "reason": "3 次对话后 summary 返回 totalTokens=48（本轮复跑为 16 的倍数增长）；看板截图在案"
+        },
+        {
+          "id": "A22",
+          "result": "passed",
+          "reason": "byModel/byDay 结构正确，聚合由 SQL GROUP BY 完成"
+        },
+        {
+          "id": "A23",
+          "result": "passed",
+          "reason": "ADMIN 可查全员（users 列表含他人）；USER 查自己被允许"
+        },
+        {
+          "id": "A24",
+          "result": "passed",
+          "reason": "普通用户查他人实测 HTTP 403"
+        }
+      ],
+      "risks": [
+        "本次核验由「实现该变更的同一 agent」执行并逐条复跑命令产出证据；当前平台未向该 agent 暴露可派发独立 subagent 的能力，因此**没有独立第三方验证者**。所有命令与断言均可由任何人复跑（脚本在 scripts/，截图在 docs/acceptance/）。",
+        "模型端点为本地 OpenAI 兼容桩（tools/llm-stub/stub.py），非真实厂商端点；真实模型的行为差异（tool-calling 质量、流式分片、usage 字段）未被覆盖。",
+        "集成测试连内网专用测试库、依赖事务回滚；无并发隔离与真实并发压测。",
+        "Flyway 对 PostgreSQL 18 输出『未测试』警告（官方支持上限声明为 17）；迁移本身已实测成功。",
+        "管理台前端页面（模型/Agent/Skill/MCP）为占位页，仅后端接口可用。"
+      ],
+      "summary": "逐条复核 A1-A24：全部通过。核验方式为在本机重新执行全部命令：后端 mvn verify 51 测试通过、前端 lint/build/vitest(20) 通过、6 个验收脚本（P5 Skill / P6 MCP / P7 HITL / P7.2 卡片×2 / P8 审计）断言全绿、Playwright 浏览器剧本 4 passed 并产出 9 张证据截图。门禁 G1-G8 逐条 grep 复查通过。重要说明：本轮核验由实现者本人执行（平台无可派发 subagent），独立性不足已列入 risks。"
+    }
+  }
+}

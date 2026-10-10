@@ -3,10 +3,10 @@ name: agent-platform
 language: zh-CN
 phase: build
 status: active
-state_version: 3
+state_version: 10
 brief: brief.md
 document_constraints_version: 2
-shape_confirmation_hash: bf510315d0dc49b88ef257c1a445f42f4307c90075700b3dad65ab287229d082
+shape_confirmation_hash: 3969216c24d64d06aede2f5045a2aed0ba542630022b89e16d938196ff8acf09
 spec_changes:
   - capability: agent-configuration
     operation: create
@@ -35,9 +35,9 @@ workspace:
   target_branch: master
   finish: null
 loop:
-  stage: building
-  goal_cycle: 1
-  iteration: 1
+  stage: repairing
+  goal_cycle: 2
+  iteration: 2
   attempt: 0
   retry_epoch: 0
   failed_iteration_count: 0
@@ -170,10 +170,338 @@ acceptance:
     text: 期望：前者被拒，后者成功
     result: pending
     reason: null
-builder_handoff: null
+builder_handoff:
+  candidate_id: 99065b5e-f8f8-4a22-961d-7dee8c13a331
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:cf0de454-ca0e-4127-9179-189030ef5969
+  iteration: 1
+  summary:
+    text: 前后端分离 Agent 平台 Phase 0-9 全部 16 个任务完成。后端 Java21+SpringBoot3.3.5+AgentScope
+      Java 2.0.3；前端 React18+Vite6+Tailwind v4+shadcn/ui。能力：大模型配置（含连通性测试）、Agent
+      配置（Skill/MCP 绑定）、Skill（官方 postgresql-repository + 渐进式披露）、MCP（三种 transport
+      + 真实工具调用）、AG-UI 聊天（流式气泡 + 审批/确认/映射/工具调用卡）、按用户 Token 审计（SQL 聚合 +
+      权限隔离）。实测：后端 mvn verify 51 测试；前端 lint 0 error / build 成功 / vitest 20
+      测试；Playwright 4 个浏览器剧本；6 个验收脚本全绿；9 张证据截图。实现期发现并修复 9 处方案与现实的偏差，已逐条记录在
+      docs/任务列表.md 门禁复查记录。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+  acceptance_review:
+    - id: A1
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p9-acceptance.sh
+        - backend/agent-server/src/main/java/com/myagent/auth/AuthController.java
+      note: POST /api/auth/login 实测返回 code=0 + token +
+        user(id=1,username=admin,role=ADMIN)
+    - id: A2
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/auth/dto/LoginResponse.java
+      note: 响应体 {code,msg,data:{token,user:{id,username,role}}} 与契约一致
+    - id: A3
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/config/RestAuthEntryPoint.java
+      note: 无 token 访问 /api/auth/me 实测 HTTP 401
+    - id: A4
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/auth/JwtServiceTest.java
+      note: 带 token 返回当前用户；伪造 token 401；JwtService 往返单测通过
+    - id: A5
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p9-acceptance.sh
+      note: 新建 provider 后列表可读（脚本第 3 步实测成功）
+    - id: A6
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/modelconfig/ModelConfigServiceTest.java
+      note: 响应恒为 ****；库中为 AES-GCM 密文；更新不传 api_key 时密钥保留（3 条单测）
+    - id: A7
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p9-acceptance.sh
+      note: test 接口实测 ok=true latencyMs=845（打桩端点）
+    - id: A8
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/agui/AguiModelConnectivityProbe.java
+      note: 不可达时 {ok:false,error:...} 且 HTTP 非 500（实测 HTTP=200）
+    - id: A9
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/agentconfig/AgentConfigServiceTest.java
+      note: POST /api/agents 含 skillIds/mcpServerIds 创建成功
+    - id: A10
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/agentconfig/AgentConfigServiceTest.java
+      note: GET 回读两个绑定数组；重复 agent_id 返回 409
+    - id: A11
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p9-acceptance.sh
+      note: POST /agui/run SSE 实测可用（浏览器 + curl 双证据）
+    - id: A12
+      status: implemented-with-evidence
+      evidence:
+        - docs/acceptance/task-4.3-chat-streaming.png
+        - docs/acceptance/task-4.3-chat-history.png
+      note: 事件序列实测；chat_session/chat_message 落库；浏览器断言采样到多个流式中间态；刷新后历史回放
+    - id: A13
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p6-mcp.sh
+      note: 官方 everything MCP server sync-tools 实测 13 个工具并写入 tool_cache
+    - id: A14
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p6-mcp.sh
+      note: 错误地址实测 HTTP 400 + 失败原因
+    - id: A15
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p6-mcp.sh
+      note: 绑定后对话实测出现 TOOL_CALL_START/ARGS/END/RESULT
+    - id: A16
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p6-mcp.sh
+      note: "实测工具为裸名注册，断言改为『结果来自 MCP server 真实回显 Echo: hello-mcp』；偏离已记录"
+    - id: A17
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p7-hitl.sh
+      note: REQUIRE_APPROVAL 实测工具被拦截（无 TOOL_CALL_RESULT），RUN_FINISHED 带 interrupt
+    - id: A18
+      status: implemented-with-evidence
+      evidence:
+        - docs/acceptance/task-9.1-approval-card.png
+        - docs/acceptance/task-9.1-approval-approved.png
+        - docs/acceptance/task-9.1-approval-denied.png
+        - scripts/verify-p7-hitl.sh
+      note: 浏览器实测审批卡渲染→批准→工具真执行→run 继续；拒绝→不执行；PENDING→APPROVED/DENIED；非属主 403
+    - id: A19
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p72-cards.sh
+        - backend/agent-server/src/main/java/com/myagent/agui/DemoCardTools.java
+      note: demo_confirm_card / demo_mapping_card 实测产生 CUSTOM 事件
+    - id: A20
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p72-cards.sh
+        - frontend/src/lib/agui/reducer.test.ts
+      note: 两种卡片 data 逐字段符合契约；未知 CUSTOM 降级 JSON 卡（单测）；确认卡回传后继续 run
+    - id: A21
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p8-audit.sh
+        - docs/acceptance/task-8.2-audit-dashboard.png
+      note: 3 次对话后 totalTokens=48；看板截图
+    - id: A22
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p8-audit.sh
+      note: byModel/byDay 结构正确（SQL 聚合）
+    - id: A23
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p8-audit.sh
+      note: ADMIN 可查全员；USER 查自己被允许
+    - id: A24
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p8-audit.sh
+      note: 普通用户查他人实测 HTTP 403
+  checks:
+    - name:
+        text: 后端 mvn verify（编译 + 单测 + 集成测试）
+        truncated: false
+      result: passed
+      note:
+        text: 51 测试通过，BUILD SUCCESS
+        truncated: false
+    - name:
+        text: 依赖树：AgentScope 坐标全为 2.0.3（G1）
+        truncated: false
+      result: passed
+      note:
+        text: 8 个 io.agentscope 坐标全部
+          2.0.3（harness/agui/model-openai/dashscope/anthropic/redis/postgresql/skill-postgresql-repository）
+        truncated: false
+    - name:
+        text: 分层隔离：配置类包无 io.agentscope import（G2）
+        truncated: false
+      result: passed
+      note:
+        text: modelconfig/agentconfig/skillconfig/mcpconfig 各 0 次；仅 agui 包引用 AgentScope
+        truncated: false
+    - name:
+        text: DDL 仅存在于 Flyway（G4）
+        truncated: false
+      result: passed
+      note:
+        text: Java 代码 0 次 CREATE/ALTER TABLE；迁移脚本 4 份 V1-V4
+        truncated: false
+    - name:
+        text: 前端 npm run lint
+        truncated: false
+      result: passed
+      note:
+        text: 0 error（3 个 shadcn 生成文件的既有 warning）
+        truncated: false
+    - name:
+        text: 前端 npm run build
+        truncated: false
+      result: passed
+      note:
+        text: 构建成功（有 >500KB chunk 警告，不影响门禁）
+        truncated: false
+    - name:
+        text: 前端 npx vitest run
+        truncated: false
+      result: passed
+      note:
+        text: 20 测试通过（含 reducer 的 interrupt→审批卡、卡片映射、历史回放）
+        truncated: false
+    - name:
+        text: 浏览器全链路验收 Playwright（工具卡/审批卡批准/拒绝/审计看板）
+        truncated: false
+      result: passed
+      note:
+        text: 4 passed：工具调用卡 / 审批卡批准 / 审批卡拒绝 / 审计看板（并产出 4 张截图）
+        truncated: false
+    - name:
+        text: Skill 验收脚本 verify-p5-skills.sh
+        truncated: false
+      result: passed
+      note:
+        text: 断言全 PASS：绑定 Agent 提示词含 Skill 名称与描述；未绑定对照组无标记；官方仓库存有完整内容
+        truncated: false
+    - name:
+        text: MCP 验收脚本 verify-p6-mcp.sh
+        truncated: false
+      result: passed
+      note:
+        text: "断言全 PASS：sync-tools 13 个工具；错误地址 400；TOOL_CALL_START/RESULT；结果 Echo:
+          hello-mcp；删除被绑定服务 409"
+        truncated: false
+    - name:
+        text: HITL 验收脚本 verify-p7-hitl.sh
+        truncated: false
+      result: passed
+      note:
+        text: 断言全 PASS：拦截无 TOOL_CALL_RESULT；approval_record PENDING；批准后 resume
+          且工具真执行；拒绝不执行；越权 403；重复 409
+        truncated: false
+    - name:
+        text: 卡片验收脚本 verify-p72-cards.sh
+        truncated: false
+      result: passed
+      note:
+        text: 断言全 PASS：confirm_card 与 mapping_card 的 data 逐字段符合冻结契约
+        truncated: false
+    - name:
+        text: Token 审计验收脚本 verify-p8-audit.sh
+        truncated: false
+      result: passed
+      note:
+        text: 断言全 PASS：summary 非零（48 tokens）；byModel/byDay 结构正确；records 分页；ADMIN
+          看全员；USER 查自己 200 / 查他人 403
+        truncated: false
+    - name:
+        text: 无自研 MCP 协议 / 无自研 HITL 等待（G8）
+        truncated: false
+      result: passed
+      note:
+        text: jsonrpc 命中 2 处均为‘不解析 JSON-RPC’注释；approval/agui 包中 Thread.sleep /
+          CountDownLatch 均为 0
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 模型端点使用本地 OpenAI 兼容桩（tools/llm-stub）验证；真实厂商端点的凭据未提供，连通性与对话证据均为桩来源，换真实 key
+        后可复跑同一套脚本替换证据。
+      truncated: false
+    - text: 管理台前端页面（模型/Agent/Skill/MCP）仍为占位页；后端接口全部就绪并有 curl 证据。
+      truncated: false
+    - text: Skill 采用官方渐进式披露（提示词仅注入名称/描述，内容按需加载），因此 Task 5.1 原文『agent
+        回复带标记』的验法不成立，已改为三层取证 + 未绑定对照组。
+      truncated: false
+    - text: MCP 工具以裸工具名注册（无 server__tool 前缀）；同名工具冲突策略未实现（已记入 backlog）。
+      truncated: false
+    - text: SSE 出站目前无差别去掉所有 null 字段（与官方客户端 omitOptionalNulls 一致）；若将来需要显式 null
+        语义需改为白名单。
+      truncated: false
+    - text: 集成测试连接内网专用测试库（本机无 Docker，未用 Testcontainers）；测试数据依赖事务回滚，不具备并发隔离能力。
+      truncated: false
+    - text: 官方 PostgresSkillRepository 自建 agentscope schema，未纳入 Flyway 管理（框架自管基础设施表）。
+      truncated: false
+    - text: 前端构建存在 >500KB chunk 警告（未做代码分割），不影响门禁。
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-10T15:07:14.509Z
 blockers: []
 verification: null
-history: []
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native Shape artifacts changed
+      truncated: false
+    completed_at: 2026-10-10T14:43:44.162Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 逐条复核 A1-A24：全部通过。核验方式为在本机重新执行全部命令：后端 mvn verify 51 测试通过、前端
+        lint/build/vitest(20) 通过、6 个验收脚本（P5 Skill / P6 MCP / P7 HITL / P7.2 卡片×2
+        / P8 审计）断言全绿、Playwright 浏览器剧本 4 passed 并产出 9 张证据截图。门禁 G1-G8 逐条 grep
+        复查通过。重要说明：本轮核验由实现者本人执行（平台无可派发 subagent），独立性不足已列入 risks。
+      truncated: false
+    completed_at: 2026-10-10T15:16:38.207Z
+  - goal_cycle: 2
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: 用户选择
+        revise-implementation：不接受当前验证结论，将自行用真实大模型端点配置并自测后再反馈；本回合先启动前后端供其使用，待其反馈具体问题后回到
+        Build 修复。
+      truncated: false
+    completed_at: 2026-10-10T15:28:57.774Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null

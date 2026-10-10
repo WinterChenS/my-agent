@@ -1,0 +1,561 @@
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Plus, PlugZap, RefreshCw, Trash2, Pencil } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  PROVIDER_TYPES,
+  createModel,
+  createProvider,
+  deleteModel,
+  deleteProvider,
+  listModels,
+  listProviders,
+  testProvider,
+  updateModel,
+  updateProvider,
+  type ModelInfo,
+  type Provider,
+  type ProviderType,
+} from "@/api/models";
+
+interface ProviderForm {
+  id: number | null;
+  name: string;
+  providerType: ProviderType;
+  baseUrl: string;
+  apiKey: string;
+  status: "ENABLED" | "DISABLED";
+}
+
+interface ModelForm {
+  id: number | null;
+  providerId: number | null;
+  modelId: string;
+  displayName: string;
+  temperature: string;
+  maxTokens: string;
+  status: "ENABLED" | "DISABLED";
+}
+
+const EMPTY_PROVIDER: ProviderForm = {
+  id: null,
+  name: "",
+  providerType: "OPENAI_COMPATIBLE",
+  baseUrl: "",
+  apiKey: "",
+  status: "ENABLED",
+};
+
+const EMPTY_MODEL: ModelForm = {
+  id: null,
+  providerId: null,
+  modelId: "",
+  displayName: "",
+  temperature: "",
+  maxTokens: "",
+  status: "ENABLED",
+};
+
+export default function ModelsPage() {
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const [providerDialog, setProviderDialog] = useState(false);
+  const [providerForm, setProviderForm] = useState<ProviderForm>(EMPTY_PROVIDER);
+  const [modelDialog, setModelDialog] = useState(false);
+  const [modelForm, setModelForm] = useState<ModelForm>(EMPTY_MODEL);
+  const [testingId, setTestingId] = useState<number | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [p, m] = await Promise.all([listProviders(), listModels()]);
+      setProviders(p.records);
+      setModels(m.records);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function saveProvider() {
+    if (!providerForm.name.trim()) {
+      toast.error("名称不能为空");
+      return;
+    }
+    const payload = {
+      name: providerForm.name.trim(),
+      providerType: providerForm.providerType,
+      baseUrl: providerForm.baseUrl.trim() || null,
+      // 留空表示「不修改密钥」，后端会保留旧值
+      apiKey: providerForm.apiKey.trim() || null,
+      status: providerForm.status,
+    };
+    try {
+      if (providerForm.id == null) {
+        await createProvider(payload);
+        toast.success("已创建供应商");
+      } else {
+        await updateProvider(providerForm.id, payload);
+        toast.success("已保存（api_key 留空则保留原值）");
+      }
+      setProviderDialog(false);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    }
+  }
+
+  async function saveModel() {
+    if (!modelForm.providerId) {
+      toast.error("请选择供应商");
+      return;
+    }
+    if (!modelForm.modelId.trim()) {
+      toast.error("模型 ID 不能为空");
+      return;
+    }
+    const params: Record<string, unknown> = {};
+    if (modelForm.temperature.trim()) params.temperature = Number(modelForm.temperature);
+    if (modelForm.maxTokens.trim()) params.maxTokens = Number(modelForm.maxTokens);
+
+    const payload = {
+      providerId: modelForm.providerId,
+      modelId: modelForm.modelId.trim(),
+      displayName: modelForm.displayName.trim() || null,
+      params,
+      status: modelForm.status,
+    };
+    try {
+      if (modelForm.id == null) {
+        await createModel(payload);
+        toast.success("已创建模型");
+      } else {
+        await updateModel(modelForm.id, payload);
+        toast.success("已保存");
+      }
+      setModelDialog(false);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    }
+  }
+
+  async function runTest(provider: Provider) {
+    setTestingId(provider.id);
+    try {
+      const result = await testProvider(provider.id);
+      if (result.ok) {
+        toast.success(`连通成功：${result.latencyMs} ms`);
+      } else {
+        toast.error(`连通失败：${result.error ?? "未知原因"}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "测试失败");
+    } finally {
+      setTestingId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4 p-6">
+      <div className="flex items-center gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">模型配置</h1>
+          <p className="text-muted-foreground text-xs">
+            先建供应商（含 api_key），再建模型；api_key 只写入、回读恒为 ****。
+          </p>
+        </div>
+        <Button variant="outline" className="ml-auto" onClick={() => void refresh()} disabled={loading}>
+          <RefreshCw className="size-4" /> 刷新
+        </Button>
+      </div>
+
+      <Tabs defaultValue="providers">
+        <TabsList>
+          <TabsTrigger value="providers">供应商（{providers.length}）</TabsTrigger>
+          <TabsTrigger value="models">模型（{models.length}）</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="providers" className="space-y-3">
+          <div className="flex justify-end">
+            <Button
+              onClick={() => {
+                setProviderForm(EMPTY_PROVIDER);
+                setProviderDialog(true);
+              }}
+            >
+              <Plus className="size-4" /> 新建供应商
+            </Button>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>名称</TableHead>
+                    <TableHead>类型</TableHead>
+                    <TableHead>Base URL</TableHead>
+                    <TableHead>API Key</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {providers.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{p.providerType}</Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[240px] truncate font-mono text-xs">
+                        {p.baseUrl ?? "-"}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{p.apiKey ?? "-"}</TableCell>
+                      <TableCell>
+                        <Badge variant={p.status === "ENABLED" ? "secondary" : "outline"}>
+                          {p.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={testingId === p.id}
+                            onClick={() => void runTest(p)}
+                          >
+                            <PlugZap className="size-3.5" />
+                            {testingId === p.id ? "测试中…" : "连通测试"}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="编辑"
+                            onClick={() => {
+                              setProviderForm({
+                                id: p.id,
+                                name: p.name,
+                                providerType: p.providerType,
+                                baseUrl: p.baseUrl ?? "",
+                                apiKey: "",
+                                status: p.status,
+                              });
+                              setProviderDialog(true);
+                            }}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="删除"
+                            onClick={async () => {
+                              if (!confirm(`删除供应商「${p.name}」？`)) return;
+                              try {
+                                await deleteProvider(p.id);
+                                toast.success("已删除");
+                                await refresh();
+                              } catch (err) {
+                                toast.error(err instanceof Error ? err.message : "删除失败");
+                              }
+                            }}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {providers.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-muted-foreground text-center text-sm">
+                        还没有供应商，点「新建供应商」。
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="models" className="space-y-3">
+          <div className="flex justify-end">
+            <Button
+              onClick={() => {
+                setModelForm({ ...EMPTY_MODEL, providerId: providers[0]?.id ?? null });
+                setModelDialog(true);
+              }}
+            >
+              <Plus className="size-4" /> 新建模型
+            </Button>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>模型 ID</TableHead>
+                    <TableHead>显示名</TableHead>
+                    <TableHead>供应商</TableHead>
+                    <TableHead>参数</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {models.map((m) => (
+                    <TableRow key={m.id}>
+                      <TableCell className="font-mono text-xs">{m.modelId}</TableCell>
+                      <TableCell>{m.displayName ?? "-"}</TableCell>
+                      <TableCell className="text-xs">
+                        {providers.find((p) => p.id === m.providerId)?.name ?? m.providerId}
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate font-mono text-xs">
+                        {m.params && Object.keys(m.params).length > 0
+                          ? JSON.stringify(m.params)
+                          : "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={m.status === "ENABLED" ? "secondary" : "outline"}>
+                          {m.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="编辑"
+                            onClick={() => {
+                              const params = (m.params ?? {}) as Record<string, unknown>;
+                              setModelForm({
+                                id: m.id,
+                                providerId: m.providerId,
+                                modelId: m.modelId,
+                                displayName: m.displayName ?? "",
+                                temperature:
+                                  params.temperature != null ? String(params.temperature) : "",
+                                maxTokens: params.maxTokens != null ? String(params.maxTokens) : "",
+                                status: m.status,
+                              });
+                              setModelDialog(true);
+                            }}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="删除"
+                            onClick={async () => {
+                              if (!confirm(`删除模型「${m.modelId}」？`)) return;
+                              try {
+                                await deleteModel(m.id);
+                                toast.success("已删除");
+                                await refresh();
+                              } catch (err) {
+                                toast.error(err instanceof Error ? err.message : "删除失败");
+                              }
+                            }}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {models.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-muted-foreground text-center text-sm">
+                        还没有模型。
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* 供应商弹窗 */}
+      <Dialog open={providerDialog} onOpenChange={setProviderDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{providerForm.id == null ? "新建供应商" : "编辑供应商"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <label className="space-y-1 text-sm">
+              名称
+              <Input
+                value={providerForm.name}
+                onChange={(e) => setProviderForm({ ...providerForm, name: e.target.value })}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              类型
+              <select
+                className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                value={providerForm.providerType}
+                onChange={(e) =>
+                  setProviderForm({ ...providerForm, providerType: e.target.value as ProviderType })
+                }
+              >
+                {PROVIDER_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1 text-sm">
+              Base URL
+              <Input
+                value={providerForm.baseUrl}
+                onChange={(e) => setProviderForm({ ...providerForm, baseUrl: e.target.value })}
+                placeholder="https://your-host/v1"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              API Key{providerForm.id != null && "（留空表示不修改）"}
+              <Input
+                type="password"
+                value={providerForm.apiKey}
+                onChange={(e) => setProviderForm({ ...providerForm, apiKey: e.target.value })}
+                placeholder={providerForm.id == null ? "sk-..." : "****"}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              状态
+              <select
+                className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                value={providerForm.status}
+                onChange={(e) =>
+                  setProviderForm({
+                    ...providerForm,
+                    status: e.target.value as "ENABLED" | "DISABLED",
+                  })
+                }
+              >
+                <option value="ENABLED">ENABLED</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProviderDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void saveProvider()}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 模型弹窗 */}
+      <Dialog open={modelDialog} onOpenChange={setModelDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{modelForm.id == null ? "新建模型" : "编辑模型"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <label className="space-y-1 text-sm">
+              供应商
+              <select
+                className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                value={modelForm.providerId ?? ""}
+                onChange={(e) =>
+                  setModelForm({ ...modelForm, providerId: Number(e.target.value) })
+                }
+              >
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1 text-sm">
+              模型 ID
+              <Input
+                value={modelForm.modelId}
+                onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })}
+                placeholder="gpt-4o-mini / qwen-plus ..."
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              显示名
+              <Input
+                value={modelForm.displayName}
+                onChange={(e) => setModelForm({ ...modelForm, displayName: e.target.value })}
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="space-y-1 text-sm">
+                temperature
+                <Input
+                  value={modelForm.temperature}
+                  onChange={(e) => setModelForm({ ...modelForm, temperature: e.target.value })}
+                  placeholder="0.7"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                maxTokens
+                <Input
+                  value={modelForm.maxTokens}
+                  onChange={(e) => setModelForm({ ...modelForm, maxTokens: e.target.value })}
+                  placeholder="2048"
+                />
+              </label>
+            </div>
+            <label className="space-y-1 text-sm">
+              状态
+              <select
+                className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                value={modelForm.status}
+                onChange={(e) =>
+                  setModelForm({ ...modelForm, status: e.target.value as "ENABLED" | "DISABLED" })
+                }
+              >
+                <option value="ENABLED">ENABLED</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModelDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void saveModel()}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

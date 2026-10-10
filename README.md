@@ -77,6 +77,10 @@ cd frontend && npm run lint && npm run build && npx vitest run
 | `verify-p8-audit.sh` | Token 审计 | summary/byModel/byDay；records 分页；ADMIN 看全员；USER 查他人 403 |
 | `verify-p9-acceptance.sh` | **全链路剧本 + 浏览器截图** | Playwright：工具卡 / 审批卡批准 / 拒绝 / 审计看板 |
 | `e2e-chat.sh` | 聊天主链路浏览器验收 | 流式气泡逐字出现、刷新后历史仍在、断连错误态 |
+| `add-real-model.sh` | 一条命令接入真实大模型 | 建 provider/model → 连通性测试 → 建 Agent（无需 jq） |
+| `cleanup-e2e-data.sh` | 清理实施期测试数据 | 默认预览，`--yes` 才删 |
+
+管理台页面的浏览器验收在 `frontend/e2e/admin.spec.ts`（MCP 新建+同步工具+工具清单、模型连通测试、Skill 版本、Agent 列表），用 `cd frontend && npx playwright test e2e/admin.spec.ts` 运行。
 
 ## 验收证据
 
@@ -93,6 +97,10 @@ cd frontend && npm run lint && npm run build && npx vitest run
 | `task-9.1-approval-card.png` | **审批卡**（工具名 + 参数 + 批准/拒绝） |
 | `task-9.1-approval-approved.png` | 批准后卡片置灰、执行继续 |
 | `task-9.1-approval-denied.png` | 拒绝后卡片置灰、不执行 |
+| `task-repair-mcp-page.png` | **MCP 管理页**（新建 STDIO → 同步 13 个工具 → 工具清单） |
+| `task-repair-models-page.png` | 模型页（供应商/模型列表 + api_key 掩码 + 连通测试） |
+| `task-repair-skills-page.png` | Skill 页（新建 + 版本 v1） |
+| `task-repair-agents-page.png` | Agent 页（绑定与权限模式） |
 
 ## 已知环境偏离（相对《技术方案》）
 
@@ -102,11 +110,16 @@ cd frontend && npm run lint && npm run build && npx vitest run
 | Redis db | db0/db1 | **db10/db11** | db0/db1 已被同实例其他应用占用 |
 | 集成测试 | Testcontainers | 连内网**专用测试库** | 机器未安装 Docker |
 | 前端 Markdown | 未指定库 | 新增 `react-markdown` | 方案要求 Markdown 渲染气泡但未指定实现 |
+| 权限拦截 | 依赖权限中间件 | 需显式 **ASK 规则** | 实测仅设 `PermissionMode.DEFAULT` 拦不住工具调用 |
+| AG-UI 入口 | 未指定 | 必须走官方 **`AguiRequestProcessor`** | 直接调 `adapter.run` 会让 `resume` 失效 |
+| SSE 出站 | — | 去掉值为 null 的字段 | 官方客户端 Zod `optional()` 不接受 null，否则整个 `RUN_FINISHED` 被丢弃 |
 
 ## 未完成 / 超出当前范围
 
-- 管理台前端页面（模型/Agent/Skill/MCP）目前是占位页，**后端接口均已就绪可用 curl 调用**
-- 见 `docs/backlog.md`
+- 见 `docs/backlog.md`（RAG/语音/A2A/多租户/国际化等，均属方案 G7 明确排除项）
+
+> 管理台四个页面（模型 / Agent / Skill / MCP）已按《技术方案》第 7 节实现：
+> `http://localhost:5173/admin/{models,agents,skills,mcp}`。
 
 ## 数据库
 
