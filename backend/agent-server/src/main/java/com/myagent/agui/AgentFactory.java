@@ -3,7 +3,10 @@ package com.myagent.agui;
 import com.myagent.agentconfig.cache.AgentCacheInvalidator;
 import com.myagent.agentconfig.entity.Agent;
 import com.myagent.agentconfig.mapper.AgentMapper;
+import com.myagent.agentconfig.mapper.AgentMcpServerMapper;
 import com.myagent.agentconfig.mapper.AgentSkillMapper;
+import com.myagent.mcpconfig.entity.McpServer;
+import com.myagent.mcpconfig.mapper.McpServerMapper;
 import com.myagent.common.BizException;
 import com.myagent.modelconfig.entity.LlmModel;
 import com.myagent.modelconfig.entity.LlmProvider;
@@ -16,6 +19,7 @@ import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.skill.SkillFilter;
+import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +55,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     private final SkillRepositorySync skillRepositorySync;
     private final AgentSkillMapper agentSkillMapper;
     private final SkillMapper skillMapper;
+    private final AgentMcpServerMapper agentMcpServerMapper;
+    private final McpServerMapper mcpServerMapper;
+    private final McpToolkitFactory mcpToolkitFactory;
 
     private final Map<Long, HarnessAgent> cache = new ConcurrentHashMap<>();
 
@@ -63,7 +70,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             AguiProperties aguiProperties,
             SkillRepositorySync skillRepositorySync,
             AgentSkillMapper agentSkillMapper,
-            SkillMapper skillMapper) {
+            SkillMapper skillMapper,
+            AgentMcpServerMapper agentMcpServerMapper,
+            McpServerMapper mcpServerMapper,
+            McpToolkitFactory mcpToolkitFactory) {
         this.agentMapper = agentMapper;
         this.llmModelMapper = llmModelMapper;
         this.llmProviderMapper = llmProviderMapper;
@@ -73,6 +83,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         this.skillRepositorySync = skillRepositorySync;
         this.agentSkillMapper = agentSkillMapper;
         this.skillMapper = skillMapper;
+        this.agentMcpServerMapper = agentMcpServerMapper;
+        this.mcpServerMapper = mcpServerMapper;
+        this.mcpToolkitFactory = mcpToolkitFactory;
     }
 
     /** 按 Agent 主键构建（带缓存）。 */
@@ -163,7 +176,15 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 ? SkillFilter.none()
                 : SkillFilter.only(boundSkillNames.toArray(String[]::new));
 
-        // TODO(P6): 装载绑定的 MCP Server 工具（官方 McpClientManager）
+        // MCP：按绑定注册官方 MCP 工具（工具由框架按 Server 命名空间暴露）
+        List<Long> boundMcpIds = agentMcpServerMapper.findMcpServerIds(agent.getId());
+        List<McpServer> mcpServers = boundMcpIds.isEmpty()
+                ? List.of()
+                : mcpServerMapper.selectList(
+                        com.baomidou.mybatisplus.core.toolkit.Wrappers.<McpServer>lambdaQuery()
+                                .in(McpServer::getId, boundMcpIds)
+                                .eq(McpServer::getStatus, "ENABLED"));
+        Toolkit toolkit = mcpToolkitFactory.buildToolkit(mcpServers);
 
         HarnessAgent built = HarnessAgent.builder()
                 .name(agent.getName())
@@ -175,15 +196,17 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .generateOptions(options.build())
                 .skillRepository(skillRepositorySync.newRepository())
                 .skillFilter(skillFilter)
+                .toolkit(toolkit)
                 .permissionContext(PermissionContextState.builder()
                         .mode(toPermissionMode(agent.getPermissionMode()))
                         .build())
                 .build();
         log.info(
-                "构建 Agent 完成: {} (mode={}, skills={})",
+                "构建 Agent 完成: {} (mode={}, skills={}, mcpServers={})",
                 agent.getAgentId(),
                 agent.getPermissionMode(),
-                boundSkillNames);
+                boundSkillNames,
+                mcpServers.stream().map(McpServer::getName).toList());
         return built;
     }
 

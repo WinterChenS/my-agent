@@ -26,6 +26,11 @@ STUB_MARKER = os.environ.get("STUB_MARKER", "")
 STUB_MARKER_REPLY = os.environ.get("STUB_MARKER_REPLY", "MARKER-SEEN")
 # 可选：把最近一次收到的请求体写到该文件，便于对照“模型实际收到了什么”。
 STUB_DUMP = os.environ.get("STUB_DUMP", "")
+# 可选：让桩模拟“模型要调用工具”（用于验证 MCP 工具与 HITL 审批链路）。
+# STUB_TOOL_NAME 为工具名片段（大小写不敏感）；仅在请求里带了工具、且尚未出现 tool 结果时触发一次。
+# 触发时会在 stdout 打印命中的完整工具名（含命名空间），便于验收取证。
+STUB_TOOL_NAME = os.environ.get("STUB_TOOL_NAME", "")
+STUB_TOOL_ARGS = os.environ.get("STUB_TOOL_ARGS", "{}")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -74,23 +79,100 @@ class Handler(BaseHTTPRequestHandler):
         model = body.get("model", "stub-model")
         created = int(time.time())
         usage = {"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16}
-        reply = self._reply_for(raw)
+        tool_call = self._tool_call_to_emit(body)
 
         if body.get("stream"):
-            self._stream(model, created, usage, reply)
+            if tool_call:
+                self._stream_tool_call(model, created, usage, tool_call)
+            else:
+                self._stream(model, created, usage, self._reply_for(raw))
         else:
+            message = {"role": "assistant", "content": self._reply_for(raw)}
+            finish = "stop"
+            if tool_call:
+                message = {"role": "assistant", "content": None, "tool_calls": [tool_call]}
+                finish = "tool_calls"
             self._json(200, {
                 "id": "chatcmpl-stub",
                 "object": "chat.completion",
                 "created": created,
                 "model": model,
-                "choices": [{
-                    "index": 0,
-                    "message": {"role": "assistant", "content": reply},
-                    "finish_reason": "stop",
-                }],
+                "choices": [{"index": 0, "message": message, "finish_reason": finish}],
                 "usage": usage,
             })
+
+    def _tool_call_to_emit(self, body):
+        """
+        决定本轮是否要模拟一次工具调用。
+
+        规则：配置了 STUB_TOOL_NAME、请求里带了工具、且还没出现任何 tool 结果（避免无限循环）。
+        命中时在 stdout 打印完整工具名（含命名空间），便于验收取证。
+        """
+        if not STUB_TOOL_NAME:
+            return None
+        tools = body.get("tools") or []
+        if not tools:
+            return None
+        for m in body.get("messages") or []:
+            if m.get("role") == "tool":
+                return None  # 已经执行过工具，该收尾了
+        wanted = STUB_TOOL_NAME.lower()
+        for t in tools:
+            fn = (t or {}).get("function") or {}
+            name = fn.get("name") or ""
+            if wanted in name.lower():
+                print(f"TOOL-CALL-HIT={name}", flush=True)
+                return {
+                    "id": "call_stub_1",
+                    "type": "function",
+                    "function": {"name": name, "arguments": STUB_TOOL_ARGS},
+                }
+        return None
+
+    def _stream_tool_call(self, model, created, usage, tool_call):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        def chunk(delta, finish=None):
+            payload = {
+                "id": "chatcmpl-stub",
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+            }
+            self.wfile.write(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8"))
+            self.wfile.flush()
+
+        chunk({"role": "assistant", "content": ""})
+        name = tool_call["function"]["name"]
+        args = tool_call["function"]["arguments"]
+        chunk({"tool_calls": [{
+            "index": 0,
+            "id": tool_call["id"],
+            "type": "function",
+            "function": {"name": name, "arguments": ""},
+        }]})
+        for piece in [args[i:i + 8] for i in range(0, len(args), 8)]:
+            if CHUNK_DELAY_MS > 0:
+                time.sleep(CHUNK_DELAY_MS / 1000.0)
+            chunk({"tool_calls": [{"index": 0, "function": {"arguments": piece}}]})
+        chunk({}, finish="tool_calls")
+
+        final = {
+            "id": "chatcmpl-stub",
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [],
+            "usage": usage,
+        }
+        self.wfile.write(f"data: {json.dumps(final, ensure_ascii=False)}\n\n".encode("utf-8"))
+        self.wfile.write(b"data: [DONE]\n\n")
+        self.wfile.flush()
 
     @staticmethod
     def _reply_for(raw: bytes) -> str:
