@@ -1,4 +1,4 @@
-import { NavLink, Outlet, Route, Routes } from "react-router";
+import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 import {
   Bot,
   Blocks,
@@ -6,9 +6,14 @@ import {
   Plug,
   Cpu,
   ScrollText,
+  LogOut,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/stores/auth";
+import LoginPage from "@/pages/login/LoginPage";
+import ChatPage from "@/pages/chat/ChatPage";
 
 interface NavItem {
   to: string;
@@ -37,14 +42,24 @@ function Placeholder({ title }: { title: string }) {
   );
 }
 
+/** 未登录跳转到 /login。 */
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const token = useAuthStore((s) => s.token);
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  return <>{children}</>;
+}
+
 function AppLayout() {
+  const user = useAuthStore((s) => s.user);
+  const clear = useAuthStore((s) => s.clear);
+
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen">
       <aside className="bg-sidebar text-sidebar-foreground flex w-56 shrink-0 flex-col border-r">
-        <div className="flex h-14 items-center px-4 text-base font-semibold">
-          my-agent
-        </div>
-        <nav className="flex flex-col gap-1 p-2">
+        <div className="flex h-14 items-center px-4 text-base font-semibold">my-agent</div>
+        <nav className="flex flex-1 flex-col gap-1 p-2">
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
@@ -63,8 +78,17 @@ function AppLayout() {
             </NavLink>
           ))}
         </nav>
+        <div className="flex items-center gap-2 border-t p-2 text-xs">
+          <span className="flex-1 truncate" title={user?.username}>
+            {user?.displayName ?? user?.username}
+            <span className="text-muted-foreground"> ({user?.role})</span>
+          </span>
+          <Button variant="ghost" size="icon" className="size-7" onClick={clear} title="退出登录">
+            <LogOut className="size-3.5" />
+          </Button>
+        </div>
       </aside>
-      <main className="flex-1 overflow-auto">
+      <main className="min-w-0 flex-1 overflow-hidden">
         <Outlet />
       </main>
     </div>
@@ -74,9 +98,16 @@ function AppLayout() {
 export default function App() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
-        <Route index element={<Placeholder title="聊天" />} />
-        <Route path="chat" element={<Placeholder title="聊天" />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        element={
+          <RequireAuth>
+            <AppLayout />
+          </RequireAuth>
+        }
+      >
+        <Route index element={<Navigate to="/chat" replace />} />
+        <Route path="chat" element={<ChatPage />} />
         <Route path="admin/models" element={<Placeholder title="模型配置" />} />
         <Route path="admin/agents" element={<Placeholder title="Agent 配置" />} />
         <Route path="admin/skills" element={<Placeholder title="Skill 配置" />} />
