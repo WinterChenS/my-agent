@@ -43,6 +43,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     private final LlmProviderMapper llmProviderMapper;
     private final CryptoService cryptoService;
     private final ModelFactory modelFactory;
+    private final AguiProperties aguiProperties;
 
     private final Map<Long, HarnessAgent> cache = new ConcurrentHashMap<>();
 
@@ -51,12 +52,14 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             LlmModelMapper llmModelMapper,
             LlmProviderMapper llmProviderMapper,
             CryptoService cryptoService,
-            ModelFactory modelFactory) {
+            ModelFactory modelFactory,
+            AguiProperties aguiProperties) {
         this.agentMapper = agentMapper;
         this.llmModelMapper = llmModelMapper;
         this.llmProviderMapper = llmProviderMapper;
         this.cryptoService = cryptoService;
         this.modelFactory = modelFactory;
+        this.aguiProperties = aguiProperties;
     }
 
     /** 按 Agent 主键构建（带缓存）。 */
@@ -90,6 +93,26 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             throw BizException.notFound("Agent 不存在: " + agentId);
         }
         return build(agent.getId());
+    }
+
+    /**
+     * 把外部引用解析为 Agent 主键：纯数字视为主键，否则按业务标识 agent_id 查。
+     *
+     * @return 找不到时返回 null（由调用方决定报错方式）
+     */
+    public Long resolveAgentDbId(String reference) {
+        if (!org.springframework.util.StringUtils.hasText(reference)) {
+            return null;
+        }
+        String trimmed = reference.trim();
+        if (trimmed.chars().allMatch(Character::isDigit)) {
+            Long id = Long.valueOf(trimmed);
+            return agentMapper.selectById(id) == null ? null : id;
+        }
+        Agent agent = agentMapper.selectOne(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<Agent>lambdaQuery()
+                        .eq(Agent::getAgentId, trimmed));
+        return agent == null ? null : agent.getId();
     }
 
     private HarnessAgent doBuild(Agent agent) {
@@ -127,6 +150,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .sysPrompt(agent.getSysPrompt())
                 .model(chatModel)
                 .maxIters(agent.getMaxIterations() == null ? 20 : agent.getMaxIterations())
+                .workspace(java.nio.file.Path.of(aguiProperties.workspaceRoot()))
                 .generateOptions(options.build())
                 .permissionContext(PermissionContextState.builder()
                         .mode(toPermissionMode(agent.getPermissionMode()))

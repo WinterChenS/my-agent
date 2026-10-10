@@ -1,0 +1,164 @@
+package com.myagent.chat.service;
+
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.myagent.chat.dto.MessageResponse;
+import com.myagent.chat.dto.SessionRequest;
+import com.myagent.chat.dto.SessionResponse;
+import com.myagent.chat.entity.ChatMessage;
+import com.myagent.chat.entity.ChatSession;
+import com.myagent.chat.mapper.ChatMessageMapper;
+import com.myagent.chat.mapper.ChatSessionMapper;
+import com.myagent.common.BizException;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+/** 会话与消息：按用户隔离，AG-UI 按 threadId 定位会话。 */
+@Service
+public class ChatSessionService {
+
+    private final ChatSessionMapper sessionMapper;
+    private final ChatMessageMapper messageMapper;
+
+    public ChatSessionService(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper) {
+        this.sessionMapper = sessionMapper;
+        this.messageMapper = messageMapper;
+    }
+
+    public List<SessionResponse> list(Long userId) {
+        return sessionMapper
+                .selectList(Wrappers.<ChatSession>lambdaQuery()
+                        .eq(ChatSession::getUserId, userId)
+                        .orderByDesc(ChatSession::getId))
+                .stream()
+                .map(ChatSessionService::toResponse)
+                .toList();
+    }
+
+    @Transactional
+    public SessionResponse create(Long userId, SessionRequest request) {
+        String threadId = StringUtils.hasText(request.threadId())
+                ? request.threadId()
+                : java.util.UUID.randomUUID().toString();
+        ChatSession session = createForThread(userId, threadId, request.agentId());
+        if (StringUtils.hasText(request.title())) {
+            session.setTitle(request.title());
+            sessionMapper.updateById(session);
+        }
+        return toResponse(session);
+    }
+
+    @Transactional
+    public void delete(Long userId, Long sessionId) {
+        ChatSession session = requireOwned(userId, sessionId);
+        messageMapper.delete(Wrappers.<ChatMessage>lambdaQuery().eq(ChatMessage::getSessionId, session.getId()));
+        sessionMapper.deleteById(session.getId());
+    }
+
+    public List<MessageResponse> messages(Long userId, Long sessionId) {
+        ChatSession session = requireOwned(userId, sessionId);
+        return messageMapper
+                .selectList(Wrappers.<ChatMessage>lambdaQuery()
+                        .eq(ChatMessage::getSessionId, session.getId())
+                        .orderByAsc(ChatMessage::getSeq)
+                        .orderByAsc(ChatMessage::getId))
+                .stream()
+                .map(ChatSessionService::toResponse)
+                .toList();
+    }
+
+    /** AG-UI：按 (userId, threadId) 查找已有会话。 */
+    public Optional<ChatSession> findByThread(Long userId, String threadId) {
+        if (!StringUtils.hasText(threadId)) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(sessionMapper.selectOne(Wrappers.<ChatSession>lambdaQuery()
+                .eq(ChatSession::getUserId, userId)
+                .eq(ChatSession::getThreadId, threadId)));
+    }
+
+    @Transactional
+    public ChatSession createForThread(Long userId, String threadId, Long agentId) {
+        ChatSession session = new ChatSession();
+        session.setUserId(userId);
+        session.setAgentId(agentId);
+        session.setThreadId(threadId);
+        session.setTitle("会话 " + threadId.substring(0, Math.min(8, threadId.length())));
+        session.setLastActiveAt(OffsetDateTime.now());
+        sessionMapper.insert(session);
+        return session;
+    }
+
+    /** 追加一条消息，seq 自增。 */
+    @Transactional
+    public void appendMessage(Long sessionId, String role, String content, Map<String, Object> aguiMeta) {
+        if (!StringUtils.hasText(content)) {
+            return;
+        }
+        ChatMessage message = new ChatMessage();
+        message.setSessionId(sessionId);
+        message.setRole(role);
+        message.setContent(content);
+        message.setAguiMeta(aguiMeta);
+        message.setSeq(nextSeq(sessionId));
+        messageMapper.insert(message);
+    }
+
+    @Transactional
+    public void touch(Long sessionId) {
+        ChatSession session = sessionMapper.selectById(sessionId);
+        if (session != null) {
+            session.setLastActiveAt(OffsetDateTime.now());
+            sessionMapper.updateById(session);
+        }
+    }
+
+    private int nextSeq(Long sessionId) {
+        Long maxSeq = messageMapper
+                .selectList(Wrappers.<ChatMessage>lambdaQuery()
+                        .select(ChatMessage::getSeq)
+                        .eq(ChatMessage::getSessionId, sessionId))
+                .stream()
+                .map(ChatMessage::getSeq)
+                .filter(java.util.Objects::nonNull)
+                .map(Integer::longValue)
+                .max(Long::compareTo)
+                .orElse(0L);
+        return (int) (maxSeq + 1);
+    }
+
+    private ChatSession requireOwned(Long userId, Long sessionId) {
+        ChatSession session = sessionId == null ? null : sessionMapper.selectById(sessionId);
+        if (session == null) {
+            throw BizException.notFound("会话不存在: " + sessionId);
+        }
+        if (!session.getUserId().equals(userId)) {
+            throw BizException.forbidden("无权访问他人会话");
+        }
+        return session;
+    }
+
+    private static SessionResponse toResponse(ChatSession session) {
+        return new SessionResponse(
+                session.getId(),
+                session.getAgentId(),
+                session.getTitle(),
+                session.getThreadId(),
+                session.getLastActiveAt(),
+                session.getCreatedAt());
+    }
+
+    private static MessageResponse toResponse(ChatMessage message) {
+        return new MessageResponse(
+                message.getId(),
+                message.getRole(),
+                message.getContent(),
+                message.getAguiMeta(),
+                message.getSeq(),
+                message.getCreatedAt());
+    }
+}

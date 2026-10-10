@@ -2,6 +2,7 @@ package com.myagent.config;
 
 import com.myagent.auth.JwtAuthFilter;
 import com.myagent.auth.JwtService;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -54,7 +55,12 @@ public class SecurityConfig {
                 .exceptionHandling(e -> e.authenticationEntryPoint(authEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/login", "/api/health").permitAll()
+                        // SSE 的异步派发与容器错误页不应该再走一遍鉴权：否则客户端断开后
+                        // Spring Security 会在已提交的响应上抛异常（Task 4.2 实测发现）。
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR)
+                        .permitAll()
+                        .requestMatchers("/api/auth/login", "/api/health")
+                        .permitAll()
                         .requestMatchers(HttpMethod.GET, CONFIG_PATHS).authenticated()
                         .requestMatchers(CONFIG_PATHS).hasRole("ADMIN")
                         .anyRequest().authenticated())

@@ -49,3 +49,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+
+# ===== Agent 运行时工作区（HarnessAgent 产生的 memory / events，属于运行时状态） =====
+.agentscope/
+.myagent-workspace/

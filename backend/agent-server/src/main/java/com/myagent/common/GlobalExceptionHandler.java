@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /** 全局异常处理：任何异常都转换为 {@link Result}，不向客户端抛裸 500 堆栈。 */
@@ -50,10 +51,43 @@ public class GlobalExceptionHandler {
         return fe.getField() + ": " + fe.getDefaultMessage();
     }
 
+    /**
+     * 客户端中途断开（SSE 场景常见）：响应已不可写，属于正常情况，
+     * 不能当成未预期异常，也不应写入响应体。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClientAbort(AsyncRequestNotUsableException ex) {
+        log.debug("客户端已断开，异步响应不可写: {}", ex.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Result<Void>> handleUnexpected(Exception ex) {
+        // Tomcat 在客户端断开时可能抛出 IOException 包装（ClientAbortException），
+        // 同样属于正常断开，不应记为服务端故障。
+        if (isClientAbort(ex)) {
+            log.debug("客户端已断开（I/O 中断）: {}", ex.getMessage());
+            return null;
+        }
         log.error("未预期异常", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Result.error(500, "服务器内部错误"));
+    }
+
+    private static boolean isClientAbort(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            String name = current.getClass().getName();
+            if (name.endsWith("ClientAbortException") || current instanceof java.io.IOException) {
+                String message = current.getMessage();
+                if (message != null
+                        && (message.contains("中止") || message.contains("aborted")
+                                || message.contains("Broken pipe") || message.contains("Connection reset")
+                                || message.contains("不可用"))) {
+                    return true;
+                }
+            }
+            current = current.getCause() == current ? null : current.getCause();
+        }
+        return false;
     }
 }
