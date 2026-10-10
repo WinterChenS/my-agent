@@ -57,3 +57,10 @@ pnpm-debug.log*
 # ===== 验收产物的瞬时部分（截图保留，报告/trace 不入库） =====
 docs/acceptance/playwright-report/
 frontend/test-results/
+
+# ===== Comet Runtime 的临时输入文件（不是交付物） =====
+handoff.json
+verifier.json
+dispatch.json
+ref.txt
+acc.txt
