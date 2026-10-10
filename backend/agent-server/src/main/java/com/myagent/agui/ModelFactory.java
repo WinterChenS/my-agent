@@ -1,0 +1,102 @@
+package com.myagent.agui;
+
+import com.myagent.common.BizException;
+import io.agentscope.core.model.ChatModelBase;
+import io.agentscope.core.model.GenerateOptions;
+import io.agentscope.extensions.model.anthropic.AnthropicChatModel;
+import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
+import io.agentscope.extensions.model.openai.OpenAIChatModel;
+import java.util.Map;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+/**
+ * 把数据库里的 provider/model 配置翻译为 AgentScope 官方模型实例。
+ *
+ * <p>门禁 G2：这是唯一集中使用 {@code io.agentscope} 模型 API 的地方（连同包内的 AG-UI/审批代码）。
+ * 门禁 G8：只使用官方扩展（openai / dashscope / anthropic），不自定义协议。
+ */
+@Component
+public class ModelFactory {
+
+    /** 走 OpenAI 兼容协议的类型。 */
+    private static final String TYPE_OPENAI = "OPENAI";
+    private static final String TYPE_OPENAI_COMPATIBLE = "OPENAI_COMPATIBLE";
+    private static final String TYPE_GEMINI = "GEMINI";
+    private static final String TYPE_OLLAMA = "OLLAMA";
+    private static final String TYPE_DASHSCOPE = "DASHSCOPE";
+    private static final String TYPE_ANTHROPIC = "ANTHROPIC";
+
+    public ChatModelBase create(
+            String providerType,
+            String baseUrl,
+            String apiKey,
+            String modelId,
+            Map<String, Object> params,
+            boolean stream) {
+        GenerateOptions options = buildOptions(params);
+        String type = providerType == null ? "" : providerType.trim().toUpperCase();
+        return switch (type) {
+            case TYPE_OPENAI, TYPE_OPENAI_COMPATIBLE, TYPE_GEMINI, TYPE_OLLAMA ->
+                    openAi(baseUrl, apiKey, modelId, options, stream);
+            case TYPE_DASHSCOPE -> dashScope(baseUrl, apiKey, modelId, options, stream);
+            case TYPE_ANTHROPIC -> anthropic(baseUrl, apiKey, modelId, options, stream);
+            default -> throw BizException.badRequest("不支持的 provider_type: " + providerType);
+        };
+    }
+
+    private ChatModelBase openAi(
+            String baseUrl, String apiKey, String modelId, GenerateOptions options, boolean stream) {
+        OpenAIChatModel.Builder builder = OpenAIChatModel.builder()
+                .apiKey(apiKey)
+                .modelName(modelId)
+                .stream(stream)
+                .generateOptions(options);
+        if (StringUtils.hasText(baseUrl)) {
+            builder.baseUrl(baseUrl);
+        }
+        return builder.build();
+    }
+
+    private ChatModelBase dashScope(
+            String baseUrl, String apiKey, String modelId, GenerateOptions options, boolean stream) {
+        DashScopeChatModel.Builder builder = DashScopeChatModel.builder()
+                .apiKey(apiKey)
+                .modelName(modelId)
+                .stream(stream)
+                .defaultOptions(options);
+        if (StringUtils.hasText(baseUrl)) {
+            builder.baseUrl(baseUrl);
+        }
+        return builder.build();
+    }
+
+    private ChatModelBase anthropic(
+            String baseUrl, String apiKey, String modelId, GenerateOptions options, boolean stream) {
+        AnthropicChatModel.Builder builder = AnthropicChatModel.builder()
+                .apiKey(apiKey)
+                .modelName(modelId)
+                .stream(stream)
+                .defaultOptions(options);
+        if (StringUtils.hasText(baseUrl)) {
+            builder.baseUrl(baseUrl);
+        }
+        return builder.build();
+    }
+
+    /** 采样参数：temperature / maxTokens，均为可选。 */
+    private GenerateOptions buildOptions(Map<String, Object> params) {
+        GenerateOptions.Builder builder = GenerateOptions.builder();
+        if (params != null) {
+            Object temperature = params.get("temperature");
+            if (temperature instanceof Number number) {
+                builder.temperature(number.doubleValue());
+            }
+            Object maxTokens = params.get("maxTokens");
+            if (maxTokens instanceof Number number) {
+                builder.maxTokens(number.intValue());
+            }
+        }
+        return builder.build();
+    }
+}

@@ -105,7 +105,7 @@
 - D6 工件可达性（实测）：Maven Central 与 npm registry 均可访问；方案 2.1 中全部 `io.agentscope:*:2.0.3` 坐标在 Central 存在（`agentscope-harness`、`extensions-agui`、`extensions-model-openai`、`extensions-model-dashscope`、`extensions-redis`、`extensions-postgresql`、`extensions-skills`）。因此 G1 的坐标可用，无需换版本。
 - D7 范围：`docs/任务列表.md` 全部 16 个任务即本次 change 的完整目标规格；不额外征询是否缩小范围。实现可分批推进并保存 checkpoint，但完成判定不因分批而降级。
 - D9 模型接入方式（用户已确认）：验收路径使用 **OpenAI 兼容端点**（`provider_type=OPENAI_COMPATIBLE`），对应 `agentscope-extensions-model-openai`；dashscope 扩展仍按方案保留在依赖中。具体 base_url / model id / api_key 只写入本地未提交的 `.env` 与 `application-dev.yml`，不进入任何 Comet 产物。
-- D10 模型凭据的交付方式：用户已确认走 OpenAI 兼容协议，但尚未提供 `base_url` / `model id` / `api_key`。实现直接按 OpenAI 兼容协议落地；端点与密钥通过本地未提交配置 / 环境变量注入。Phase 2 连通性测试与 Phase 4–8 的链路 E2E 先用同协议本地 OpenAI 兼容桩服务（实现 `/v1/chat/completions`，含 SSE 流式与 usage 字段）完成机械验证并标注桩来源；用户提供真实凭据后复跑同一测试，以真实端点证据替换桩证据。此项不阻塞实现。
+- D10 模型凭据的交付方式：用户已确认走 OpenAI 兼容协议，但尚未提供 `base_url` / `model id` / `api_key`。实现直接按 OpenAI 兼容协议落地；端点与密钥通过本地未提交配置 / 环境变量注入。Phase 2 连通性测试与 Phase 4–8 的链路 E2E 先用同协议本地 OpenAI 兼容桩服务（**已提交在 `tools/llm-stub/stub.py`**，实现 `/v1/chat/completions`，含 SSE 流式与 `usage` 字段）完成机械验证并标注桩来源；用户提供真实凭据后复跑同一测试，以真实端点证据替换桩证据。此项不阻塞实现。
 - D8 provider 类型映射：`OPENAI` / `OPENAI_COMPATIBLE` / `OLLAMA` / `GEMINI` 走 OpenAI 兼容端点（若存在官方扩展则优先官方扩展），`DASHSCOPE` 走 dashscope 扩展，`ANTHROPIC` 走官方 anthropic 扩展（若该版本提供）。具体以构建期实际可解析的官方扩展为准。
 
 # 开放问题

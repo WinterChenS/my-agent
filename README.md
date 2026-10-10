@@ -69,3 +69,13 @@ cd frontend && npm run lint && npm run build && npx vitest run
 - 应用库：`agent_platform`（Flyway 管理，DDL 只允许出现在 `src/main/resources/db/migration/`）
 - 测试库：`agent_platform_test`
 - Redis 逻辑库：`db10` 会话、`db11` 缓存，键前缀 `myagent:`（`db0`/`db1` 已被同实例其他应用占用）
+
+## 本地模型桩（仅开发验证用）
+
+尚未配置真实模型端点时，可用仓库内的 OpenAI 兼容桩验证连通性测试与聊天链路：
+
+```bash
+python tools/llm-stub/stub.py        # 监听 127.0.0.1:8099，提供 /v1/chat/completions
+```
+
+该脚本只是开发期验证辅助，不是平台组件。

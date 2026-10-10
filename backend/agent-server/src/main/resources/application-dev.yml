@@ -1,7 +1,7 @@
 # 仅 dev profile。内网环境，按《技术方案.md》第 10 节允许明文。
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/agent_platform
+    url: jdbc:postgresql://localhost:5432/agent_platform?stringtype=unspecified
     username: app_user
     password: CHANGE_ME
     driver-class-name: org.postgresql.Driver
