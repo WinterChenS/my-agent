@@ -6,7 +6,7 @@ import java.util.Map;
  * 模型连通性测试契约。
  *
  * <p>接口刻意放在 {@code modelconfig} 包，实现放在 {@code agui} 包：门禁 G2 要求配置类包不得引用
- * {@code io.agentscope}，因此真正调用 AgentScope 官方模型扩展的代码集中在一处。
+ * AgentScope 的 Java 包，因此真正调用 AgentScope 官方模型扩展的代码集中在一处。
  */
 public interface ModelConnectivityProbe {
 
