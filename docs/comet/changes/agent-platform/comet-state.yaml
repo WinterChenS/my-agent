@@ -3,7 +3,7 @@ name: agent-platform
 language: zh-CN
 phase: shape
 status: active
-state_version: 17
+state_version: 23
 brief: brief.md
 document_constraints_version: 2
 spec_changes:
@@ -44,11 +44,11 @@ workspace:
   finish: null
 loop:
   stage: shape
-  goal_cycle: 4
+  goal_cycle: 5
   iteration: 0
   attempt: 0
   retry_epoch: 0
-  failed_iteration_count: 1
+  failed_iteration_count: 0
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
@@ -124,6 +124,38 @@ history:
       text: Native Shape artifacts changed
       truncated: false
     completed_at: 2026-10-11T05:14:06.834Z
+  - goal_cycle: 4
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 我独立跑了后端 mvn verify（63 tests 全过）、前端 tsc/lint/vitest（27 项全过），并串行跑了 8 个 E2E
+        脚本：p5/p6(复跑)/p7/p72(confirm+mapping)/p8/p9(Playwright 4
+        passed)/p10-artifacts/p10-minio-down 全部 PASS；另手动起后端实测 A1-A10
+        的登录/401/密钥脱敏/连通测试/agent 绑定与重复 id 契约、A11-A12 的 SSE 事件序列与
+        chat_session/chat_message 落库，并用 phase10.spec.ts 实测 A35-A38 右侧栏与 / 选技能。40
+        项验收全部有实测证据，无一 blocked。未能独立确认的部分只有页面视觉细节（依赖 Playwright 断言与既有截图），但相关用例均通过。
+      truncated: false
+    completed_at: 2026-10-11T06:12:33.440Z
+  - goal_cycle: 4
+    iteration: 1
+    attempt: 1
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: >-
+        用户在独立验收通过后提出两条新增需求，需要修订需求后重新实现与验收：
+
+        （一）记忆与会话状态入库：目前对话消息已在 PostgreSQL，但 Agent 的长期记忆（工作区
+        memory/*.md）与框架会话状态（agents/*/sessions/*.jsonl）仍在磁盘。用户要求都存到数据库，并选定做法 A ——
+        用官方 SPI 实现 PostgreSQL 版存储（AgentStateStore 承载会话状态；官方 RemoteFilesystem +
+        PostgreSQL 版 BaseStore 承载长期记忆），改动集中在存储层，Agent 工具与对话链路行为不变。
+
+        （二）附件交互调整：上传的文件要在输入框上方以可移除的形式显示、支持多选；用户选定「暂存 +
+        发送时上传」（暂存期间只在浏览器，不产生会话记录）。
+      truncated: false
+    completed_at: 2026-10-11T06:27:35.049Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null

@@ -39,11 +39,19 @@ Phase 10：产物与文件（新增，基于同一平台）
 
 环境（已实测）：MinIO `http://localhost:9000`（健康检查 200、凭据有效）；现有 bucket：`agent-images`、`nova-assets`。
 
+Phase 11（用户新增需求，2026-10-11 第二轮）：记忆与会话状态入库 + 输入框上方附件
+
+1. **记忆与会话状态入库**：对话消息已存 PostgreSQL，但 Agent 的长期记忆（工作区 `memory/*.md`）与框架会话状态（`agents/*/sessions/*.jsonl`）仍在磁盘。用户要求二者都存入数据库，并选定做法 **A**：
+   - 会话状态：实现 PostgreSQL 版官方 `AgentStateStore`，替换框架默认的 JsonFile 实现，经 `HarnessAgent.Builder.stateStore(...)` 注入。
+   - 长期记忆：使用官方 `RemoteFilesystem` + 自研 **PostgreSQL 版 `BaseStore`**（官方 SPI，方法仅 `get/put/search/delete`）承载记忆文件。
+   - 门禁 G8 不变：不重写框架的记忆生成/合并与状态管理逻辑，只替换官方 SPI 的存储后端；不引入向量检索。
+2. **输入框上方附件**：选中的文件以可移除条目显示在**输入框上方**，支持多选与追加；**发送时才上传**（沿用 Phase 10 的存储路由与物化逻辑），右侧栏「来源文件」照旧记录。暂存期间只在浏览器，不产生会话记录。
+
 # 非目标
 
 以下内容不实现，发现价值时只记录到 `docs/backlog.md`（门禁 G7）：
 
-- RAG / 向量检索、语音、A2A 多 Agent 协作协议、多租户、国际化
+- RAG / 向量检索（含记忆的语义检索：Phase 11 只替换记忆的**存储后端**，不引入 embedding）、语音、A2A 多 Agent 协作协议、多租户、国际化
 - 自研推理循环、自研工具调用编排、自研 MCP JSON-RPC 解析、自研审批等待逻辑（门禁 G8：必须用 AgentScope 官方扩展）
 - 前端解析模型响应、拼接 prompt、直连模型 API
 - 配置类包（`modelconfig` / `agentconfig` / `skillconfig` / `mcpconfig`）引用 `io.agentscope`（门禁 G2）
@@ -107,6 +115,22 @@ Phase 10：产物与文件（新增，基于同一平台）
    - 输入：MinIO 不可用时上传二进制
    - 期望：返回明确业务错误（不是 200 成功），文本上传与对话主链路仍可用
 
+9. 记忆与会话状态入库（Phase 11）
+   - 输入：完成一轮会触发长期记忆（Memory Flush）的对话
+   - 期望：长期记忆内容可在数据库的记忆表中用 SQL 查到，而不是只存在于工作区文件
+   - 输入：同一 Agent 的下一轮对话
+   - 期望：Agent 仍能读到此前写入的长期记忆（经官方文件系统接口从库中读取），行为与磁盘版一致
+   - 输入：查询数据库表清单与数据
+   - 期望：存在会话状态表与记忆表，且对话结束后其中有该会话/该用户的状态行
+
+10. 输入框上方附件（Phase 11）
+   - 输入：在输入框处一次选择两个文件（可再追加）
+   - 期望：文件以**可移除的条目**显示在输入框上方，输入框仍可正常使用，多选不互相覆盖
+   - 输入：点某个条目的移除按钮
+   - 期望：仅该条目消失；因为尚未发送，数据库与工作区都不新增记录
+   - 输入：带着附件点发送
+   - 期望：附件随消息上传成功（右侧栏「来源文件」出现对应条目），且 Agent 能读取到附件内容
+
 # 约束与不变量
 
 - G1 依赖门禁：AgentScope 相关坐标与版本按方案 2.1（`io.agentscope:*:2.0.3`）；新增未列依赖需说明理由。
@@ -141,10 +165,13 @@ Phase 10：产物与文件（新增，基于同一平台）
 - D17 增量需求的存储模型：**一张统一表** `artifact` 同时承载「来源文件」与「产物」，用 `role` 区分（`SOURCE` / `ARTIFACT`），用 `storage` 区分落地方式（`MINIO` / `DB`）。理由：用户要求「统一的表存产物信息」，且右侧栏要按来源/产物分区展示；一表比两表更容易保证会话级聚合与权限一致。
 - D18 存储路由规则：按类型判定——**文本类**（`text/*`、markdown、json、csv、xml、yaml 等）正文写库（`storage=DB`）；**其它**（二进制/图片/压缩包/未知）写 MinIO（`storage=MINIO`）。两种情况都记录 `size` / `sha256` / `mime` / 原始文件名，便于去重与下载校验。
 - D19 bucket：使用 `agent-platform`（不存在则启动时创建），下载链接基于 `MINIO_PUBLIC_ENDPOINT` 生成。
-- D20 上传文件如何被 Agent 处理：上传后除写 `artifact(role=SOURCE)` 外，还会把文件**物化到该会话工作区**（`.myagent-workspace/<threadId>/uploads/`），使 Agent 用常规文件/命令工具即可读取处理；右侧栏另提供下载。这样不依赖 Agent 额外调用自定义工具。
+- D20 上传文件如何被 Agent 处理：上传后除写 `artifact(role=SOURCE)` 外，还会把文件**物化到 Agent 实际工作区**（实测为 `.myagent-workspace/<userId>/uploads/`，不是 threadId），使 Agent 用常规文件/命令工具即可读取处理；右侧栏另提供下载。这样不依赖 Agent 额外调用自定义工具。
 - D21 `/` 选择 Skill 的语义（本次暂定，待确认）：选中的 Skill 作为**该会话**的启用技能集合（在该 Agent 已绑定技能基础上并入），经 AgentScope 官方 `SkillFilter` 生效（内容仍按官方渐进式披露按需加载）；输入框中以不可编辑块呈现，删除即从本次请求移除。
 
 - D22 产物登记范围（用户确认选 **A** 自动全收）：每次 run 结束后对比 Agent 工作区 `.myagent-workspace/<userId>/`（实测：HarnessAgent 按属主分目录，不是 threadId），把本次 **新增或 mtime/size 变化** 的文件登记为 `artifact(role=ARTIFACT)`。**排除框架内部状态**：`agents/**/sessions/**`、`memory/**`、`.skills-cache/**`、`uploads/**`（上传的来源文件另有 SOURCE 记录），避免侧边栏被框架文件淹没。登记失败不影响 run。
+
+- D23 记忆与会话状态的入库方式（用户确认选 **A**）：用官方 SPI 的 PostgreSQL 实现承载——会话状态走官方 `AgentStateStore`（实现 PG 版替换默认 JsonFile，经 builder 注入）；长期记忆走官方 `RemoteFilesystem` + 自研 PG 版 `BaseStore`（官方 SPI，仅 `get/put/search/delete`）。不改框架的记忆生成/合并流程，不引入向量检索；`chat_message` 继续作为用户可见对话的权威记录。
+- D24 附件交互（用户确认）：附件在浏览器端**暂存**并显示在输入框上方（可移除、可多选/追加、按文件名+大小去重），**点发送时才上传**（沿用 D18 存储路由与 D20 物化）；暂存期间不写库、不产生 `artifact` 行。右侧栏「来源文件」保持既有行为。
 
 # 开放问题
 
