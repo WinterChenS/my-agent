@@ -34,12 +34,12 @@ public class Clean {
     static final String[] TEST_AGENT_PREFIXES = {
         "p3-", "p5-", "p6-", "p7-", "p7b-", "p7c-", "p7d-", "p8-", "p9-", "p10-", "p11-", "p11b-", "p11c-", "p12-",
         "e2e-", "verifier-", "ns-agent-", "a1-", "a5-", "a9-", "v2-", "TestV2",
-        "skill-test-agent", "dbg-", "factory-", "rollback-", "demo-agent-", "Agent-", "E2E-", "Manual-"
+        "skill-test-agent", "dbg-", "factory-", "rollback-", "demo-agent-", "Agent-", "E2E-", "Manual-", "vcontract-", "vdc-", "vdc2-"
     };
     static final String[] TEST_PROVIDER_PREFIXES = {
         "P3-", "P5-", "P6-", "P7-", "P72-", "P8-", "P9-", "P10-", "P11", "P12-", "E2E-", "D1-", "DBG-",
         "FactoryTest-", "AgentTest-", "SkillTest-", "rollback-", "TestV2-", "ns-prov-", "A1-", "A5-", "V2-", "Verifier-", "示例",
-        "Test-", "TestI2-", "V-Prov-", "V-Bad-", "e2e-p10-prov-", "Manual-Provider-"
+        "Test-", "TestI2-", "V-Prov-", "V-Bad-", "e2e-p10-prov-", "Manual-Provider-", "VContract-", "VDC-", "VDC2-", "vdc-", "vdc2-", "ns-", "A1-", "A5-"
     };
 
     static boolean hasPrefix(String value, String[] prefixes) {
