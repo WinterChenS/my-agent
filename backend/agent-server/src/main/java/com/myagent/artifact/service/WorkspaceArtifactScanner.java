@@ -30,7 +30,13 @@ public class WorkspaceArtifactScanner {
     private static final List<String> EXCLUDED_SEGMENTS = List.of(
             "/agents/", "/sessions/", "/default/", "/memory/", "/.skills-cache/", "/uploads/");
 
-    private static final Set<String> EXCLUDED_NAMES = Set.of(".DS_Store");
+    private static final Set<String> EXCLUDED_NAMES = Set.of(
+            ".DS_Store",
+            // 框架自管的工作区文件：它们是框架状态而不是「用户产物」，不应出现在右侧栏
+            "MEMORY.md",
+            "AGENTS.md",
+            "KNOWLEDGE.md",
+            "tools.json");
 
     private final com.myagent.agui.AguiProperties aguiProperties;
 

@@ -35,6 +35,7 @@ import {
   stageFiles,
   type StagedAttachment,
 } from "@/lib/attachments/staging";
+import { buildAttachmentBlock } from "@/lib/attachments/message";
 import { listSkills, type SkillInfo } from "@/api/skills";
 import {
   addSkill,
@@ -238,16 +239,21 @@ export default function ChatPage() {
     }
 
     // 先上传暂存附件：失败就中止本轮，输入与附件都保留
+    let outgoing = text;
     if (staged.length > 0) {
       setUploading(true);
+      let fileNames: string[] = [];
       try {
-        await uploadStaged(active.id);
+        fileNames = await uploadStaged(active.id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "附件上传失败");
         return;
       } finally {
         setUploading(false);
       }
+      // 把附件清单（工作区相对路径）随消息一起发给模型：
+      // 否则模型不知道这条消息带了文件，只能去列目录猜（用户实测反馈）。
+      outgoing = text + buildAttachmentBlock(fileNames.map((name) => `uploads/${name}`));
     }
 
     setStaged([]);
@@ -259,14 +265,14 @@ export default function ChatPage() {
           kind: "text",
           id: `local-user-${Date.now()}`,
           role: "user",
-          content: text,
+          content: outgoing,
           streaming: false,
         },
       ],
       status: "running",
       runId: null,
     }));
-    await runTurn(active, { text });
+    await runTurn(active, { text: outgoing });
   }
 
   /** 审批决定 -> 记录结果 -> 用 resume 唤醒被拦截的执行。 */
@@ -343,11 +349,14 @@ export default function ChatPage() {
    *
    * <p>失败时抛出，让调用方保留输入与附件，避免用户白填一遍。
    */
-  async function uploadStaged(sessionId: number) {
+  async function uploadStaged(sessionId: number): Promise<string[]> {
+    const uploaded: string[] = [];
     for (const item of staged) {
-      await uploadArtifact(sessionId, item.file);
+      const artifact = await uploadArtifact(sessionId, item.file);
+      uploaded.push(artifact.fileName);
     }
     setArtifactRefresh((value) => value + 1);
+    return uploaded;
   }
 
   /**

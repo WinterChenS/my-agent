@@ -26,6 +26,11 @@ class WorkspaceArtifactScannerTest {
         assertThat(WorkspaceArtifactScanner.isExcluded(".skills-cache/x/skills/SKILL.md")).isTrue();
         assertThat(WorkspaceArtifactScanner.isExcluded("uploads/note.md")).isTrue();
         assertThat(WorkspaceArtifactScanner.isExcluded(".DS_Store")).isTrue();
+        // 框架自管的工作区文件（会被框架改写）——不能出现在右侧栏「产物」里
+        assertThat(WorkspaceArtifactScanner.isExcluded("MEMORY.md")).isTrue();
+        assertThat(WorkspaceArtifactScanner.isExcluded("AGENTS.md")).isTrue();
+        assertThat(WorkspaceArtifactScanner.isExcluded("KNOWLEDGE.md")).isTrue();
+        assertThat(WorkspaceArtifactScanner.isExcluded("tools.json")).isTrue();
 
         // 用户可见文件不排除
         assertThat(WorkspaceArtifactScanner.isExcluded("list_files.py")).isFalse();

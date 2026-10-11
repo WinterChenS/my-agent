@@ -64,6 +64,16 @@ cd backend/agent-server && mvn verify
 cd frontend && npm run lint && npm run build && npx vitest run
 ```
 
+## 工作区根目录（注意）
+
+Agent 的工作区（记忆、上传物化、产物扫描、事件日志）默认是**相对路径** `./.myagent-workspace`，
+会被**按启动 jar 时的工作目录**解析——从不同目录启动会得到两个不同的工作区（实测踩过：从仓库根启动一份、
+从 `backend/agent-server` 启动又一份，导致"上传的文件在界面上看不到"）。
+
+- 启动时日志会打印已规范化的**绝对路径**：`Agent 工作区根目录（已规范为绝对路径）: ...`，用它核对。
+- 想固定位置就用绝对路径：`MYAGENT_WORKSPACE=D:/agent-workspace`（推荐部署时这么设）。
+- 本项目脚本一律在仓库根启动后端，因此工作区落在 `./.myagent-workspace`。
+
 ## 验收脚本（可一键复跑）
 
 所有脚本都在 `scripts/`，每份都自带断言与证据输出：

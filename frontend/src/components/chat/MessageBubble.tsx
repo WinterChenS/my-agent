@@ -1,6 +1,8 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { attachmentBaseName, parseAttachmentBlock } from "@/lib/attachments/message";
 
 /**
  * 聊天气泡。
@@ -23,6 +25,9 @@ export function MessageBubble({
   streaming?: boolean;
 }) {
   const isUser = role === "user";
+  // 用户气泡里要把「本轮附件」显示出来（否则用户看不到自己发了什么文件）；
+  // 附件块是随消息一起存库的，所以刷新回放同样能渲染。
+  const parsed = isUser ? parseAttachmentBlock(content) : { text: content, attachments: [] };
 
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
@@ -35,12 +40,31 @@ export function MessageBubble({
         )}
       >
         {isUser ? (
-          <p
-            data-testid="user-text"
-            className="leading-relaxed whitespace-pre-wrap break-words"
-          >
-            {content}
-          </p>
+          <div className="space-y-1.5">
+            {parsed.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1" data-testid="message-attachments">
+                {parsed.attachments.map((path) => (
+                  <span
+                    key={path}
+                    data-testid="message-attachment"
+                    title={path}
+                    className="bg-primary-foreground/20 inline-flex max-w-full items-center gap-1 rounded-md px-2 py-0.5 text-xs"
+                  >
+                    <Paperclip className="size-3 shrink-0" />
+                    <span className="max-w-[16rem] truncate">{attachmentBaseName(path)}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {parsed.text && (
+              <p
+                data-testid="user-text"
+                className="leading-relaxed whitespace-pre-wrap break-words"
+              >
+                {parsed.text}
+              </p>
+            )}
+          </div>
         ) : (
           <div
             data-testid="assistant-text"

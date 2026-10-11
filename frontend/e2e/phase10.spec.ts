@@ -160,7 +160,7 @@ async function loginAndSelectAgent(page: Page, agentName: string) {
 
 test("附件暂存 + 发送时上传：暂存区、右侧栏与预览", async ({ page, request }) => {
   const stamp = Date.now();
-  const { agentId } = await createStubAgent(request, stamp);
+  const { agentId, agentDbId, headers } = await createStubAgent(request, stamp);
   const input = await loginAndSelectAgent(page, agentId);
 
   // 两区都在（Phase 10 / Task 10.4）
@@ -190,6 +190,29 @@ test("附件暂存 + 发送时上传：暂存区、右侧栏与预览", async ({
   await expect(sourceItem.first()).toContainText("e2e-note.md");
   await expect(sourceItem.first()).toContainText("数据库");
   await expect(chips).toHaveCount(0);
+
+  // 修复项 1：用户气泡里要能看到自己发的附件（此前只显示文字）
+  const bubbleAttachment = page.locator('[data-testid="message-attachment"]');
+  await expect(bubbleAttachment).toHaveCount(1);
+  await expect(bubbleAttachment.first()).toContainText("e2e-note.md");
+  await expect(page.locator('[data-testid="user-text"]').last()).toHaveText("带着附件发一条");
+
+  // 修复项 2：附件清单必须随消息一起发给模型（否则模型只能去列目录猜）
+  // 直接查库里的用户消息：模型收到的就是这段内容
+  const sessionsResp = await (await request.get(`${API}/api/sessions`, { headers })).json();
+  const mine = (sessionsResp.data ?? []).filter(
+    (s: { agentId: number }) => String(s.agentId) === String(agentDbId),
+  );
+  expect(mine.length, "应已创建会话").toBeGreaterThan(0);
+  const messages = await (
+    await request.get(`${API}/api/sessions/${mine[0].id}/messages`, { headers })
+  ).json();
+  const userMessages = (messages.data ?? []).filter(
+    (m: { role: string }) => String(m.role).toUpperCase() === "USER",
+  );
+  const lastUser = userMessages[userMessages.length - 1];
+  expect(String(lastUser?.content)).toContain("[已上传附件]");
+  expect(String(lastUser?.content)).toContain("uploads/e2e-note.md");
 
   // 产物区此时还是空的（Agent 没写文件）
   await expect(page.locator('[data-testid="panel-artifacts-item"]')).toHaveCount(0);
