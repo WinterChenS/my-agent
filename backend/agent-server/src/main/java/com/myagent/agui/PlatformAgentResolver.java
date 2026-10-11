@@ -19,9 +19,11 @@ public class PlatformAgentResolver implements AgentResolver {
     private static final Logger log = LoggerFactory.getLogger(PlatformAgentResolver.class);
 
     private final AgentFactory agentFactory;
+    private final SessionSkillOverrides skillOverrides;
 
-    public PlatformAgentResolver(AgentFactory agentFactory) {
+    public PlatformAgentResolver(AgentFactory agentFactory, SessionSkillOverrides skillOverrides) {
         this.agentFactory = agentFactory;
+        this.skillOverrides = skillOverrides;
     }
 
     @Override
@@ -30,8 +32,9 @@ public class PlatformAgentResolver implements AgentResolver {
         if (dbId == null) {
             throw com.myagent.common.BizException.badRequest("Agent 不存在: " + agentId);
         }
-        log.debug("解析 agentId={} sessionId={} -> dbId={}", agentId, sessionId, dbId);
-        return agentFactory.build(dbId);
+        java.util.List<Long> extraSkills = skillOverrides.get(sessionId);
+        log.debug("解析 agentId={} sessionId={} -> dbId={}, 会话级技能={}", agentId, sessionId, dbId, extraSkills);
+        return agentFactory.build(dbId, extraSkills);
     }
 
     @Override

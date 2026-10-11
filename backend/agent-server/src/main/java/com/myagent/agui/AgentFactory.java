@@ -61,7 +61,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     private final McpServerMapper mcpServerMapper;
     private final McpToolkitFactory mcpToolkitFactory;
 
-    private final Map<Long, HarnessAgent> cache = new ConcurrentHashMap<>();
+        /** 缓存键：{@code "12"} 或 {@code "12|3,5"}（含会话级技能时），见 build(Long, List)。 */
+    private final Map<String, HarnessAgent> cache = new ConcurrentHashMap<>();
 
     public AgentFactory(
             AgentMapper agentMapper,
@@ -92,7 +93,24 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
 
     /** 按 Agent 主键构建（带缓存）。 */
     public HarnessAgent build(Long agentDbId) {
-        HarnessAgent cached = cache.get(agentDbId);
+        return build(agentDbId, java.util.List.of());
+    }
+
+    /**
+     * 按 Agent 主键 + 会话级额外技能构建（D21：`/` 选中的 Skill 并入该会话的技能集合）。
+     *
+     * <p>缓存键为 {@code agentDbId|排序后的技能id}，因此不同技能组合互不干扰；
+     * {@link #invalidate(Long)} 会清掉该 agent 的所有组合。
+     */
+    public HarnessAgent build(Long agentDbId, java.util.List<Long> extraSkillIds) {
+        java.util.List<Long> extras = extraSkillIds == null
+                ? java.util.List.of()
+                : extraSkillIds.stream().filter(java.util.Objects::nonNull).distinct().sorted().toList();
+        String cacheKey = extras.isEmpty()
+                ? String.valueOf(agentDbId)
+                : agentDbId + "|" + extras.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+
+        HarnessAgent cached = cache.get(cacheKey);
         if (cached != null) {
             return cached;
         }
@@ -103,8 +121,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         if (!"ENABLED".equals(agent.getStatus())) {
             throw BizException.badRequest("Agent 已禁用: " + agent.getAgentId());
         }
-        HarnessAgent built = doBuild(agent);
-        HarnessAgent previous = cache.putIfAbsent(agentDbId, built);
+        HarnessAgent built = doBuild(agent, extras);
+        HarnessAgent previous = cache.putIfAbsent(cacheKey, built);
         if (previous != null) {
             closeQuietly(built);
             return previous;
@@ -143,7 +161,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         return agent == null ? null : agent.getId();
     }
 
-    private HarnessAgent doBuild(Agent agent) {
+    private HarnessAgent doBuild(Agent agent, java.util.List<Long> extraSkillIds) {
         LlmModel model = agent.getModelId() == null ? null : llmModelMapper.selectById(agent.getModelId());
         if (model == null) {
             throw BizException.badRequest("Agent 未绑定有效模型: " + agent.getAgentId());
@@ -170,10 +188,15 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         }
 
         // Skill：官方仓库 + 按绑定过滤（只暴露该 Agent 绑定的启用 Skill）
-        List<Long> boundSkillIds = agentSkillMapper.findSkillIds(agent.getId());
-        List<String> boundSkillNames = boundSkillIds.isEmpty()
+        // 技能集合 = Agent 绑定的 + 会话级选中的（D21），去重后交给官方 SkillFilter
+        java.util.LinkedHashSet<Long> allSkillIds = new java.util.LinkedHashSet<>(
+                agentSkillMapper.findSkillIds(agent.getId()));
+        if (extraSkillIds != null) {
+            allSkillIds.addAll(extraSkillIds);
+        }
+        List<String> boundSkillNames = allSkillIds.isEmpty()
                 ? List.of()
-                : skillMapper.findNamesByIds(boundSkillIds);
+                : skillMapper.findNamesByIds(new java.util.ArrayList<>(allSkillIds));
         SkillFilter skillFilter = boundSkillNames.isEmpty()
                 ? SkillFilter.none()
                 : SkillFilter.only(boundSkillNames.toArray(String[]::new));
@@ -256,13 +279,19 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
 
     @Override
     public void invalidate(Long agentDbId) {
-        HarnessAgent removed = cache.remove(agentDbId);
-        closeQuietly(removed);
+        // 组合缓存键形如 "12" 或 "12|3,5"：两类都要清
+        String exact = String.valueOf(agentDbId);
+        String prefix = agentDbId + "|";
+        cache.keySet().stream()
+                .filter(k -> k.equals(exact) || k.startsWith(prefix))
+                .toList()
+                .forEach(k -> closeQuietly(cache.remove(k)));
     }
 
     @Override
     public void invalidateAll() {
-        cache.keySet().forEach(this::invalidate);
+        // 缓存键现在是组合键（agent id 或 agent id + 技能组合），直接整体清空
+        cache.keySet().forEach(k -> closeQuietly(cache.remove(k)));
     }
 
     private static void closeQuietly(HarnessAgent agent) {

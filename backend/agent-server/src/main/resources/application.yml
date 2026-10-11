@@ -24,6 +24,14 @@ mybatis-plus:
 myagent:
   # HarnessAgent 工作区根目录（运行时状态，已 gitignore）。生产用 MYAGENT_WORKSPACE 指向持久化磁盘。
   workspace-root: ${MYAGENT_WORKSPACE:./.myagent-workspace}
+  # 产物对象存储（技术方案 §12.2）。凭据由环境变量注入。
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:cdh}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:agent-platform}
+    max-file-size-mb: ${MINIO_MAX_FILE_MB:50}
   jwt:
     secret: ${JWT_SECRET:dev-only-jwt-secret-change-me-0123456789abcdef}
     expire-minutes: 720

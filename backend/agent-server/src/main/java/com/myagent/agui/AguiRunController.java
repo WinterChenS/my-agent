@@ -1,6 +1,7 @@
 package com.myagent.agui;
 
 import com.myagent.approval.service.ApprovalService;
+import com.myagent.artifact.service.ArtifactCaptureService;
 import com.myagent.audit.service.TokenUsageRecorder;
 import com.myagent.auth.JwtPrincipal;
 import com.myagent.chat.entity.ChatSession;
@@ -54,6 +55,8 @@ public class AguiRunController {
     private final ApprovalService approvalService;
     private final TokenUsageRecorder tokenUsageRecorder;
     private final AguiSseSanitizer sseSanitizer;
+    private final ArtifactCaptureService artifactCaptureService;
+    private final SessionSkillOverrides sessionSkillOverrides;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -63,7 +66,9 @@ public class AguiRunController {
             ChatSessionService chatSessionService,
             ApprovalService approvalService,
             TokenUsageRecorder tokenUsageRecorder,
-            AguiSseSanitizer sseSanitizer) {
+            AguiSseSanitizer sseSanitizer,
+            ArtifactCaptureService artifactCaptureService,
+            SessionSkillOverrides sessionSkillOverrides) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
@@ -72,6 +77,8 @@ public class AguiRunController {
         this.approvalService = approvalService;
         this.tokenUsageRecorder = tokenUsageRecorder;
         this.sseSanitizer = sseSanitizer;
+        this.artifactCaptureService = artifactCaptureService;
+        this.sessionSkillOverrides = sessionSkillOverrides;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -111,6 +118,13 @@ public class AguiRunController {
         // 把用户身份通过 servlet 属性传给 runtime context 解析器（避免可伪造的请求头）
         httpRequest.setAttribute(PlatformRuntimeContextResolver.USER_ID_ATTRIBUTE, userId);
 
+        // 会话级技能（D21）：把 forwardedProps.skillIds 交给 AgentResolver 并入官方 SkillFilter
+        sessionSkillOverrides.put(threadId, parseSkillIds(input.getForwardedProp("skillIds")));
+
+        // 产物自动登记（D22）：run 前快照该会话工作区，结束时对比新增/变更文件
+        java.util.Map<String, Long> workspaceSnapshot =
+                artifactCaptureService.beginRun(session.getThreadId());
+
         AguiRuntimeContextRequest<HttpServletRequest> contextRequest =
                 AguiRuntimeContextRequest.<HttpServletRequest>builder()
                         .input(input)
@@ -141,9 +155,9 @@ public class AguiRunController {
                         error -> {
                             log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
                             sendRunError(emitter, threadId, input.getRunId(), error);
-                            finish(emitter, session.getId(), assistantText, customEventNames, interrupts);
+                            finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText, customEventNames, interrupts);
                         },
-                        () -> finish(emitter, session.getId(), assistantText, customEventNames, interrupts));
+                        () -> finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText, customEventNames, interrupts));
 
         emitter.onCompletion(subscription::dispose);
         emitter.onTimeout(() -> {
@@ -203,6 +217,9 @@ public class AguiRunController {
     private void finish(
             SseEmitter emitter,
             Long sessionId,
+            Long userId,
+            String threadId,
+            Map<String, Long> workspaceSnapshot,
             StringBuilder assistantText,
             List<String> customEventNames,
             List<AguiEvent.Interrupt> interrupts) {
@@ -227,11 +244,47 @@ public class AguiRunController {
                 log.error("落库待审批记录失败 interruptId={}", interrupt.id(), ex);
             }
         }
+        // 登记本次 run 产出的文件（失败不影响 run）
+        try {
+            artifactCaptureService.endRun(userId, sessionId, threadId, workspaceSnapshot);
+        } catch (Exception ex) {
+            log.warn("产物登记失败 sessionId={}: {}", sessionId, ex.toString());
+        }
+        sessionSkillOverrides.clear(threadId);
         try {
             emitter.complete();
         } catch (Exception ex) {
             log.debug("SSE 关闭失败: {}", ex.getMessage());
         }
+    }
+
+    /** 解析 forwardedProps.skillIds（数组或单个数字都兼容）。 */
+    static java.util.List<Long> parseSkillIds(Object raw) {
+        java.util.List<Long> ids = new java.util.ArrayList<>();
+        if (raw instanceof java.util.Collection<?> collection) {
+            for (Object item : collection) {
+                Long id = asLong(item);
+                if (id != null) {
+                    ids.add(id);
+                }
+            }
+        } else {
+            Long single = asLong(raw);
+            if (single != null) {
+                ids.add(single);
+            }
+        }
+        return ids;
+    }
+
+    private static Long asLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text && !text.isBlank() && text.trim().chars().allMatch(Character::isDigit)) {
+            return Long.valueOf(text.trim());
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")
