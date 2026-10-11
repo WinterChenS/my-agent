@@ -28,6 +28,17 @@
 
 每个任务的完成判定 = 该任务在 `docs/任务列表.md` 中的验收门禁全部通过，并附真实证据（curl 输出 / SQL 结果 / 页面截图 / 录屏）。
 
+### 增量范围（用户新增需求，2026-10-11）
+
+Phase 10：产物与文件（新增，基于同一平台）
+
+1. **产物存储**：新增统一的产物/来源记录表；文件类内容存 MinIO，文本类内容（markdown / txt / json / csv 等）直接存数据库。
+2. **对话输入框 `/` 选择 Skill**：输入 `/` 弹出 Skill 列表；选中后在输入框中成为一个**不可编辑的块**，可删除。
+3. **对话上传文件**：上传到 MinIO，写入来源记录，并让 Agent 能够获取并处理该文件。
+4. **右侧栏**：会话页右侧新增侧边栏，分区展示「来源文件」与「产物」。
+
+环境（已实测）：MinIO `http://localhost:9000`（健康检查 200、凭据有效）；现有 bucket：`agent-images`、`nova-assets`。
+
 # 非目标
 
 以下内容不实现，发现价值时只记录到 `docs/backlog.md`（门禁 G7）：
@@ -108,9 +119,20 @@
 - D10 模型凭据的交付方式：用户已确认走 OpenAI 兼容协议，但尚未提供 `base_url` / `model id` / `api_key`。实现直接按 OpenAI 兼容协议落地；端点与密钥通过本地未提交配置 / 环境变量注入。Phase 2 连通性测试与 Phase 4–8 的链路 E2E 先用同协议本地 OpenAI 兼容桩服务（**已提交在 `tools/llm-stub/stub.py`**，实现 `/v1/chat/completions`，含 SSE 流式与 `usage` 字段）完成机械验证并标注桩来源；用户提供真实凭据后复跑同一测试，以真实端点证据替换桩证据。此项不阻塞实现。
 - D8 provider 类型映射：`OPENAI` / `OPENAI_COMPATIBLE` / `OLLAMA` / `GEMINI` 走 OpenAI 兼容端点（若存在官方扩展则优先官方扩展），`DASHSCOPE` 走 dashscope 扩展，`ANTHROPIC` 走官方 anthropic 扩展（若该版本提供）。具体以构建期实际可解析的官方扩展为准。
 
+- D11 MinIO 客户端：Java `io.minio:minio`（本机已缓存 8.5.17），endpoint / accessKey / secretKey / bucket 全部来自环境变量，不硬编码进代码。
+- D17 增量需求的存储模型：**一张统一表** `artifact` 同时承载「来源文件」与「产物」，用 `role` 区分（`SOURCE` / `ARTIFACT`），用 `storage` 区分落地方式（`MINIO` / `DB`）。理由：用户要求「统一的表存产物信息」，且右侧栏要按来源/产物分区展示；一表比两表更容易保证会话级聚合与权限一致。
+- D18 存储路由规则：按类型判定——**文本类**（`text/*`、markdown、json、csv、xml、yaml 等）正文写库（`storage=DB`）；**其它**（二进制/图片/压缩包/未知）写 MinIO（`storage=MINIO`）。两种情况都记录 `size` / `sha256` / `mime` / 原始文件名，便于去重与下载校验。
+- D19 bucket：使用 `agent-platform`（不存在则启动时创建），下载链接基于 `MINIO_PUBLIC_ENDPOINT` 生成。
+- D20 上传文件如何被 Agent 处理：上传后除写 `artifact(role=SOURCE)` 外，还会把文件**物化到该会话工作区**（`.myagent-workspace/<threadId>/uploads/`），使 Agent 用常规文件/命令工具即可读取处理；右侧栏另提供下载。这样不依赖 Agent 额外调用自定义工具。
+- D21 `/` 选择 Skill 的语义（本次暂定，待确认）：选中的 Skill 作为**该会话**的启用技能集合（在该 Agent 已绑定技能基础上并入），经 AgentScope 官方 `SkillFilter` 生效（内容仍按官方渐进式披露按需加载）；输入框中以不可编辑块呈现，删除即从本次请求移除。
+
+- D22 产物登记范围（用户确认选 **A** 自动全收）：每次 run 结束后对比该会话工作区 `.myagent-workspace/<threadId>/`，把本次 **新增或 mtime/size 变化** 的文件登记为 `artifact(role=ARTIFACT)`。**排除框架内部状态**：`agents/**/sessions/**`、`memory/**`、`.skills-cache/**`、`uploads/**`（上传的来源文件另有 SOURCE 记录），避免侧边栏被框架文件淹没。登记失败不影响 run。
+
 # 开放问题
 
-无未决阻塞项。模型端点具体凭据属可后补的运维输入（见 D10），不作为阶段推进的阻塞项。
+无未决阻塞项。
+
+> 已确认（用户答 **A**）：产物登记范围 = **自动全收** —— 每次 run 结束后扫描该会话工作区，把本次 run 新增或修改的文件登记为产物；框架内部状态目录除外（见 D22）。
 
 # 共享理解确认
 
