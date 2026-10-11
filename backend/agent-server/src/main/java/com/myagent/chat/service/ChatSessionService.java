@@ -131,7 +131,8 @@ public class ChatSessionService {
         return (int) (maxSeq + 1);
     }
 
-    private ChatSession requireOwned(Long userId, Long sessionId) {
+    /** 取会话并校验属主（Phase 12 停止执行入口也用）。 */
+    public ChatSession requireOwned(Long userId, Long sessionId) {
         ChatSession session = sessionId == null ? null : sessionMapper.selectById(sessionId);
         if (session == null) {
             throw BizException.notFound("会话不存在: " + sessionId);

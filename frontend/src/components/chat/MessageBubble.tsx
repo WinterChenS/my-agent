@@ -19,10 +19,13 @@ export function MessageBubble({
   role,
   content,
   streaming,
+  stopped,
 }: {
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
+  /** 这一轮被用户停止（Phase 12 / D25） */
+  stopped?: boolean;
 }) {
   const isUser = role === "user";
   // 用户气泡里要把「本轮附件」显示出来（否则用户看不到自己发了什么文件）；
@@ -96,6 +99,14 @@ export function MessageBubble({
             </ReactMarkdown>
             {streaming && (
               <span className="bg-foreground/70 ml-0.5 inline-block h-3.5 w-[2px] animate-pulse align-middle" />
+            )}
+            {stopped && !streaming && (
+              <p
+                data-testid="stopped-marker"
+                className="text-muted-foreground mt-1.5 text-[11px] italic"
+              >
+                已停止
+              </p>
             )}
           </div>
         )}

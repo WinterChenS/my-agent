@@ -38,8 +38,38 @@ export interface RunFinishedInterruptOutcomeLike {
 
 export type ApprovalStatus = "pending" | "approved" | "denied";
 
+/** 子 Agent 的工具调用（收起态只显示次数，展开可见名字与是否返回）。 */
+export interface SubagentToolCall {
+  name: string;
+  done: boolean;
+}
+
+/** 子 Agent 事件聚合出来的条目（Phase 12 / D26）。 */
+export interface SubagentItem {
+  kind: "subagent";
+  id: string;
+  /** 官方事件里的 source，形如 <threadId>/general-purpose；按它分组 */
+  source: string;
+  /** 子 Agent 名称（lifecycle 里给的名字，取不到时用 source 末段） */
+  name: string;
+  status: "running" | "done";
+  text: string;
+  thinking: string;
+  toolCalls: SubagentToolCall[];
+  /** 需要用户确认的提示（subagent.require_confirm） */
+  confirm: string | null;
+}
+
 export type ChatItem =
-  | { kind: "text"; id: string; role: "user" | "assistant"; content: string; streaming: boolean }
+  | {
+      kind: "text";
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+      streaming: boolean;
+      /** 这一轮被用户停止（Phase 12 / D25），气泡上标注「已停止」 */
+      stopped?: boolean;
+    }
   | { kind: "tool"; id: string; name: string; args: string; result: string | null; state: "args" | "ready" | "done" }
   | { kind: "card"; id: string; card: CardKind; name: string; data: unknown }
   | {
@@ -51,6 +81,7 @@ export type ChatItem =
       message: string | null;
       status: ApprovalStatus;
     }
+  | SubagentItem
   | { kind: "error"; id: string; message: string; code: string | null };
 
 export type ChatStatus = "idle" | "running" | "finished" | "error";

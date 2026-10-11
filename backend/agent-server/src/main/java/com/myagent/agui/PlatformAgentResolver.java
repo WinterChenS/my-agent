@@ -20,10 +20,15 @@ public class PlatformAgentResolver implements AgentResolver {
 
     private final AgentFactory agentFactory;
     private final SessionSkillOverrides skillOverrides;
+    private final RunningRunRegistry runningRuns;
 
-    public PlatformAgentResolver(AgentFactory agentFactory, SessionSkillOverrides skillOverrides) {
+    public PlatformAgentResolver(
+            AgentFactory agentFactory,
+            SessionSkillOverrides skillOverrides,
+            RunningRunRegistry runningRuns) {
         this.agentFactory = agentFactory;
         this.skillOverrides = skillOverrides;
+        this.runningRuns = runningRuns;
     }
 
     @Override
@@ -34,7 +39,10 @@ public class PlatformAgentResolver implements AgentResolver {
         }
         java.util.List<Long> extraSkills = skillOverrides.get(sessionId);
         log.debug("解析 agentId={} sessionId={} -> dbId={}, 会话级技能={}", agentId, sessionId, dbId, extraSkills);
-        return agentFactory.build(dbId, extraSkills);
+        Agent agent = agentFactory.build(dbId, extraSkills);
+        // Phase 12 / D25：登记实例（按缓存键，可能带会话级技能），停止时才能打到同一个对象
+        runningRuns.registerAgent(sessionId, agent);
+        return agent;
     }
 
     @Override

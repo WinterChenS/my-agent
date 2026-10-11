@@ -231,3 +231,95 @@ describe("replayMessages：历史回放", () => {
     ]);
   });
 });
+
+describe("reduceEvent：子 Agent 事件（Phase 12 / D26）", () => {
+  const sub = (name: string, value: Record<string, unknown>): AguiEventLike => ({
+    type: "CUSTOM",
+    name,
+    value,
+  });
+
+  it("同 source 的 text 增量聚合成一条，不逐 delta 建卡", () => {
+    const state = applyAll([
+      sub("subagent.lifecycle", { source: "t1/general-purpose", type: "AGENT_START", name: "general-purpose" }),
+      sub("subagent.text", { source: "t1/general-purpose", type: "TEXT_BLOCK_DELTA", delta: "播放" }),
+      sub("subagent.text", { source: "t1/general-purpose", type: "TEXT_BLOCK_DELTA", delta: "商品" }),
+      sub("subagent.text", { source: "t1/general-purpose", type: "TEXT_BLOCK_DELTA", delta: "。" }),
+    ]);
+
+    const items = state.items.filter((item) => item.kind === "subagent");
+    expect(items).toHaveLength(1);
+    expect(items[0].kind === "subagent" && items[0].text).toBe("播放商品。");
+    expect(items[0].kind === "subagent" && items[0].status).toBe("running");
+    expect(items[0].kind === "subagent" && items[0].name).toBe("general-purpose");
+    // 不能再出现「未识别事件」那种 unknown 卡
+    expect(state.items.some((item) => item.kind === "card" && item.card === "unknown")).toBe(false);
+  });
+
+  it("lifecycle 结束后状态变为已结束", () => {
+    const state = applyAll([
+      sub("subagent.lifecycle", { source: "t1/gp", type: "AGENT_START" }),
+      sub("subagent.lifecycle", { source: "t1/gp", type: "AGENT_END" }),
+    ]);
+    const item = state.items[0];
+    expect(item.kind === "subagent" && item.status).toBe("done");
+  });
+
+  it("工具调用按开始/结束计数并标记完成", () => {
+    const state = applyAll([
+      sub("subagent.tool_call", { source: "t1/gp", type: "TOOL_CALL_START", toolName: "read_file" }),
+      sub("subagent.tool_call", { source: "t1/gp", type: "TOOL_CALL_START", toolName: "grep" }),
+      sub("subagent.tool_call", { source: "t1/gp", type: "TOOL_CALL_END" }),
+      sub("subagent.tool_result", { source: "t1/gp", type: "TOOL_RESULT_END" }),
+    ]);
+    const item = state.items[0];
+    if (item.kind !== "subagent") {
+      throw new Error("应为子 Agent 条目");
+    }
+    expect(item.toolCalls.map((call) => call.name)).toEqual(["read_file", "grep"]);
+    expect(item.toolCalls.map((call) => call.done)).toEqual([true, true]);
+  });
+
+  it("两个子 Agent 按 source 各自成卡，互不混淆", () => {
+    const state = applyAll([
+      sub("subagent.text", { source: "t1/alpha", type: "TEXT_BLOCK_DELTA", delta: "A" }),
+      sub("subagent.text", { source: "t1/beta", type: "TEXT_BLOCK_DELTA", delta: "B" }),
+      sub("subagent.text", { source: "t1/alpha", type: "TEXT_BLOCK_DELTA", delta: "2" }),
+    ]);
+    const subs = state.items.filter((item) => item.kind === "subagent");
+    expect(subs).toHaveLength(2);
+    expect(subs[0].kind === "subagent" && subs[0].text).toBe("A2");
+    expect(subs[1].kind === "subagent" && subs[1].text).toBe("B");
+  });
+
+  it("thinking 与 require_confirm 也不丢", () => {
+    const state = applyAll([
+      sub("subagent.thinking", { source: "t1/gp", type: "THINKING_BLOCK_DELTA", delta: "先想" }),
+      sub("subagent.require_confirm", { source: "t1/gp", type: "REQUIRE_USER_CONFIRM", message: "要删文件吗" }),
+    ]);
+    const item = state.items[0];
+    if (item.kind !== "subagent") {
+      throw new Error("应为子 Agent 条目");
+    }
+    expect(item.thinking).toBe("先想");
+    expect(item.confirm).toBe("要删文件吗");
+  });
+});
+
+describe("replayMessages：已停止标记（Phase 12 / D25）", () => {
+  it("aguiMeta.stopped=true 时助手气泡标注已停止", () => {
+    const state = replayMessages([
+      { role: "USER", content: "你好" },
+      { role: "ASSISTANT", content: "写到一半", aguiMeta: { stopped: true } },
+    ]);
+    const assistant = state.items[1];
+    expect(assistant.kind === "text" && assistant.stopped).toBe(true);
+  });
+
+  it("没有 stopped 标记时不标注", () => {
+    const state = replayMessages([{ role: "ASSISTANT", content: "完整回答" }]);
+    const assistant = state.items[0];
+    expect(assistant.kind === "text" && assistant.stopped).toBeUndefined();
+  });
+});
+

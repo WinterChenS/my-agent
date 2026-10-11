@@ -18,6 +18,12 @@ public class PlatformRuntimeContextResolver implements AguiRuntimeContextResolve
     /** 控制器在 nativeRequest 上设置的属性名。 */
     public static final String USER_ID_ATTRIBUTE = "myagent.userId";
 
+    private final RunningRunRegistry runningRuns;
+
+    public PlatformRuntimeContextResolver(RunningRunRegistry runningRuns) {
+        this.runningRuns = runningRuns;
+    }
+
     @Override
     public RuntimeContext resolve(AguiRuntimeContextRequest<?> request) {
         String sessionId = request.getInput() == null ? null : request.getInput().getThreadId();
@@ -28,6 +34,10 @@ public class PlatformRuntimeContextResolver implements AguiRuntimeContextResolve
                 userId = String.valueOf(attribute);
             }
         }
-        return RuntimeContext.builder().sessionId(sessionId).userId(userId).build();
+        RuntimeContext context =
+                RuntimeContext.builder().sessionId(sessionId).userId(userId).build();
+        // Phase 12 / D25：登记本次 run 的上下文，停止入口靠它打到同一个实例上
+        runningRuns.registerContext(sessionId, context);
+        return context;
     }
 }

@@ -57,6 +57,7 @@ public class AguiRunController {
     private final AguiSseSanitizer sseSanitizer;
     private final ArtifactCaptureService artifactCaptureService;
     private final SessionSkillOverrides sessionSkillOverrides;
+    private final RunningRunRegistry runningRuns;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -68,7 +69,8 @@ public class AguiRunController {
             TokenUsageRecorder tokenUsageRecorder,
             AguiSseSanitizer sseSanitizer,
             ArtifactCaptureService artifactCaptureService,
-            SessionSkillOverrides sessionSkillOverrides) {
+            SessionSkillOverrides sessionSkillOverrides,
+            RunningRunRegistry runningRuns) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
@@ -79,6 +81,7 @@ public class AguiRunController {
         this.sseSanitizer = sseSanitizer;
         this.artifactCaptureService = artifactCaptureService;
         this.sessionSkillOverrides = sessionSkillOverrides;
+        this.runningRuns = runningRuns;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -143,6 +146,8 @@ public class AguiRunController {
         TokenUsageRecorder.TokenContext tokenContext = tokenUsageRecorder.resolveContext(agentDbId);
         String runId = input.getRunId();
 
+        // Phase 12 / D25：区分「跑完了」与「客户端中途断开」，后者要兜底中断，避免空烧 token
+        java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean(false);
         Disposable subscription = requestProcessor
                 .process(contextRequest)
                 .events()
@@ -155,13 +160,30 @@ public class AguiRunController {
                         error -> {
                             log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
                             sendRunError(emitter, threadId, input.getRunId(), error);
-                            finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText, customEventNames, interrupts);
+                            finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText,
+                                    customEventNames, interrupts, finished);
                         },
-                        () -> finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText, customEventNames, interrupts));
+                        () -> finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText,
+                                customEventNames, interrupts, finished));
 
-        emitter.onCompletion(subscription::dispose);
+        emitter.onCompletion(() -> {
+            subscription.dispose();
+            // 客户端断开（关页面/断网）时 run 还没结束 → 让服务端也停下来
+            if (!finished.get()) {
+                runningRuns.interrupt(threadId);
+            }
+        });
+        emitter.onError(ex -> {
+            subscription.dispose();
+            if (!finished.get()) {
+                runningRuns.interrupt(threadId);
+            }
+        });
         emitter.onTimeout(() -> {
             subscription.dispose();
+            if (!finished.get()) {
+                runningRuns.interrupt(threadId);
+            }
             emitter.complete();
         });
         return emitter;
@@ -222,10 +244,14 @@ public class AguiRunController {
             Map<String, Long> workspaceSnapshot,
             StringBuilder assistantText,
             List<String> customEventNames,
-            List<AguiEvent.Interrupt> interrupts) {
+            List<AguiEvent.Interrupt> interrupts,
+            java.util.concurrent.atomic.AtomicBoolean finished) {
+        finished.set(true);
+        // 是否被用户手动停止（停止入口会置位）——落进消息 meta，刷新回放也能标注「已停止」
+        boolean stopped = runningRuns.consumeStopped(threadId);
         try {
             chatSessionService.appendMessage(
-                    sessionId, "ASSISTANT", assistantText.toString(), meta(customEventNames));
+                    sessionId, "ASSISTANT", assistantText.toString(), meta(customEventNames, stopped));
             chatSessionService.touch(sessionId);
         } catch (Exception ex) {
             log.error("落库 assistant 消息失败 sessionId={}", sessionId, ex);
@@ -251,6 +277,7 @@ public class AguiRunController {
             log.warn("产物登记失败 sessionId={}: {}", sessionId, ex.toString());
         }
         sessionSkillOverrides.clear(threadId);
+        runningRuns.clear(threadId);
         try {
             emitter.complete();
         } catch (Exception ex) {
@@ -327,12 +354,18 @@ public class AguiRunController {
         }
     }
 
-    private static Map<String, Object> meta(List<String> customEventNames) {
-        if (customEventNames.isEmpty()) {
+    private static Map<String, Object> meta(List<String> customEventNames, boolean stopped) {
+        if (customEventNames.isEmpty() && !stopped) {
             return null;
         }
         Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("customEvents", customEventNames);
+        if (!customEventNames.isEmpty()) {
+            meta.put("customEvents", customEventNames);
+        }
+        if (stopped) {
+            // Phase 12 / D25：气泡据此标注「已停止」，刷新回放一致
+            meta.put("stopped", true);
+        }
         return meta;
     }
 

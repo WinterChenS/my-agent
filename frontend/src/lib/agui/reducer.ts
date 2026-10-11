@@ -9,7 +9,7 @@
  *   <li>非展示型 CUSTOM（如 token_usage）直接忽略
  * </ul>
  */
-import type { AguiEventLike, CardKind, ChatItem, ChatState } from "./types";
+import type { AguiEventLike, CardKind, ChatItem, ChatState, SubagentItem } from "./types";
 
 export const initialChatState: ChatState = { items: [], status: "idle", runId: null };
 
@@ -159,6 +159,95 @@ function applyRunFinished(state: ChatState, event: AguiEventLike): ChatState {
 }
 
 /** 审批卡状态更新（决策后由页面调用）。 */
+/**
+ * 子 Agent 事件聚合（Phase 12 / D26）。
+ *
+ * <p>官方事件族：`subagent.lifecycle`（AGENT_START/AGENT_END）、`subagent.text`（TEXT_BLOCK_DELTA）、
+ * `subagent.thinking`、`subagent.tool_call`（TOOL_CALL_START/END）、`subagent.tool_result`、`subagent.require_confirm`。
+ * `text`/`thinking` 是**逐 delta** 的，必须追加到同一条目，否则会像以前那样刷屏。
+ */
+function applySubagent(state: ChatState, name: string, value: unknown): ChatState {
+  const payload = (value ?? {}) as Record<string, unknown>;
+  const source = asString(payload.source) ?? "subagent";
+  const type = asString(payload.type) ?? "";
+  const index = state.items.findIndex(
+    (item) => item.kind === "subagent" && item.source === source,
+  );
+
+  const current: SubagentItem =
+    index >= 0
+      ? { ...(state.items[index] as SubagentItem) }
+      : {
+          kind: "subagent",
+          id: `subagent-${source}`,
+          source,
+          name: source.split("/").pop() || "subagent",
+          status: "running",
+          text: "",
+          thinking: "",
+          toolCalls: [],
+          confirm: null,
+        };
+
+  switch (name) {
+    case "subagent.lifecycle": {
+      const label = asString(payload.name);
+      if (label) {
+        current.name = label;
+      }
+      if (type === "AGENT_END") {
+        current.status = "done";
+      } else if (type === "AGENT_START") {
+        current.status = "running";
+      }
+      break;
+    }
+    case "subagent.text":
+      current.text += asString(payload.delta) ?? "";
+      break;
+    case "subagent.thinking":
+      current.thinking += asString(payload.delta) ?? "";
+      break;
+    case "subagent.tool_call": {
+      if (type === "TOOL_CALL_END") {
+        current.toolCalls = markLastToolDone(current.toolCalls);
+      } else {
+        current.toolCalls = [
+          ...current.toolCalls,
+          { name: asString(payload.toolName) ?? "tool", done: false },
+        ];
+      }
+      break;
+    }
+    case "subagent.tool_result":
+      current.toolCalls = markLastToolDone(current.toolCalls);
+      break;
+    case "subagent.require_confirm":
+      current.confirm = asString(payload.message) ?? "子 Agent 请求确认";
+      break;
+    default:
+      break;
+  }
+
+  const items =
+    index >= 0
+      ? state.items.map((item, i) => (i === index ? current : item))
+      : [...state.items, current];
+  return { ...state, items };
+}
+
+/** 把最后一个还没结束的工具调用标记为已结束。 */
+function markLastToolDone(toolCalls: SubagentItem["toolCalls"]): SubagentItem["toolCalls"] {
+  const next = [...toolCalls];
+  for (let i = next.length - 1; i >= 0; i -= 1) {
+    if (!next[i].done) {
+      next[i] = { ...next[i], done: true };
+      break;
+    }
+  }
+  return next;
+}
+
 export function markApproval(
   state: ChatState,
   interruptId: string,
@@ -180,6 +269,10 @@ function applyCustom(state: ChatState, event: AguiEventLike): ChatState {
   const name = event.name ?? "";
   if (NON_VISUAL_CUSTOM.has(name)) {
     return state;
+  }
+  // Phase 12 / D26：官方 SubagentEventConverter 发出的一族事件，按 source 聚合成一张卡片
+  if (name.startsWith("subagent.")) {
+    return applySubagent(state, name, event.value);
   }
   const card: CardKind = CARD_BY_NAME[name] ?? "unknown";
   return {
@@ -224,7 +317,11 @@ function stringify(value: unknown): string {
 
 /** 历史消息 → 消息树（回放）。 */
 export function replayMessages(
-  messages: { role: string; content: string | null }[],
+  messages: {
+    role: string;
+    content: string | null;
+    aguiMeta?: Record<string, unknown> | null;
+  }[],
 ): ChatState {
   const items: ChatItem[] = [];
   messages.forEach((message, index) => {
@@ -232,12 +329,15 @@ export function replayMessages(
     if (!message.content) {
       return;
     }
+    const stopped = message.aguiMeta?.["stopped"] === true;
     items.push({
       kind: "text",
       id: `history-${index}`,
       role,
       content: message.content,
       streaming: false,
+      // Phase 12 / D25：被停止的那一轮刷新后仍标注「已停止」
+      ...(stopped ? { stopped: true } : {}),
     });
   });
   return { items, status: "idle", runId: null };

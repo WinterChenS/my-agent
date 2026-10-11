@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HttpAgent } from "@ag-ui/client";
-import { Paperclip, Plus, Send, Trash2 } from "lucide-react";
+import { Paperclip, Plus, Send, Square, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,12 +9,13 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
 import { SkillPicker } from "@/components/chat/SkillPicker";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
+import { SubagentCard } from "@/components/chat/SubagentCard";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
 import { JsonCard } from "@/components/cards/JsonCard";
 import { ApprovalCard } from "@/components/cards/ApprovalCard";
 import { ConfirmCard } from "@/components/cards/ConfirmCard";
 import { MappingCard } from "@/components/cards/MappingCard";
-import { createChatAgent } from "@/lib/agui/agent";
+import { abortCurrentRun, createChatAgent } from "@/lib/agui/agent";
 import { initialChatState, markApproval, reduceEvent, replayMessages } from "@/lib/agui/reducer";
 import type { ChatSession } from "@/api/types";
 import type { AgentSummary } from "@/api/types";
@@ -24,6 +25,7 @@ type ToolItem = Extract<ChatItem, { kind: "tool" }>;
 import {
   createSession,
   deleteSession,
+  interruptSession,
   listAgents,
   listMessages,
   listSessions,
@@ -133,6 +135,7 @@ export default function ChatPage() {
     agentRef.current = createChatAgent();
     try {
       const messages = await listMessages(target.id);
+      // aguiMeta 里带 stopped 标记，回放时据此标注「已停止」
       setChat(replayMessages(messages));
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载历史消息失败");
@@ -344,6 +347,33 @@ export default function ChatPage() {
     }
   }
 
+  /** 停止当前生成（Phase 12 / D25）：先断前端 SSE，再让服务端中断该 run。 */
+  async function stopRun() {
+    if (!session) {
+      return;
+    }
+    abortCurrentRun();
+    try {
+      await interruptSession(session.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "停止失败");
+    } finally {
+      // 已生成的内容保留，只在最后一条助手气泡上标注「已停止」
+      setChat((prev) => {
+        const items = [...prev.items];
+        for (let i = items.length - 1; i >= 0; i -= 1) {
+          const item = items[i];
+          if (item.kind === "text" && item.role === "assistant") {
+            items[i] = { ...item, streaming: false, stopped: true };
+            break;
+          }
+        }
+        return { ...prev, items, status: "finished" };
+      });
+      setBusy(false);
+    }
+  }
+
   /**
    * 发送时上传暂存附件（后端会按 D18 存储、并物化到 Agent 工作区，D20）。
    *
@@ -388,13 +418,16 @@ export default function ChatPage() {
         continue;
       }
 
-      if (item.kind === "text") {
+      if (item.kind === "subagent") {
+        nodes.push(<SubagentCard key={item.id} item={item} />);
+      } else if (item.kind === "text") {
         nodes.push(
           <MessageBubble
             key={item.id}
             role={item.role}
             content={item.content}
             streaming={item.streaming}
+            stopped={item.stopped}
           />,
         );
       } else if (item.kind === "approval") {
@@ -600,9 +633,21 @@ export default function ChatPage() {
                 }}
                 disabled={busy}
               />
-              <Button onClick={() => void send()} disabled={busy || !input.trim()}>
-                <Send className="size-4" />
-              </Button>
+              {busy ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => void stopRun()}
+                  title="停止生成"
+                  data-testid="stop-button"
+                >
+                  <Square className="size-4" />
+                  <span className="ml-1">停止</span>
+                </Button>
+              ) : (
+                <Button onClick={() => void send()} disabled={!input.trim()}>
+                  <Send className="size-4" />
+                </Button>
+              )}
             </div>
           </div>
         </div>

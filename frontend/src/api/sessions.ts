@@ -16,6 +16,13 @@ export function deleteSession(id: number) {
   return apiFetch<void>(`/api/sessions/${id}`, { method: "DELETE" });
 }
 
+/** 停止该会话正在跑的 run（Phase 12 / D25）。返回是否确实发出了中断。 */
+export function interruptSession(id: number) {
+  return apiFetch<{ interrupted: boolean }>(`/api/sessions/${id}/interrupt`, {
+    method: "POST",
+  });
+}
+
 export function listMessages(sessionId: number) {
   return apiFetch<ChatMessage[]>(`/api/sessions/${sessionId}/messages`);
 }
