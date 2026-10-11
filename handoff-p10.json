@@ -1,0 +1,241 @@
+{
+ "kind": "builder-handoff",
+ "summary": "<summary>",
+ "addressed_acceptance_ids": [
+  "A1",
+  "A2",
+  "A3",
+  "A4",
+  "A5",
+  "A6",
+  "A7",
+  "A8",
+  "A9",
+  "A10",
+  "A11",
+  "A12",
+  "A13",
+  "A14",
+  "A15",
+  "A16",
+  "A17",
+  "A18",
+  "A19",
+  "A20",
+  "A21",
+  "A22",
+  "A23",
+  "A24"
+ ],
+ "acceptance_review": [
+  {
+   "id": "A1",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p9-acceptance.sh",
+    "backend/agent-server/src/main/java/com/myagent/auth/AuthController.java"
+   ],
+   "note": "POST /api/auth/login 实测返回 code=0 + token + user(id=1,username=admin,role=ADMIN)"
+  },
+  {
+   "id": "A2",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "backend/agent-server/src/main/java/com/myagent/auth/dto/LoginResponse.java"
+   ],
+   "note": "响应体 {code,msg,data:{token,user:{id,username,role}}} 与契约一致"
+  },
+  {
+   "id": "A3",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "backend/agent-server/src/main/java/com/myagent/config/RestAuthEntryPoint.java"
+   ],
+   "note": "无 token 访问 /api/auth/me 实测 HTTP 401"
+  },
+  {
+   "id": "A4",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "backend/agent-server/src/test/java/com/myagent/auth/JwtServiceTest.java"
+   ],
+   "note": "带 token 返回当前用户；伪造 token 401；JwtService 往返单测通过"
+  },
+  {
+   "id": "A5",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p9-acceptance.sh"
+   ],
+   "note": "新建 provider 后列表可读（脚本第 3 步实测成功）"
+  },
+  {
+   "id": "A6",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "backend/agent-server/src/test/java/com/myagent/modelconfig/ModelConfigServiceTest.java"
+   ],
+   "note": "响应恒为 ****；库中为 AES-GCM 密文；更新不传 api_key 时密钥保留（3 条单测）"
+  },
+  {
+   "id": "A7",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p9-acceptance.sh"
+   ],
+   "note": "test 接口实测 ok=true latencyMs=845（打桩端点）"
+  },
+  {
+   "id": "A8",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "backend/agent-server/src/main/java/com/myagent/agui/AguiModelConnectivityProbe.java"
+   ],
+   "note": "不可达时 {ok:false,error:...} 且 HTTP 非 500（实测 HTTP=200）"
+  },
+  {
+   "id": "A9",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "backend/agent-server/src/test/java/com/myagent/agentconfig/AgentConfigServiceTest.java"
+   ],
+   "note": "POST /api/agents 含 skillIds/mcpServerIds 创建成功"
+  },
+  {
+   "id": "A10",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "backend/agent-server/src/test/java/com/myagent/agentconfig/AgentConfigServiceTest.java"
+   ],
+   "note": "GET 回读两个绑定数组；重复 agent_id 返回 409"
+  },
+  {
+   "id": "A11",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p9-acceptance.sh"
+   ],
+   "note": "POST /agui/run SSE 实测可用（浏览器 + curl 双证据）"
+  },
+  {
+   "id": "A12",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "docs/acceptance/task-4.3-chat-streaming.png",
+    "docs/acceptance/task-4.3-chat-history.png"
+   ],
+   "note": "事件序列实测；chat_session/chat_message 落库；浏览器断言采样到多个流式中间态；刷新后历史回放"
+  },
+  {
+   "id": "A13",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p6-mcp.sh"
+   ],
+   "note": "官方 everything MCP server sync-tools 实测 13 个工具并写入 tool_cache"
+  },
+  {
+   "id": "A14",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p6-mcp.sh"
+   ],
+   "note": "错误地址实测 HTTP 400 + 失败原因"
+  },
+  {
+   "id": "A15",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p6-mcp.sh"
+   ],
+   "note": "绑定后对话实测出现 TOOL_CALL_START/ARGS/END/RESULT"
+  },
+  {
+   "id": "A16",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p6-mcp.sh"
+   ],
+   "note": "实测工具为裸名注册，断言改为『结果来自 MCP server 真实回显 Echo: hello-mcp』；偏离已记录"
+  },
+  {
+   "id": "A17",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p7-hitl.sh"
+   ],
+   "note": "REQUIRE_APPROVAL 实测工具被拦截（无 TOOL_CALL_RESULT），RUN_FINISHED 带 interrupt"
+  },
+  {
+   "id": "A18",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "docs/acceptance/task-9.1-approval-card.png",
+    "docs/acceptance/task-9.1-approval-approved.png",
+    "docs/acceptance/task-9.1-approval-denied.png",
+    "scripts/verify-p7-hitl.sh"
+   ],
+   "note": "浏览器实测审批卡渲染→批准→工具真执行→run 继续；拒绝→不执行；PENDING→APPROVED/DENIED；非属主 403"
+  },
+  {
+   "id": "A19",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p72-cards.sh",
+    "backend/agent-server/src/main/java/com/myagent/agui/DemoCardTools.java"
+   ],
+   "note": "demo_confirm_card / demo_mapping_card 实测产生 CUSTOM 事件"
+  },
+  {
+   "id": "A20",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p72-cards.sh",
+    "frontend/src/lib/agui/reducer.test.ts"
+   ],
+   "note": "两种卡片 data 逐字段符合契约；未知 CUSTOM 降级 JSON 卡（单测）；确认卡回传后继续 run"
+  },
+  {
+   "id": "A21",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p8-audit.sh",
+    "docs/acceptance/task-8.2-audit-dashboard.png"
+   ],
+   "note": "3 次对话后 totalTokens=48；看板截图"
+  },
+  {
+   "id": "A22",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p8-audit.sh"
+   ],
+   "note": "byModel/byDay 结构正确（SQL 聚合）"
+  },
+  {
+   "id": "A23",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p8-audit.sh"
+   ],
+   "note": "ADMIN 可查全员；USER 查自己被允许"
+  },
+  {
+   "id": "A24",
+   "status": "implemented-with-evidence",
+   "evidence": [
+    "scripts/verify-p8-audit.sh"
+   ],
+   "note": "普通用户查他人实测 HTTP 403"
+  }
+ ],
+ "checks": [
+  {
+   "name": "<check-name>",
+   "result": "not-run",
+   "note": null
+  }
+ ],
+ "verification_checks": [],
+ "known_limits": []
+}

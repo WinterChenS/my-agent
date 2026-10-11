@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
             if tool_call:
                 self._stream_tool_call(model, created, usage, tool_call)
             else:
-                self._stream(model, created, usage, self._reply_text(body))
+                self._stream(model, created, usage, self._reply_text(body, raw))
         else:
             message = {"role": "assistant", "content": self._reply_for(raw)}
             finish = "stop"
@@ -208,10 +208,18 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
 
-    def _reply_text(self, body) -> str:
+    def _reply_text(self, body, raw: bytes = b"") -> str:
+        # 标记优先：标记是「模型确实收到了这段内容」的强证据，
+        # 不能被 STUB_REPLY_FROM_MODEL 的按模型名回复盖掉（曾经因此让 Skill 注入的端到端断言假红）。
+        if STUB_MARKER:
+            try:
+                if STUB_MARKER.encode("utf-8") in raw:
+                    return f"{REPLY} {STUB_MARKER_REPLY}"
+            except Exception:  # 标记匹配失败不应影响服务
+                pass
         if STUB_REPLY_FROM_MODEL:
             return f"stub-ok {body.get('model', '')}"
-        return self._reply_for(b"")
+        return REPLY
 
     @staticmethod
     def _reply_for(raw: bytes) -> str:

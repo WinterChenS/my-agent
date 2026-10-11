@@ -89,6 +89,24 @@ Phase 10：产物与文件（新增，基于同一平台）
    - 输入：USER 角色查询他人数据 / ADMIN 查询全员
    - 期望：前者被拒，后者成功
 
+8. 产物与文件（Phase 10 增量）
+   - 输入：向会话上传文本类文件（`.md`）
+   - 期望：`artifact` 行 `role=SOURCE`、`storage=DB` 且 `content` 有值
+   - 输入：向会话上传二进制文件（`.png`）
+   - 期望：`storage=MINIO`；`GET /api/artifacts/{id}/download` 返回直链且下载内容 sha256 与原件一致
+   - 输入：同一会话重复上传同一内容
+   - 期望：不新增 `artifact` 行（按 session+sha256 去重）
+   - 输入：上传后让 Agent 读取 `uploads/<文件名>`
+   - 期望：Agent 用常规文件工具读到上传原文（文件物化到 `.myagent-workspace/<userId>/uploads/`）
+   - 输入：让 Agent 写一个文件后结束 run
+   - 期望：出现 `artifact(role=ARTIFACT)` 指向该文件，且不含 `agents/**`、`default/**`、`memory/**`、`.skills-cache/**`、`uploads/**`
+   - 输入：会话页右侧栏
+   - 期望：来源文件与产物分两区展示，文本类可预览、均可下载，并标注存储位置
+   - 输入：输入框输入 `/` 选择技能
+   - 期望：出现候选列表；选中后成为不可编辑块（可整块删除、不重复），发送时以 `skillIds` 并入该会话技能集
+   - 输入：MinIO 不可用时上传二进制
+   - 期望：返回明确业务错误（不是 200 成功），文本上传与对话主链路仍可用
+
 # 约束与不变量
 
 - G1 依赖门禁：AgentScope 相关坐标与版本按方案 2.1（`io.agentscope:*:2.0.3`）；新增未列依赖需说明理由。
