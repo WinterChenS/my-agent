@@ -148,18 +148,21 @@ public class AguiRunController {
 
         // Phase 12 / D25：区分「跑完了」与「客户端中途断开」，后者要兜底中断，避免空烧 token
         java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean(false);
+        // AG-UI 协议校正：RUN_ERROR 是终态，之后不能再发任何事件（官方扩展会多发一个 RUN_FINISHED，
+        // 官方客户端因此报 "Cannot send event type 'RUN_FINISHED'..."）。规则与单测见 AguiStreamGuard。
+        AguiStreamGuard streamGuard = new AguiStreamGuard();
         Disposable subscription = requestProcessor
                 .process(contextRequest)
                 .events()
                 .subscribe(
                         event -> {
-                            send(emitter, event);
+                            send(emitter, event, streamGuard);
                             collect(event, assistantText, customEventNames, interrupts);
                             recordTokenUsage(event, userId, session.getId(), agentDbId, tokenContext, runId);
                         },
                         error -> {
                             log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
-                            sendRunError(emitter, threadId, input.getRunId(), error);
+                            sendRunError(emitter, threadId, input.getRunId(), error, streamGuard);
                             finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText,
                                     customEventNames, interrupts, finished);
                         },
@@ -216,7 +219,12 @@ public class AguiRunController {
         tokenUsageRecorder.record(userId, sessionId, agentDbId, context, runId, deltaMap);
     }
 
-    private void send(SseEmitter emitter, AguiEvent event) {
+    private void send(SseEmitter emitter, AguiEvent event, AguiStreamGuard streamGuard) {
+        if (!streamGuard.shouldSend(event)) {
+            // 已进入 RUN_ERROR 终态：后续事件（尤其官方扩展跟着发的 RUN_FINISHED）一律不下发
+            log.debug("已进入 RUN_ERROR 终态，丢弃后续事件: {}", event.getType());
+            return;
+        }
         try {
             // 去掉 null 字段：官方客户端 Zod 校验不接受 null（见 AguiSseSanitizer 注释）
             emitter.send(SseEmitter.event().data(sseSanitizer.stripNulls(eventEncoder.encodeToJson(event))));
@@ -226,7 +234,16 @@ public class AguiRunController {
         }
     }
 
-    private void sendRunError(SseEmitter emitter, String threadId, String runId, Throwable error) {
+    private void sendRunError(
+            SseEmitter emitter,
+            String threadId,
+            String runId,
+            Throwable error,
+            AguiStreamGuard streamGuard) {
+        if (!streamGuard.shouldSendFallbackError()) {
+            // 官方扩展已经发过 RUN_ERROR 了，不再重复发第二个错误事件
+            return;
+        }
         try {
             emitter.send(SseEmitter.event()
                     .data(sseSanitizer.stripNulls(eventEncoder.encodeToJson(new AguiEvent.RunError(
