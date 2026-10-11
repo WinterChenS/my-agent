@@ -70,21 +70,23 @@ async function createStubAgent(request: APIRequestContext, stamp: number, baseUr
       data: { providerId: provider.data.id, modelId: `${PREFIX}model-${stamp}`, status: "ENABLED" },
     })
   ).json();
-  await request.post(`${API}/api/agents`, {
-    headers,
-    data: {
-      name: agentId,
-      agentId,
-      sysPrompt: "你是测试助手。",
-      modelId: model.data.id,
-      permissionMode: "ALWAYS_ALLOW",
-      maxIterations: 3,
-      status: "ENABLED",
-      skillIds: [],
-      mcpServerIds: [],
-    },
-  });
-  return { agentId, headers };
+  const created = await (
+    await request.post(`${API}/api/agents`, {
+      headers,
+      data: {
+        name: agentId,
+        agentId,
+        sysPrompt: "你是测试助手。",
+        modelId: model.data.id,
+        permissionMode: "ALWAYS_ALLOW",
+        maxIterations: 3,
+        status: "ENABLED",
+        skillIds: [],
+        mcpServerIds: [],
+      },
+    })
+  ).json();
+  return { agentId, agentDbId: created.data.id as number, headers };
 }
 
 async function createSkill(request: APIRequestContext, headers: Record<string, string>, stamp: number) {
@@ -156,10 +158,10 @@ async function loginAndSelectAgent(page: Page, agentName: string) {
   return page.getByPlaceholder("输入消息，回车发送");
 }
 
-test("右侧栏：来源文件与产物两区可见，上传后出现在来源文件区", async ({ page, request }) => {
+test("附件暂存 + 发送时上传：暂存区、右侧栏与预览", async ({ page, request }) => {
   const stamp = Date.now();
   const { agentId } = await createStubAgent(request, stamp);
-  await loginAndSelectAgent(page, agentId);
+  const input = await loginAndSelectAgent(page, agentId);
 
   // 两区都在（Phase 10 / Task 10.4）
   await expect(page.locator('[data-testid="panel-sources"]')).toBeVisible();
@@ -167,28 +169,90 @@ test("右侧栏：来源文件与产物两区可见，上传后出现在来源�
   await expect(page.locator('[data-testid="panel-sources"]')).toContainText("来源文件");
   await expect(page.locator('[data-testid="panel-artifacts"]')).toContainText("产物");
 
-  // 上传一个文本文件 → 来源文件区出现该文件（Task 10.2）
+  // 选文件 → 只进「输入框上方暂存区」，此时右侧栏还没有（D24：暂存期间不写库）
   await page.setInputFiles('[data-testid="file-input"]', {
     name: "e2e-note.md",
     mimeType: "text/markdown",
     buffer: Buffer.from("# e2e note\n", "utf-8"),
   });
+  const chips = page.locator('[data-testid="attachment-chip"]');
+  await expect(chips).toHaveCount(1);
+  await expect(chips.first()).toContainText("e2e-note.md");
+  await expect(page.locator('[data-testid="panel-sources-item"]')).toHaveCount(0);
+
+  // 输入框仍可用，带着附件发送
+  await input.fill("带着附件发一条");
+  await input.press("Enter");
+
+  // 发送后才上传：右侧栏出现、暂存区清空
   const sourceItem = page.locator('[data-testid="panel-sources-item"]');
   await expect(sourceItem).toHaveCount(1, { timeout: 30_000 });
   await expect(sourceItem.first()).toContainText("e2e-note.md");
-  // 文本类入库（D18）→ 右侧栏标注存储位置
   await expect(sourceItem.first()).toContainText("数据库");
+  await expect(chips).toHaveCount(0);
 
-  // 产物区此时还是空的（本轮没跑，Agent 没写文件）
+  // 产物区此时还是空的（Agent 没写文件）
   await expect(page.locator('[data-testid="panel-artifacts-item"]')).toHaveCount(0);
 
-  // 文本类可在线预览（10.4 门禁）
+  // 文本类可在线预览
   await sourceItem.first().hover();
   await page.locator('[data-testid="artifact-preview-button"]').first().click();
   await expect(page.locator('[data-testid="artifact-preview"]')).toContainText("e2e note");
   await page.keyboard.press("Escape");
 
-  await page.screenshot({ path: "../docs/acceptance/task-10-panel-upload.png", fullPage: true });
+  await page.screenshot({ path: "../docs/acceptance/task-11-attachment-staging.png", fullPage: true });
+});
+
+test("附件：多选与追加、移除后库里不留记录、发送时只上传保留的", async ({ page, request }) => {
+  const stamp = Date.now();
+  const { agentId, agentDbId, headers } = await createStubAgent(request, stamp);
+  const input = await loginAndSelectAgent(page, agentId);
+
+  // 一次选两个（A47）
+  await page.setInputFiles('[data-testid="file-input"]', [
+    { name: "e2e-a.txt", mimeType: "text/plain", buffer: Buffer.from("A\n", "utf-8") },
+    { name: "e2e-b.txt", mimeType: "text/plain", buffer: Buffer.from("B\n", "utf-8") },
+  ]);
+  const chips = page.locator('[data-testid="attachment-chip"]');
+  await expect(chips).toHaveCount(2);
+
+  // 分多次追加，不互相覆盖（A48）
+  await page.setInputFiles('[data-testid="file-input"]', {
+    name: "e2e-c.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("C\n", "utf-8"),
+  });
+  await expect(chips).toHaveCount(3);
+  // 输入框仍可正常使用
+  await input.fill("文字仍然可以输入");
+  await expect(input).toHaveValue("文字仍然可以输入");
+
+  // 移除其中一条（A49）
+  await page.getByLabel("移除附件 e2e-b.txt").click();
+  await expect(chips).toHaveCount(2);
+  expect((await chips.allTextContents()).join(" ")).not.toContain("e2e-b.txt");
+
+  // 暂存期间库里不应有任何来源文件记录（A50）：本 Agent 的会话要么还没建，要么没有任何 artifact
+  const sessions = await (await request.get(`${API}/api/sessions`, { headers })).json();
+  const mine = (sessions.data ?? []).filter(
+    (s: { agentId: number }) => String(s.agentId) === String(agentDbId),
+  );
+  for (const session of mine) {
+    const artifacts = await (
+      await request.get(`${API}/api/artifacts?sessionId=${session.id}`, { headers })
+    ).json();
+    expect(artifacts.data, "暂存期间不应产生来源文件记录").toHaveLength(0);
+  }
+
+  // 发送 → 只上传保留的两条，被移除的那条不会出现（A51/A52）
+  await input.press("Enter");
+  const sourceItems = page.locator('[data-testid="panel-sources-item"]');
+  await expect(sourceItems).toHaveCount(2, { timeout: 30_000 });
+  const texts = await sourceItems.allTextContents();
+  expect(texts.join(" ")).toContain("e2e-a.txt");
+  expect(texts.join(" ")).toContain("e2e-c.txt");
+  expect(texts.join(" ")).not.toContain("e2e-b.txt");
+  await expect(chips).toHaveCount(0);
 });
 
 test("产物区：Agent 写出的文件在 run 结束后自动出现", async ({ page, request }) => {

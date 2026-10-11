@@ -13,7 +13,7 @@
 | 文档 | 说明 |
 |---|---|
 | `docs/技术方案.md` | 架构、依赖版本、表设计、API 契约、卡片契约、防跑偏门禁 G1–G8 |
-| `docs/任务列表.md` | Phase 0–10 共 21 个任务及各自验收门禁 |
+| `docs/任务列表.md` | Phase 0–11 共 23 个任务及各自验收门禁 |
 | `docs/backlog.md` | 超范围需求登记（门禁 G7） |
 | `docs/comet/` | Comet Native change 产物（brief / specs / verification） |
 | `docs/acceptance/` | 全链路验收证据 |
@@ -79,6 +79,7 @@ cd frontend && npm run lint && npm run build && npx vitest run
 | `e2e-chat.sh` | 聊天主链路浏览器验收 | 流式气泡逐字出现、刷新后历史仍在、断连错误态 |
 | `verify-p10-artifacts.sh` | **产物/来源统一存储与自动登记** | 文本入 DB / 二进制进 MinIO；重复上传去重；下载 sha256 一致；上传物化后 Agent 真能读到；run 后识别 Agent 写出的文件且不带框架内部文件 |
 | `verify-p10-minio-down.sh` | 对象存储不可用时的降级 | 后端起得来（只告警）；二进制上传返回 `code=400` 明确错误；文本上传仍成功；对话主链路不受影响 |
+| `verify-p11-memory-read.sh` | **记忆与会话状态是否真在库里** | 往 `memory_store` 种标记→删掉工作区 `memory/*.md`→再跑一轮：库里记忆仍含标记且 payload 变大（读取来自库）；磁盘 memory 文件始终 0 |
 | `add-real-model.sh` | 一条命令接入真实大模型 | 建 provider/model → 连通性测试 → 建 Agent（无需 jq） |
 | `cleanup-e2e-data.sh` | 清理实施期测试数据 | 默认预览，`--yes` 才删 |
 
@@ -106,6 +107,7 @@ cd frontend && npm run lint && npm run build && npx vitest run
 | `task-10-panel-upload.png` | **右侧栏**：来源文件 / 产物两区 + 上传后的来源文件 |
 | `task-10-artifact-area.png` | **产物区**：Agent 写出的文件在 run 结束后自动出现 |
 | `task-10-skill-block.png` | **`/` 选技能**：技能变成可删除的块，不进入输入框文本 |
+| `task-11-attachment-staging.png` | **附件暂存区**：文件显示在输入框上方、可移除，发送后才上传 |
 
 ## 已知环境偏离（相对《技术方案》）
 

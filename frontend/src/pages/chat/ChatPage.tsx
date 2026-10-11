@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
 import { SkillPicker } from "@/components/chat/SkillPicker";
+import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
 import { JsonCard } from "@/components/cards/JsonCard";
 import { ApprovalCard } from "@/components/cards/ApprovalCard";
@@ -29,6 +30,11 @@ import {
 } from "@/api/sessions";
 import { decideApproval } from "@/api/approvals";
 import { uploadArtifact } from "@/api/artifacts";
+import {
+  removeAttachment,
+  stageFiles,
+  type StagedAttachment,
+} from "@/lib/attachments/staging";
 import { listSkills, type SkillInfo } from "@/api/skills";
 import {
   addSkill,
@@ -55,6 +61,8 @@ export default function ChatPage() {
   const [skillHighlight, setSkillHighlight] = useState(0);
   const [artifactRefresh, setArtifactRefresh] = useState(0);
   const [uploading, setUploading] = useState(false);
+  // Phase 11 / D24：附件先暂存在浏览器，发送时才上传
+  const [staged, setStaged] = useState<StagedAttachment[]>([]);
 
   const agentRef = useRef<HttpAgent | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -229,6 +237,20 @@ export default function ChatPage() {
       return;
     }
 
+    // 先上传暂存附件：失败就中止本轮，输入与附件都保留
+    if (staged.length > 0) {
+      setUploading(true);
+      try {
+        await uploadStaged(active.id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "附件上传失败");
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
+
+    setStaged([]);
     setInput("");
     setChat((prev) => ({
       items: [
@@ -300,37 +322,32 @@ export default function ChatPage() {
     setSkillHighlight(0);
   }
 
-  /** 上传文件：先确保有会话，再交给后端（后端会落一份到 Agent 工作区，D20）。 */
-  async function uploadFiles(files: FileList | null) {
+  /** 选中文件 → 暂存（多选/追加/同名去重）；真正上传发生在 send()。 */
+  function stageSelectedFiles(files: FileList | null) {
     if (!files || files.length === 0) {
       return;
     }
     setError(null);
-    setUploading(true);
-    try {
-      let active = session;
-      if (!active) {
-        if (agentId == null) {
-          setError("请先在「Agent」页创建一个 Agent，然后在这里选择它");
-          return;
-        }
-        active = await createSession(agentId);
-        setSession(active);
-        await refreshSessions();
-        agentRef.current = createChatAgent();
-      }
-      for (const file of Array.from(files)) {
-        await uploadArtifact(active.id, file);
-      }
-      setArtifactRefresh((value) => value + 1);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "上传失败");
-    } finally {
-      setUploading(false);
-      if (fileRef.current) {
-        fileRef.current.value = "";
-      }
+    // 先把 FileList 固化：它是「活」的，一旦清空 input.value 就变空；
+    // 而状态更新函数是在事件处理之后才执行的，放在里面读会拿到空列表。
+    const selected = Array.from(files);
+    setStaged((prev) => stageFiles(prev, selected));
+    if (fileRef.current) {
+      // 允许再次选择同一个文件（否则浏览器的 change 事件不会再触发）
+      fileRef.current.value = "";
     }
+  }
+
+  /**
+   * 发送时上传暂存附件（后端会按 D18 存储、并物化到 Agent 工作区，D20）。
+   *
+   * <p>失败时抛出，让调用方保留输入与附件，避免用户白填一遍。
+   */
+  async function uploadStaged(sessionId: number) {
+    for (const item of staged) {
+      await uploadArtifact(sessionId, item.file);
+    }
+    setArtifactRefresh((value) => value + 1);
   }
 
   /**
@@ -511,6 +528,11 @@ export default function ChatPage() {
               onRemove={(id) => setSelectedSkills((prev) => removeSkill(prev, id))}
               onHighlight={setSkillHighlight}
             />
+            <AttachmentStaging
+              items={staged}
+              disabled={busy || uploading}
+              onRemove={(key) => setStaged((prev) => removeAttachment(prev, key))}
+            />
             <div className="flex items-center gap-2">
               <input
                 ref={fileRef}
@@ -518,7 +540,7 @@ export default function ChatPage() {
                 multiple
                 className="hidden"
                 data-testid="file-input"
-                onChange={(e) => void uploadFiles(e.target.files)}
+                onChange={(e) => stageSelectedFiles(e.target.files)}
               />
               <Button
                 variant="outline"
