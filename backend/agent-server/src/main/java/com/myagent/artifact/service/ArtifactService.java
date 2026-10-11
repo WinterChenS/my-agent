@@ -179,7 +179,16 @@ public class ArtifactService {
         artifact.setSizeBytes((long) bytes.length);
         artifact.setSha256(sha);
 
-        if (isTextual(mime, fileName)) {
+        // 路由还要看内容：MIME/扩展名说是文本，但内容可能带 NUL 或不是合法 UTF-8
+        // （实测踩过：UTF-16 的 .md 或扩展名是文本但内容是二进制 → 插进 PG 的 text 列直接报
+        //  invalid byte sequence for encoding "UTF8": 0x00，接口 500）。这类内容改走 MinIO。
+        boolean textual = isTextual(mime, fileName);
+        if (textual && !isStorableText(bytes)) {
+            log.warn("内容不是可入库的 UTF-8 文本（可能是 UTF-16/二进制），改走 MinIO: fileName={} size={}",
+                    fileName, bytes.length);
+            textual = false;
+        }
+        if (textual) {
             artifact.setStorage("DB");
             artifact.setContent(new String(bytes, StandardCharsets.UTF_8));
             artifact.setStatus("READY");
@@ -229,6 +238,27 @@ public class ArtifactService {
 
     private static String buildObjectKey(Long userId, Long sessionId, String sha, String fileName) {
         return "artifacts/" + userId + "/" + sessionId + "/" + sha.substring(0, 8) + "-" + fileName;
+    }
+
+    /** 内容是否适合存进数据库的 text 列：合法 UTF-8 且不含 NUL（PG 的 text/jsonb 都不接受 NUL）。 */
+    public static boolean isStorableText(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return true;
+        }
+        for (byte b : bytes) {
+            if (b == 0) {
+                return false;
+            }
+        }
+        java.nio.charset.CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+        try {
+            decoder.decode(java.nio.ByteBuffer.wrap(bytes));
+            return true;
+        } catch (java.nio.charset.CharacterCodingException ex) {
+            return false;
+        }
     }
 
     /** 文本类判定：MIME 优先，其次扩展名（D18）。 */

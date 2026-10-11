@@ -103,6 +103,53 @@ class ArtifactServiceTest {
 
     @Test
     @Transactional
+    void 文本扩展名但内容带NUL时改走MinIO而不是报500() {
+        // 用户实测：上传 .md/.txt 但内容是 UTF-16（含 0x00）→ 原先插 PG 的 text 列直接
+        // invalid byte sequence for encoding "UTF8": 0x00，接口 500。现在应改走 MinIO。
+        SessionResponse session = newSession();
+        byte[] utf16 = "# 标题".getBytes(StandardCharsets.UTF_16); // BOM + 0x00 字节
+        assertThat(utf16).contains((byte) 0);
+
+        Artifact stored = artifactService.store(
+                adminId(), session.id(), ArtifactService.ROLE_SOURCE, "note.md", "text/markdown", utf16, false);
+
+        assertThat(stored.getStorage()).isEqualTo("MINIO");
+        assertThat(stored.getStatus()).isEqualTo("READY");
+        assertThat(stored.getContent()).isNull();
+        // MINIO 存储的下载返回预签名直链（字节流只用于 DB 存储）
+        var download = artifactService.download(adminId(), stored.getId());
+        assertThat(download.url()).isNotNull();
+        assertThat(download.bytes()).isNull();
+    }
+
+    @Test
+    @Transactional
+    void 非法UTF8字节也改走MinIO() {
+        SessionResponse session = newSession();
+        byte[] invalidUtf8 = {(byte) 0xC3, (byte) 0x28, (byte) 0xA0, (byte) 0xA1};
+
+        Artifact stored = artifactService.store(
+                adminId(), session.id(), ArtifactService.ROLE_SOURCE, "weird.txt", "text/plain", invalidUtf8, false);
+
+        assertThat(stored.getStorage()).isEqualTo("MINIO");
+        assertThat(stored.getContent()).isNull();
+    }
+
+    @Test
+    void 内容入库判定只接受合法且无NUL的UTF8() {
+        assertThat(ArtifactService.isStorableText("中文 ok".getBytes(StandardCharsets.UTF_8))).isTrue();
+        assertThat(ArtifactService.isStorableText(new byte[0])).isTrue();
+        assertThat(ArtifactService.isStorableText(new byte[] {(byte) 0xE4, (byte) 0xB8}))
+                .as("截断的多字节序列不是合法 UTF-8")
+                .isFalse();
+        assertThat(ArtifactService.isStorableText(new byte[] {'a', 0, 'b'})).as("含 NUL").isFalse();
+        assertThat(ArtifactService.isStorableText("# 标题".getBytes(StandardCharsets.UTF_16)))
+                .as("UTF-16 带 NUL")
+                .isFalse();
+    }
+
+    @Test
+    @Transactional
     void 二进制文件走MinIO且可读回_并清理() {
         SessionResponse session = newSession();
         byte[] png = new byte[] {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3, 4};
