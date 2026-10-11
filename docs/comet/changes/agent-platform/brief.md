@@ -126,7 +126,7 @@ Phase 10：产物与文件（新增，基于同一平台）
 - D20 上传文件如何被 Agent 处理：上传后除写 `artifact(role=SOURCE)` 外，还会把文件**物化到该会话工作区**（`.myagent-workspace/<threadId>/uploads/`），使 Agent 用常规文件/命令工具即可读取处理；右侧栏另提供下载。这样不依赖 Agent 额外调用自定义工具。
 - D21 `/` 选择 Skill 的语义（本次暂定，待确认）：选中的 Skill 作为**该会话**的启用技能集合（在该 Agent 已绑定技能基础上并入），经 AgentScope 官方 `SkillFilter` 生效（内容仍按官方渐进式披露按需加载）；输入框中以不可编辑块呈现，删除即从本次请求移除。
 
-- D22 产物登记范围（用户确认选 **A** 自动全收）：每次 run 结束后对比该会话工作区 `.myagent-workspace/<threadId>/`，把本次 **新增或 mtime/size 变化** 的文件登记为 `artifact(role=ARTIFACT)`。**排除框架内部状态**：`agents/**/sessions/**`、`memory/**`、`.skills-cache/**`、`uploads/**`（上传的来源文件另有 SOURCE 记录），避免侧边栏被框架文件淹没。登记失败不影响 run。
+- D22 产物登记范围（用户确认选 **A** 自动全收）：每次 run 结束后对比 Agent 工作区 `.myagent-workspace/<userId>/`（实测：HarnessAgent 按属主分目录，不是 threadId），把本次 **新增或 mtime/size 变化** 的文件登记为 `artifact(role=ARTIFACT)`。**排除框架内部状态**：`agents/**/sessions/**`、`memory/**`、`.skills-cache/**`、`uploads/**`（上传的来源文件另有 SOURCE 记录），避免侧边栏被框架文件淹没。登记失败不影响 run。
 
 # 开放问题
 
@@ -135,6 +135,24 @@ Phase 10：产物与文件（新增，基于同一平台）
 > Phase 10 增量已获用户明确确认（2026-10-11）：目标/范围（4 项）/关键决定 D11、D17–D22/验收标准/非目标均确认；其中 D21（`/` 选 Skill 为**会话级**技能集合，经官方 SkillFilter 生效）一并确认。
 
 > 已确认（用户答 **A**）：产物登记范围 = **自动全收** —— 每次 run 结束后扫描该会话工作区，把本次 run 新增或修改的文件登记为产物；框架内部状态目录除外（见 D22）。
+
+## Phase 10 实施进展（2026-10-11）
+
+| 任务 | 状态 | 证据 |
+|---|---|---|
+| 10.1 统一产物表与存储层 | 完成 | V5 已应用到 `agent_platform`/`agent_platform_test`，索引 `idx_artifact_session_role`、`idx_artifact_sha256`；`mvn verify` 59 测试通过（含 `ArtifactServiceTest` 5 项：文本入 DB / 二进制进 MinIO 并回读 / 去重 / 非属主 403 / 超限拒绝） |
+| 10.2 上传与物化 | 完成 | `scripts/verify-p10-artifacts.sh`：文本→DB、二进制→MINIO、去重、下载 sha256 一致、`uploads/` 物化可见、Agent 真读到上传原文 |
+| 10.3 产物自动登记 | 完成 | 同脚本 8b：run 后 `role=ARTIFACT` 出现 Agent 写出的文件，且无 `memory/agents/default/sessions/.skills-cache/uploads` 混入；`WorkspaceArtifactScannerTest` 覆盖变更检测与排除 |
+| 10.4 右侧栏 | 完成 | `docs/acceptance/task-10-panel-upload.png`、`task-10-artifact-area.png`；Playwright 断言两区、上传落区、文本预览、产物自动出现 |
+| 10.5 `/` 选 Skill | 完成 | `task-10-skill-block.png`；Playwright 断言菜单、不可编辑块、去重、可删除；`selection.test.ts` 7 项单测；`AgentFactoryTest` 覆盖会话级技能的组合缓存键 |
+| 降级 | 完成 | `scripts/verify-p10-minio-down.sh`：MinIO 不可用时后端起得来、二进制上传返回 `code=400` 明确错误、文本上传与对话主链路不受影响 |
+
+**实施中修正的两处规格偏差（已回写 specs 与《技术方案》）**：
+1. Agent 工作区是 `.myagent-workspace/<userId>/` 而非 `<threadId>/` —— 物化与产物扫描都必须按属主目录，否则 Agent 相对路径读不到上传文件、扫描也找不到产物。
+2. MinIO 写入失败时若仍返回 `200 + code:0`（只把行标成 FAILED），前端会当成上传成功 —— 改为返回明确业务错误，失败行保留便于排查。
+
+**验收全绿**：后端 `mvn verify` 59 通过；前端 lint 0 error / build 成功 / vitest 27 通过；Playwright 15 passed（Phase 10 三个用例全绿）。**清理**：验收产生的 21 条 artifact 行与 MinIO 对象、p10/e2e fixture 的 agent/model/provider/session 均已删除，库里只剩用户自己的数据。
+
 
 # 共享理解确认
 

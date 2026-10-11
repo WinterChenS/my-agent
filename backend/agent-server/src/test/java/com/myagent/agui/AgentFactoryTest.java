@@ -10,6 +10,8 @@ import com.myagent.common.BizException;
 import com.myagent.modelconfig.dto.ModelRequest;
 import com.myagent.modelconfig.dto.ProviderRequest;
 import com.myagent.modelconfig.service.ModelConfigService;
+import com.myagent.skillconfig.dto.SkillRequest;
+import com.myagent.skillconfig.service.SkillConfigService;
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -35,6 +37,9 @@ class AgentFactoryTest {
 
     @Autowired
     private ModelConfigService modelConfigService;
+
+    @Autowired
+    private SkillConfigService skillConfigService;
 
     @AfterEach
     void clearCache() {
@@ -101,6 +106,31 @@ class AgentFactoryTest {
 
         HarnessAgent second = agentFactory.build(config.id());
         assertThat(second).isNotSameAs(first);
+    }
+
+    @Test
+    void 会话级技能按组合缓存且互不干扰() {
+        AgentResponse config = createAgent("factory-sk-" + System.nanoTime(), "提示词", "ALWAYS_ALLOW");
+        // D21：`/` 选中的技能会作为「会话级额外技能」进来；这里造一条真 Skill（create 会自动触发仓库同步）
+        Long skillId = skillConfigService
+                .create(new SkillRequest("factory-skill-" + System.nanoTime(), "工厂测试技能", "# 内容", "ENABLED"))
+                .id();
+
+        HarnessAgent plain = agentFactory.build(config.id());
+        HarnessAgent withSkill = agentFactory.build(config.id(), List.of(skillId));
+
+        // 带技能与不带技能必须是不同实例（否则会话级技能不会生效）
+        assertThat(withSkill).isNotSameAs(plain);
+        // 同一组合命中缓存；重复 id 归一到同一缓存键
+        assertThat(agentFactory.build(config.id(), List.of(skillId))).isSameAs(withSkill);
+        assertThat(agentFactory.build(config.id(), List.of(skillId, skillId))).isSameAs(withSkill);
+        // 不带技能的那份不受影响
+        assertThat(agentFactory.build(config.id())).isSameAs(plain);
+
+        // invalidate 要清掉该 Agent 的所有组合（只清无技能那份会残留脏缓存）
+        agentFactory.invalidate(config.id());
+        assertThat(agentFactory.build(config.id())).isNotSameAs(plain);
+        assertThat(agentFactory.build(config.id(), List.of(skillId))).isNotSameAs(withSkill);
     }
 
     @Test

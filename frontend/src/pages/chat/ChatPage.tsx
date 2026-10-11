@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HttpAgent } from "@ag-ui/client";
-import { Plus, Send, Trash2 } from "lucide-react";
+import { Paperclip, Plus, Send, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MessageBubble } from "@/components/chat/MessageBubble";
+import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
+import { SkillPicker } from "@/components/chat/SkillPicker";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
 import { JsonCard } from "@/components/cards/JsonCard";
 import { ApprovalCard } from "@/components/cards/ApprovalCard";
@@ -26,6 +28,17 @@ import {
   listSessions,
 } from "@/api/sessions";
 import { decideApproval } from "@/api/approvals";
+import { uploadArtifact } from "@/api/artifacts";
+import { listSkills, type SkillInfo } from "@/api/skills";
+import {
+  addSkill,
+  filterSkills,
+  removeSkill,
+  skillsQuery,
+  stripQuery,
+  type SelectedSkill,
+  type SkillOption,
+} from "@/lib/skills/selection";
 
 export default function ChatPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -36,10 +49,24 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phase 10：`/` 选技能（D21）、上传中状态、右侧栏刷新信号
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
+  const [skillHighlight, setSkillHighlight] = useState(0);
+  const [artifactRefresh, setArtifactRefresh] = useState(0);
+  const [uploading, setUploading] = useState(false);
 
   const agentRef = useRef<HttpAgent | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const bootstrapped = useRef(false);
+
+  // `/` 后的候选技能：已选中的不再出现
+  const skillQuery = skillsQuery(input);
+  const skillOptions = useMemo(
+    () => filterSkills(skills, skillQuery ?? "", selectedSkills),
+    [skills, skillQuery, selectedSkills],
+  );
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -77,6 +104,14 @@ export default function ChatPage() {
         setError(err instanceof Error ? err.message : "加载会话失败");
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    listSkills(1, 100, "ENABLED")
+      .then((page) => setSkills(page.records))
+      .catch(() => {
+        /* 技能拉取失败不影响聊天 */
+      });
   }, []);
 
   useEffect(() => {
@@ -134,7 +169,11 @@ export default function ChatPage() {
     try {
       await agent.runAgent(
         {
-          forwardedProps: { agentId: active.agentId ?? agentId },
+          forwardedProps: {
+            agentId: active.agentId ?? agentId,
+            // D21：本轮选中的技能并入该会话技能集，由后端走官方 SkillFilter
+            skillIds: selectedSkills.map((skill) => skill.id),
+          },
           resume: options.resume as never,
         },
         {
@@ -149,6 +188,8 @@ export default function ChatPage() {
       );
       setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
       await refreshSessions();
+      // 跑完一轮刷新右侧「产物」区（D22 自动登记）
+      setArtifactRefresh((value) => value + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "发送失败，可重试");
       setChat((prev) => ({ ...prev, status: "error" }));
@@ -251,6 +292,45 @@ export default function ChatPage() {
       runId: null,
     }));
     await runTurn(session, { text: value });
+  }
+
+  function pickSkill(skill: SkillOption) {
+    setSelectedSkills((prev) => addSkill(prev, skill));
+    setInput((prev) => stripQuery(prev));
+    setSkillHighlight(0);
+  }
+
+  /** 上传文件：先确保有会话，再交给后端（后端会落一份到 Agent 工作区，D20）。 */
+  async function uploadFiles(files: FileList | null) {
+    if (!files || files.length === 0) {
+      return;
+    }
+    setError(null);
+    setUploading(true);
+    try {
+      let active = session;
+      if (!active) {
+        if (agentId == null) {
+          setError("请先在「Agent」页创建一个 Agent，然后在这里选择它");
+          return;
+        }
+        active = await createSession(agentId);
+        setSession(active);
+        await refreshSessions();
+        agentRef.current = createChatAgent();
+      }
+      for (const file of Array.from(files)) {
+        await uploadArtifact(active.id, file);
+      }
+      setArtifactRefresh((value) => value + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "上传失败");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) {
+        fileRef.current.value = "";
+      }
+    }
   }
 
   /**
@@ -421,25 +501,87 @@ export default function ChatPage() {
         )}
 
         <div className="border-t p-3">
-          <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
-          <Input
-            value={input}
-            placeholder="输入消息，回车发送"
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            disabled={busy}
-          />
-          <Button onClick={() => void send()} disabled={busy || !input.trim()}>
-            <Send className="size-4" />
-          </Button>
+          <div className="relative mx-auto w-full max-w-3xl">
+            <SkillPicker
+              selected={selectedSkills}
+              query={skillQuery}
+              options={skillOptions}
+              highlight={skillHighlight}
+              onSelect={pickSkill}
+              onRemove={(id) => setSelectedSkills((prev) => removeSkill(prev, id))}
+              onHighlight={setSkillHighlight}
+            />
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                className="hidden"
+                data-testid="file-input"
+                onChange={(e) => void uploadFiles(e.target.files)}
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                title="上传文件"
+                disabled={busy || uploading}
+                onClick={() => fileRef.current?.click()}
+              >
+                <Paperclip className="size-4" />
+              </Button>
+              <Input
+                value={input}
+                placeholder="输入消息，回车发送"
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  setSkillHighlight(0);
+                }}
+                onKeyDown={(e) => {
+                  // 菜单打开时优先走菜单按键
+                  if (skillQuery !== null && skillOptions.length > 0) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setSkillHighlight((prev) => (prev + 1) % skillOptions.length);
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setSkillHighlight(
+                        (prev) => (prev - 1 + skillOptions.length) % skillOptions.length,
+                      );
+                      return;
+                    }
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      pickSkill(skillOptions[Math.min(skillHighlight, skillOptions.length - 1)]);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setInput((prev) => stripQuery(prev));
+                      return;
+                    }
+                  }
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                disabled={busy}
+              />
+              <Button onClick={() => void send()} disabled={busy || !input.trim()}>
+                <Send className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
       </section>
+
+      <SourceArtifactPanel
+        sessionId={session?.id ?? null}
+        refreshKey={artifactRefresh}
+        onError={setError}
+      />
     </div>
   );
 }

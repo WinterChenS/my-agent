@@ -114,8 +114,16 @@ test("MCP 管理页：列表 / 新建 STDIO / 同步工具 / 工具清单 / 删�
   await expect(row).toBeVisible({ timeout: 20_000 });
 
   // 同步工具 -> 工具清单
-  await row.getByRole("button", { name: /同步工具/ }).click();
-  await expect(page.getByText(/同步成功：\d+ 个工具/)).toBeVisible({ timeout: 60_000 });
+  // 注意：这个用例依赖 `npx -y @modelcontextprotocol/server-everything`，首次需要联网拉包，
+  // 偶发超出 60s（同一套件里第二次跑就遇到过）。同步是幂等的，失败就再点一次。
+  const syncButton = row.getByRole("button", { name: /同步工具/ });
+  await syncButton.click();
+  try {
+    await expect(page.getByText(/同步成功：\d+ 个工具/)).toBeVisible({ timeout: 60_000 });
+  } catch {
+    await syncButton.click();
+    await expect(page.getByText(/同步成功：\d+ 个工具/)).toBeVisible({ timeout: 120_000 });
+  }
   await expect(page.getByText(new RegExp(`工具清单：${name}`))).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("cell", { name: "echo", exact: true })).toBeVisible();
 

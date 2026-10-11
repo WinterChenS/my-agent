@@ -134,7 +134,13 @@ public class ArtifactService {
         Artifact artifact = store(
                 userId, sessionId, ROLE_SOURCE, safeFileName(file.getOriginalFilename()),
                 file.getContentType(), bytes, true);
-        materialize(session.getThreadId(), bytes, artifact.getFileName());
+        if ("FAILED".equals(artifact.getStatus())) {
+            // 存储失败必须让调用方明确知道：若返回 200 + FAILED，前端会当成上传成功（实测踩过）。
+            // 失败记录已由 store() 提交，保留下来便于排查。
+            throw BizException.badRequest("上传失败：" + artifact.getErrorMessage());
+        }
+        // owner 用 userId：Agent 的实际工作目录是 <workspaceRoot>/<userId>
+        materialize(String.valueOf(userId), bytes, artifact.getFileName());
         return toResponse(artifact);
     }
 
@@ -200,17 +206,22 @@ public class ArtifactService {
         return artifact;
     }
 
-    /** 把上传内容写到该会话工作区的 uploads/ 下，供 Agent 用常规工具读取（D20）。 */
-    public void materialize(String threadId, byte[] bytes, String fileName) {
-        if (!StringUtils.hasText(threadId)) {
+    /**
+     * 把上传内容写到 Agent 实际工作目录下的 uploads/，供 Agent 用常规工具读取（D20）。
+     *
+     * <p>实测 HarnessAgent 的工作目录是 {@code <workspaceRoot>/<owner>}（owner 为调用方身份，
+     * 通常是 userId），不是按 threadId 分目录；所以必须按 owner 落盘，否则 Agent 用相对路径读不到。
+     */
+    public void materialize(String owner, byte[] bytes, String fileName) {
+        if (!StringUtils.hasText(owner)) {
             return;
         }
         try {
-            Path dir = Path.of(aguiProperties.workspaceRoot(), threadId, "uploads");
+            Path dir = Path.of(aguiProperties.workspaceRoot(), owner, "uploads");
             Files.createDirectories(dir);
             Files.write(dir.resolve(safeFileName(fileName)), bytes);
         } catch (Exception ex) {
-            log.warn("物化上传文件到工作区失败 threadId={} file={}: {}", threadId, fileName, ex.toString());
+            log.warn("物化上传文件到工作区失败 owner={} file={}: {}", owner, fileName, ex.toString());
         }
     }
 

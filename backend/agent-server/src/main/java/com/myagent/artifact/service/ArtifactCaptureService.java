@@ -30,9 +30,9 @@ public class ArtifactCaptureService {
         this.artifactService = artifactService;
     }
 
-    /** run 开始：返回工作区快照（供结束时对比）。 */
-    public Map<String, Long> beginRun(String threadId) {
-        return scanner.snapshot(threadId);
+    /** run 开始：返回属主工作区快照（供结束时对比）。owner 用 userId。 */
+    public Map<String, Long> beginRun(String owner) {
+        return scanner.snapshot(owner);
     }
 
     /**
@@ -45,7 +45,8 @@ public class ArtifactCaptureService {
             return 0;
         }
         Map<String, Long> baseline = before == null ? new HashMap<>() : before;
-        List<Path> changed = scanner.changedFiles(threadId, baseline);
+        // 工作区按属主（userId）划分，与该 session/thread 无关；本次 run 的变更归到当前会话
+        List<Path> changed = scanner.changedFiles(String.valueOf(userId), baseline);
         int registered = 0;
         for (Path path : changed) {
             try {
@@ -61,7 +62,7 @@ public class ArtifactCaptureService {
             }
         }
         if (registered > 0) {
-            log.info("已登记 {} 个产物 sessionId={} threadId={}", registered, sessionId, threadId);
+            log.info("已登记 {} 个产物 sessionId={} owner={}", registered, sessionId, userId);
         }
         return registered;
     }

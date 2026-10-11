@@ -20,7 +20,9 @@ export class ApiError extends Error {
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = useAuthStore.getState().token;
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) {
+  // FormData 必须让浏览器自己带 boundary，不能写成 application/json
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body && !isFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (token) {

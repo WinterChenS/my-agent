@@ -77,8 +77,24 @@ AGENT_NAME="E2E-Chat-Agent-$RUN_ID"
 AGENT_RESP=$(sed -e "s/__MODEL_ID__/$MID/" -e "s/__AGENT_NAME__/$AGENT_NAME/g" "$ROOT/scripts/e2e/agent.json" \
   | curl -s -X POST "$API/api/agents" -H "$AUTH" -H "$CT" --data-binary @-)
 echo "$AGENT_RESP" | grep -q '"code":0' || { echo "agent 创建失败: $AGENT_RESP" >&2; exit 1; }
+AGENT_ID=$(echo "$AGENT_RESP" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
 export E2E_AGENT_NAME="$AGENT_NAME"
-echo "   provider=$PID model=$MID agent=$AGENT_NAME"
+echo "   provider=$PID model=$MID agent=$AGENT_NAME (id=$AGENT_ID)"
+
+# 跑完收拾掉本次造的 fixture：不收拾的话每跑一次就多留一份 E2E-Chat-Agent-* / provider / model。
+wipe_fixture() {
+  [ -n "${AGENT_ID:-}" ] || return 0
+  curl -s "$API/api/sessions" -H "$AUTH" | AG="$AGENT_ID" python -c "
+import os,sys,json
+for s in json.load(sys.stdin)['data']:
+    if str(s.get('agentId'))==os.environ['AG']: print(s['id'])" | while read -r sid; do
+    [ -n "$sid" ] && curl -s -o /dev/null -X DELETE "$API/api/sessions/$sid" -H "$AUTH"
+  done
+  curl -s -o /dev/null -X DELETE "$API/api/agents/$AGENT_ID" -H "$AUTH"
+  [ -n "${MID:-}" ] && curl -s -o /dev/null -X DELETE "$API/api/models/$MID" -H "$AUTH"
+  [ -n "${PID:-}" ] && curl -s -o /dev/null -X DELETE "$API/api/model-providers/$PID" -H "$AUTH"
+  return 0
+}
 
 echo "== 4/5 启动 Vite =="
 (cd "$ROOT/frontend" && nohup npm run dev >/tmp/e2e-vite.log 2>&1 &)
@@ -92,5 +108,6 @@ mkdir -p "$ROOT/docs/acceptance"
 (cd "$ROOT/frontend" && npx playwright test)
 RESULT=$?
 echo "playwright exit=$RESULT"
+wipe_fixture
 ls -1 "$ROOT/docs/acceptance"/*.png 2>/dev/null || true
 exit $RESULT

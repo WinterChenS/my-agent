@@ -64,3 +64,4 @@ verifier.json
 dispatch.json
 ref.txt
 acc.txt
+.p10tmp-*/

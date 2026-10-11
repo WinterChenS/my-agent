@@ -123,7 +123,7 @@ public class AguiRunController {
 
         // 产物自动登记（D22）：run 前快照该会话工作区，结束时对比新增/变更文件
         java.util.Map<String, Long> workspaceSnapshot =
-                artifactCaptureService.beginRun(session.getThreadId());
+                artifactCaptureService.beginRun(String.valueOf(userId));
 
         AguiRuntimeContextRequest<HttpServletRequest> contextRequest =
                 AguiRuntimeContextRequest.<HttpServletRequest>builder()

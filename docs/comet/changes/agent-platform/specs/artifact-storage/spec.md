@@ -61,7 +61,9 @@
 
 ## 与 Agent 的关系（D22，用户确认「自动全收」）
 
-每次 run 结束后，对该会话工作区 `.myagent-workspace/<threadId>/` 做一次扫描，把**本次 run 新增或修改/大小变化**的文件登记为 `role=ARTIFACT`：
+每次 run 结束后，对 Agent 的工作区做一次扫描，把**本次 run 新增或修改/大小变化**的文件登记为 `role=ARTIFACT`：
+
+> 实测修正（2026-10-11）：HarnessAgent 的工作目录是 `.myagent-workspace/<owner>/`（owner 为调用方身份，本项目即 `userId`），**不是** `.myagent-workspace/<threadId>/`。所以快照/比对都按 `<workspaceRoot>/<userId>` 递归，排除 `agents/`、`default/`、`memory/`、`.skills-cache/`、`uploads/` 这些框架内部目录；本次 run 的变更归到当前会话。
 
 - 判定方式：run 开始前记录工作区文件快照（路径 → mtime+size），run 结束后对比；新增或 mtime/size 变化者即为产物。
 - **排除框架内部状态**（否则侧边栏会被框架文件淹没）：

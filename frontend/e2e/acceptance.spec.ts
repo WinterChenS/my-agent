@@ -24,6 +24,8 @@ async function login(page: import("@playwright/test").Page) {
 }
 
 test("剧本 1：普通工具调用卡（ALWAYS_ALLOW + MCP）", async ({ page }) => {
+  // 这套剧本依赖 scripts/verify-p9-acceptance.sh 准备的数据；单独跑全量 e2e 时跳过而不是报红。
+  test.skip(!ALLOW_AGENT, "需要 scripts/verify-p9-acceptance.sh 准备环境（E2E_ALLOW_AGENT）");
   await login(page);
   await page.getByTitle("新建会话").click();
   const agentSelect = page.locator("select");
@@ -58,6 +60,7 @@ test("剧本 1：普通工具调用卡（ALWAYS_ALLOW + MCP）", async ({ page }
 });
 
 test("剧本 2：审批卡 -> 批准 -> 继续执行", async ({ page }) => {
+  test.skip(!APPROVAL_AGENT, "需要 scripts/verify-p9-acceptance.sh 准备环境（E2E_APPROVAL_AGENT）");
   await login(page);
   await page.getByTitle("新建会话").click();
   const agentSelect = page.locator("select");
@@ -83,6 +86,7 @@ test("剧本 2：审批卡 -> 批准 -> 继续执行", async ({ page }) => {
 });
 
 test("剧本 3：拒绝路径", async ({ page }) => {
+  test.skip(!APPROVAL_AGENT, "需要 scripts/verify-p9-acceptance.sh 准备环境（E2E_APPROVAL_AGENT）");
   await login(page);
   await page.getByTitle("新建会话").click();
   const agentSelect = page.locator("select");

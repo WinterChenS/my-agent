@@ -18,7 +18,7 @@
    - 文本类 → 正文写 `artifact.content`（`storage=DB`）；
    - 其它 → 写 MinIO（`storage=MINIO`）。
 3. 写 `artifact(role=SOURCE, status=READY)`；同会话内相同 `sha256` 直接返回既有记录（不重复上传）。
-4. **物化到工作区**：把文件写到 `.myagent-workspace/<threadId>/uploads/<fileName>`，使 Agent 用常规文件/命令工具即可读取处理。
+4. **物化到工作区**：把文件写到 Agent 实际工作目录下的 `uploads/<fileName>`（实测路径为 `.myagent-workspace/<userId>/uploads/`；写成 `<threadId>` 目录 Agent 用相对路径读不到），使 Agent 用常规文件/命令工具即可读取处理。
 5. 返回 `{artifact, downloadUrl}`。
 
 约束：
