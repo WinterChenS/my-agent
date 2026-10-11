@@ -60,6 +60,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     private final AgentMcpServerMapper agentMcpServerMapper;
     private final McpServerMapper mcpServerMapper;
     private final McpToolkitFactory mcpToolkitFactory;
+    // Phase 11 / D23：会话状态与长期记忆入库（官方 SPI 的 PostgreSQL 实现）
+    private final com.myagent.agui.memory.PgAgentStateStore pgAgentStateStore;
+    private final io.agentscope.harness.agent.filesystem.remote.RemoteFilesystem memoryRemoteFilesystem;
 
         /** 缓存键：{@code "12"} 或 {@code "12|3,5"}（含会话级技能时），见 build(Long, List)。 */
     private final Map<String, HarnessAgent> cache = new ConcurrentHashMap<>();
@@ -76,7 +79,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             SkillMapper skillMapper,
             AgentMcpServerMapper agentMcpServerMapper,
             McpServerMapper mcpServerMapper,
-            McpToolkitFactory mcpToolkitFactory) {
+            McpToolkitFactory mcpToolkitFactory,
+            com.myagent.agui.memory.PgAgentStateStore pgAgentStateStore,
+            io.agentscope.harness.agent.filesystem.remote.RemoteFilesystem memoryRemoteFilesystem) {
         this.agentMapper = agentMapper;
         this.llmModelMapper = llmModelMapper;
         this.llmProviderMapper = llmProviderMapper;
@@ -89,6 +94,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         this.agentMcpServerMapper = agentMcpServerMapper;
         this.mcpServerMapper = mcpServerMapper;
         this.mcpToolkitFactory = mcpToolkitFactory;
+        this.pgAgentStateStore = pgAgentStateStore;
+        this.memoryRemoteFilesystem = memoryRemoteFilesystem;
     }
 
     /** 按 Agent 主键构建（带缓存）。 */
@@ -222,6 +229,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .skillRepository(skillRepositorySync.newRepository())
                 .skillFilter(skillFilter)
                 .toolkit(toolkit)
+                // Phase 11 / D23：框架会话状态落数据库（替换默认 JsonFileAgentStateStore）
+                .stateStore(pgAgentStateStore)
+                // Phase 11 / D23：工作区 memory/** 经官方 CompositeFilesystem 路由到数据库
+                .filesystemRoute(MEMORY_ROUTE_PREFIX, memoryRemoteFilesystem)
                 // 权限上下文必须在 toolkit 之后构建：ask 规则要覆盖 Agent 实际拥有的工具
                 .permissionContext(buildPermissionContext(agent.getPermissionMode(), toolkit))
                 .build();
@@ -246,6 +257,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
 
     /** demo-agent 的标识前缀；带该前缀的 Agent 额外获得 demo 卡片工具（Task 7.2）。 */
     private static final String DEMO_AGENT_PREFIX = "demo";
+
+    /** 长期记忆在（运行时数据根下的）目录名；路由到数据库的前缀。 */
+    static final String MEMORY_ROUTE_PREFIX = "memory";
 
     static boolean isDemoAgent(String agentId) {
         return agentId != null && agentId.trim().toLowerCase().startsWith(DEMO_AGENT_PREFIX);
