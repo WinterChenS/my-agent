@@ -60,7 +60,8 @@ post() { curl -s -X POST "$API$1" -H "$AUTH" -H "$CT" --data-binary @-; }
 echo "== 3/7 准备 provider / model / MCP / REQUIRE_APPROVAL Agent =="
 PID=$(printf '{"name":"P7-Provider-%s","providerType":"OPENAI_COMPATIBLE","baseUrl":"http://localhost:%s/v1","apiKey":"sk-p7","status":"ENABLED"}' "$RUN_ID" "$STUB_PORT" | post /api/model-providers | id_of)
 MID=$(printf '{"providerId":%s,"modelId":"stub-%s"}' "$PID" "$RUN_ID" | post /api/models | id_of)
-MCP_ID=$(printf '{"name":"p7-mcp-%s","transport":"STDIO","command":"cmd","args":["/c","npx","-y","@modelcontextprotocol/server-everything","stdio"],"status":"ENABLED"}' "$RUN_ID" | post /api/mcp-servers | id_of)
+MCP_NAME="p7-mcp-$RUN_ID"
+MCP_ID=$(printf '{"name":"%s","transport":"STDIO","command":"cmd","args":["/c","npx","-y","@modelcontextprotocol/server-everything","stdio"],"status":"ENABLED"}' "$MCP_NAME" | post /api/mcp-servers | id_of)
 curl -s -X POST "$API/api/mcp-servers/$MCP_ID/sync-tools" -H "$AUTH" >/dev/null
 AGENT="p7-agent-$RUN_ID"
 printf '{"name":"%s","agentId":"%s","sysPrompt":"你是助手","modelId":%s,"permissionMode":"REQUIRE_APPROVAL","maxIterations":5,"status":"ENABLED","skillIds":[],"mcpServerIds":[%s]}' \
@@ -130,12 +131,13 @@ FAIL=0
 check() { if [ "$2" = "1" ]; then echo "   PASS  $1"; else echo "   FAIL  $1"; FAIL=1; fi; }
 check "首轮被拦截：出现 interrupt 且无 TOOL_CALL_RESULT" \
   "$(echo "$OUT1" | grep -q '"type":"interrupt"' && ! echo "$OUT1" | grep -q 'TOOL_CALL_RESULT' && echo 1 || echo 0)"
+# 契约：MCP 工具名带 Server 命名空间（<serverName>__echo）
 check "审批记录落库为 PENDING 且带工具名与入参" \
-  "$(echo "$APPROVALS" | grep -q '"toolName":"echo"' && echo "$APPROVALS" | grep -q '"status":"PENDING"' && echo 1 || echo 0)"
+  "$(echo "$APPROVALS" | grep -q "\"toolName\":\"$MCP_NAME" && echo "$APPROVALS" | grep -q '"status":"PENDING"' && echo 1 || echo 0)"
 check "批准后 resumeStatus=resolved" "$(echo "$DECIDE1" | grep -q '"resumeStatus":"resolved"' && echo 1 || echo 0)"
 check "resume 未报错（无 RUN_ERROR）" "$(echo "$OUT2" | grep -q 'RUN_ERROR' && echo 0 || echo 1)"
 check "批准后工具真正执行（agent 侧 POST_ACTING state=SUCCESS）" \
-  "$(grep -q "PRE_ACTING  | id=call_stub_1, name=echo" "$APP_LOG" && grep -q "POST_ACTING | id=call_stub_1, name=echo, result_len" "$APP_LOG" && echo 1 || echo 0)"
+  "$(grep -q "PRE_ACTING  | id=call_stub_1, name=$MCP_NAME" "$APP_LOG" && grep -q "POST_ACTING | id=call_stub_1, name=$MCP_NAME" "$APP_LOG" && echo 1 || echo 0)"
 check "拒绝后 resumeStatus=cancelled" "$(echo "$DECIDE2" | grep -q '"resumeStatus":"cancelled"' && echo 1 || echo 0)"
 check "非属主决定被拒（403）" "$(echo "$OUTSIDER_HTTP" | grep -q 403 && echo 1 || echo 0)"
 check "重复决定返回 409" "$(echo "$DUP_HTTP" | grep -q 409 && echo 1 || echo 0)"

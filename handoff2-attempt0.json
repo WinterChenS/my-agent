@@ -1,0 +1,297 @@
+{
+ "kind": "builder-handoff",
+ "summary": "<summary>",
+ "addressed_acceptance_ids": [
+  "A1",
+  "A2",
+  "A3",
+  "A4",
+  "A5",
+  "A6",
+  "A7",
+  "A8",
+  "A9",
+  "A10",
+  "A11",
+  "A12",
+  "A13",
+  "A14",
+  "A15",
+  "A16",
+  "A17",
+  "A18",
+  "A19",
+  "A20",
+  "A21",
+  "A22",
+  "A23",
+  "A24",
+  "A25",
+  "A26",
+  "A27",
+  "A28",
+  "A29",
+  "A30",
+  "A31",
+  "A32",
+  "A33",
+  "A34",
+  "A35",
+  "A36",
+  "A37",
+  "A38",
+  "A39",
+  "A40"
+ ],
+ "acceptance_review": [
+  {
+   "id": "A1",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A2",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A3",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A4",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A5",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A6",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A7",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A8",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A9",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A10",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A11",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A12",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A13",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A14",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A15",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A16",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A17",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A18",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A19",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A20",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A21",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A22",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A23",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A24",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A25",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A26",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A27",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A28",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A29",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A30",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A31",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A32",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A33",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A34",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A35",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A36",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A37",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A38",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A39",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  },
+  {
+   "id": "A40",
+   "status": "not-implemented",
+   "evidence": [],
+   "note": "<implementation and evidence summary>"
+  }
+ ],
+ "checks": [
+  {
+   "name": "<check-name>",
+   "result": "not-run",
+   "note": null
+  }
+ ],
+ "verification_checks": [],
+ "known_limits": []
+}

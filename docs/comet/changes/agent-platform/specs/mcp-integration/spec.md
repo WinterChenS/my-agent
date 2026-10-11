@@ -28,7 +28,9 @@
 ## AgentScope 集成
 
 - 连接与工具发现使用官方 `McpClientManager`；对话中的工具执行同样经官方扩展（门禁 G8）。
-- 工具在 Agent 侧按 Server 命名空间暴露，避免同名冲突。
+- 工具在 Agent 侧按 Server 命名空间暴露，避免同名冲突：Agent 看到的工具名为 **`<serverName>__<toolName>`**（例：`everything__echo`）。
+  - 实现方式（门禁 G8：协议实现全部用官方件）：官方 `McpClientBuilder` 建客户端 + 官方 `Toolkit.registerMcpClient` 注册，只在外面套一层 `NamespacedMcpClientWrapper` 负责 `listTools()` 加前缀、`callTool()` 去前缀（`McpTool.callAsync` 传的是注册名，所以必须剥）；MCP 协议本身不自研。
+  - 管理台「工具清单」`tool_cache` 仍存 Server 提供的**原始**工具名（带 Server 列，便于管理员对照），Agent 侧才用带命名空间的名字。
 - 严禁自研 MCP JSON-RPC 解析或自研连接管理。
 
 ## 边界

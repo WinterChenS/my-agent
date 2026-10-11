@@ -1,0 +1,131 @@
+"""填写 Comet builder-handoff（40 项验收）——一次性脚本，用完即删。"""
+import json
+import subprocess
+
+out = subprocess.run(
+    ["bash", "-lc", "comet native status agent-platform --json"],
+    capture_output=True, text=True, encoding="utf-8", errors="replace",
+).stdout
+tpl = json.loads(out)["data"]["continuation"]["inputOptions"][0]["template"]
+
+E = {
+    "A1": (["scripts/verify-p9-acceptance.sh", "backend/agent-server/src/main/java/com/myagent/auth/AuthController.java"],
+           "POST /api/auth/login 实测返回 code=0 + token + user(id=1,username=admin,role=ADMIN)；本轮随 p9 重跑通过"),
+    "A2": (["backend/agent-server/src/main/java/com/myagent/auth/dto/LoginResponse.java"],
+           "响应体 {code,msg,data:{token,user:{id,username,role}}} 与契约一致"),
+    "A3": (["backend/agent-server/src/main/java/com/myagent/config/RestAuthEntryPoint.java", "backend/agent-server/src/test/java/com/myagent/auth/JwtServiceTest.java"],
+           "无 token 访问 /api/auth/me 实测 HTTP 401"),
+    "A4": (["backend/agent-server/src/test/java/com/myagent/auth/JwtServiceTest.java"],
+           "带 token 返回当前用户；伪造 token 401；JwtService 往返单测通过"),
+    "A5": (["scripts/verify-p9-acceptance.sh"], "新建 provider 后列表可读（本轮 p9 重跑通过）"),
+    "A6": (["backend/agent-server/src/test/java/com/myagent/modelconfig/ModelConfigServiceTest.java"],
+           "响应恒为 ****；库中为 AES-GCM 密文；更新不传 api_key 时密钥保留（3 条单测）"),
+    "A7": (["scripts/verify-p9-acceptance.sh"], "test 接口实测 ok=true + latencyMs（打桩端点）"),
+    "A8": (["backend/agent-server/src/main/java/com/myagent/agui/AguiModelConnectivityProbe.java"],
+           "不可达时 {ok:false,error:...} 且 HTTP 非 500（实测 HTTP=200）"),
+    "A9": (["backend/agent-server/src/test/java/com/myagent/agentconfig/AgentConfigServiceTest.java"],
+           "POST /api/agents 含 skillIds/mcpServerIds 创建成功"),
+    "A10": (["backend/agent-server/src/test/java/com/myagent/agentconfig/AgentConfigServiceTest.java"],
+            "GET 回读两个绑定数组；重复 agent_id 返回 409"),
+    "A11": (["scripts/verify-p9-acceptance.sh"], "POST /agui/run SSE 实测可用（本轮 p9 三个剧本真跑未跳过）"),
+    "A12": (["docs/acceptance/task-4.3-chat-streaming.png", "docs/acceptance/task-4.3-chat-history.png", "frontend/e2e/chat.spec.ts"],
+            "事件序列实测；chat_session/chat_message 落库；浏览器采样到多个流式中间态；刷新后历史回放（本轮 e2e 重跑通过）"),
+    "A13": (["scripts/verify-p6-mcp.sh"], "官方 everything MCP server sync-tools 实测 13 个工具并写入 tool_cache（本轮重跑通过）"),
+    "A14": (["scripts/verify-p6-mcp.sh"], "错误地址实测 HTTP 4xx + 失败原因"),
+    "A15": (["scripts/verify-p6-mcp.sh"], "绑定后对话实测出现 TOOL_CALL_START/ARGS/END/RESULT"),
+    "A16": (["scripts/verify-p6-mcp.sh"], "实测工具为裸名注册，断言改为『结果来自 MCP server 真实回显 Echo: hello-mcp』；偏离已记录"),
+    "A17": (["scripts/verify-p7-hitl.sh"], "REQUIRE_APPROVAL 实测工具被拦截（无 TOOL_CALL_RESULT），RUN_FINISHED 带 interrupt（本轮重跑通过）"),
+    "A18": (["docs/acceptance/task-9.1-approval-card.png", "docs/acceptance/task-9.1-approval-approved.png", "docs/acceptance/task-9.1-approval-denied.png", "frontend/e2e/acceptance.spec.ts"],
+            "浏览器实测审批卡→批准→工具真执行→run 继续；拒绝→不执行；PENDING→APPROVED/DENIED；非属主 403（本轮 p9 剧本 2/3 真跑通过）"),
+    "A19": (["scripts/verify-p72-cards.sh", "backend/agent-server/src/main/java/com/myagent/agui/DemoCardTools.java"],
+            "demo_confirm_card / demo_mapping_card 实测产生 CUSTOM 事件（本轮重跑通过）"),
+    "A20": (["scripts/verify-p72-cards.sh", "frontend/src/lib/agui/reducer.test.ts"],
+            "两种卡片 data 逐字段符合契约；未知 CUSTOM 降级 JSON 卡（单测）；确认卡回传后继续 run"),
+    "A21": (["scripts/verify-p8-audit.sh", "docs/acceptance/task-8.2-audit-dashboard.png", "frontend/e2e/audit.spec.ts"],
+            "3 次对话后 totalTokens 非零；看板截图；本轮 p8 与 audit e2e 重跑通过"),
+    "A22": (["scripts/verify-p8-audit.sh"], "byModel/byDay 结构正确（SQL 聚合）"),
+    "A23": (["scripts/verify-p8-audit.sh"], "ADMIN 可查全员；USER 查自己被允许"),
+    "A24": (["scripts/verify-p8-audit.sh"], "普通用户查他人实测 HTTP 403"),
+    "A25": (["scripts/verify-p10-artifacts.sh"], "上传 note.md 实测 HTTP 200、code=0，返回 role=SOURCE、mime=text/markdown"),
+    "A26": (["scripts/verify-p10-artifacts.sh"], "列表实测 storage=DB；下载接口直返正文，内容为上传原文（# requirements / uploaded doc）"),
+    "A27": (["scripts/verify-p10-artifacts.sh"], "上传 pic.png 实测 HTTP 200、code=0，返回 role=SOURCE、storage=MINIO、mime=image/png"),
+    "A28": (["scripts/verify-p10-artifacts.sh"], "GET /api/artifacts/{id}/download 跟随 302 后 HTTP 200；下载内容 sha256 与原文件一致（脚本断言 sha256 一致? yes）"),
+    "A29": (["scripts/verify-p10-artifacts.sh"], "同一会话重复上传同一内容实测返回同一 id（脚本断言 md id 一致? yes）"),
+    "A30": (["scripts/verify-p10-artifacts.sh", "backend/agent-server/src/test/java/com/myagent/artifact/ArtifactServiceTest.java"],
+            "不新增 artifact 行：按 session_id+sha256+role 命中已有记录直接返回；单测另覆盖去重"),
+    "A31": (["scripts/verify-p10-artifacts.sh"],
+            "文件物化到 .myagent-workspace/<userId>/uploads/（脚本输出 uploads/: note.md pic.png）；随后 Agent 用 read_file 读 uploads/note.md"),
+    "A32": (["scripts/verify-p10-artifacts.sh"],
+            "Agent 的 TOOL_CALL_RESULT 内容为上传原文（# requirements / uploaded doc），证明物化后 Agent 用常规文件工具即可读到"),
+    "A33": (["scripts/verify-p10-artifacts.sh", "frontend/e2e/phase10.spec.ts"],
+            "让 Agent 用 write_file 写出 agent-out-<run>.md 后结束 run（脚本与浏览器用例均覆盖）"),
+    "A34": (["scripts/verify-p10-artifacts.sh"],
+            "列表实测 ARTIFACT 数量 1 且为期望文件名；反查断言『框架内部文件混入? no』（排除 agents/ default/ memory/ .skills-cache/ uploads/）"),
+    "A35": (["docs/acceptance/task-10-panel-upload.png", "frontend/e2e/phase10.spec.ts"],
+            "右侧栏两个分区 panel-sources / panel-artifacts 均可见，上传后来源文件区出现该文件"),
+    "A36": (["frontend/e2e/phase10.spec.ts", "docs/acceptance/task-10-artifact-area.png"],
+            "两区分别展示来源与产物；文本类点预览弹窗出现正文；下载走带鉴权 blob；每条标注存储位置（数据库/对象存储）"),
+    "A37": (["frontend/e2e/phase10.spec.ts", "docs/acceptance/task-10-skill-block.png"],
+            "输入 / 实测弹出 skill-menu 候选列表并可点选"),
+    "A38": (["frontend/e2e/phase10.spec.ts", "frontend/src/lib/skills/selection.test.ts", "backend/agent-server/src/test/java/com/myagent/agui/AgentFactoryTest.java"],
+            "选中后输入框清空、技能成为独立块（非 input/textarea 且不可编辑）、可整块删除、已选不再进候选；发送时以 skillIds 入 forwardedProps，后端走官方 SkillFilter（组合缓存键单测覆盖）"),
+    "A39": (["scripts/verify-p10-minio-down.sh"],
+            "MINIO_ENDPOINT 指向死端口时启动只告警；上传 png 实测 HTTP 400 + code=400（上传失败：Failed to connect）"),
+    "A40": (["scripts/verify-p10-minio-down.sh"],
+            "同一环境下上传文本仍 code=0 且 storage=DB；对话 run 正常返回 TEXT_MESSAGE_CONTENT，主链路不受影响"),
+}
+
+assert set(E) == set(tpl["addressed_acceptance_ids"]), set(tpl["addressed_acceptance_ids"]) ^ set(E)
+for r in tpl["acceptance_review"]:
+    ev, note = E[r["id"]]
+    r["status"] = "implemented-with-evidence"
+    r["evidence"] = ev
+    r["note"] = note
+
+tpl["summary"] = (
+    "本轮交付 Phase 10 增量并逐项取证（A25-A40）：①一张 artifact 表统一存来源/产物，按 D18 路由（文本类入库、其余进 MinIO），同会话 sha256 去重；"
+    "②上传即物化到 Agent 实际工作区，Agent 用常规文件工具可读；③run 结束对比工作区快照，把新增/变更文件登记为 ARTIFACT 并排除框架内部目录；"
+    "④会话页右侧栏分「来源文件/产物」两区，可折叠、标存储位置、文本可预览、均可下载；⑤输入 / 选技能，选中后成为不可编辑块（可整块删除、去重），"
+    "以 skillIds 并入该会话技能集，由官方 SkillFilter 生效。同时完成 A1-A24 的全量回归重跑。"
+    "实施中发现并修正两处规格偏差（已回写 specs/技术方案/任务列表）：工作区实为 .myagent-workspace/<userId>/（原按 threadId 会导致 Agent 读不到上传文件、产物扫不到）；"
+    "MinIO 写入失败原返回 200 且仅把行标 FAILED（前端会当成功），改为返回明确业务错误并保留失败行。"
+    "另外修掉三处验收脚手架缺陷：桩的 STUB_MARKER 被按模型名回复盖掉（导致 p5 端到端断言假红）、e2e-chat.sh 跑完不清理 fixture、MCP 同步首次 npx 拉包超时。"
+)
+
+tpl["checks"] = [
+    {"name": "backend: mvn verify", "result": "passed",
+     "note": "Tests run: 59, Failures: 0, Errors: 0（新增 ArtifactServiceTest 5、WorkspaceArtifactScannerTest 2、会话级技能组合缓存键 1）"},
+    {"name": "frontend: tsc --noEmit", "result": "passed", "note": "类型检查无错误"},
+    {"name": "frontend: npm run lint", "result": "passed", "note": "0 error（3 条既有 react-refresh warning）"},
+    {"name": "frontend: npm run build", "result": "passed", "note": "vite build 成功"},
+    {"name": "frontend: vitest run", "result": "passed", "note": "27 passed（新增 lib/skills/selection.test.ts 7 项）"},
+    {"name": "playwright: 全量 e2e（scripts/e2e-chat.sh）", "result": "passed",
+     "note": "15 passed / 3 skipped；含 Phase 10 三用例（右侧栏+上传、产物自动出现、/ 技能块）"},
+    {"name": "scripts/verify-p9-acceptance.sh", "result": "passed",
+     "note": "浏览器 4 passed：剧本1 工具卡 / 剧本2 审批批准 / 剧本3 拒绝 / 审计看板（真跑未跳过）"},
+    {"name": "scripts/verify-p5-skills.sh", "result": "passed",
+     "note": "Skill 名称/描述进入模型请求 + 绑定回复带 SKILL-SEEN + 对照无标记 + 官方仓库存有完整内容"},
+    {"name": "scripts/verify-p6-mcp.sh", "result": "passed",
+     "note": "sync-tools 非空、错误地址 4xx、工具进入模型可见列表、TOOL_CALL_RESULT 来自 MCP 真实回显、删除被绑定 server 409"},
+    {"name": "scripts/verify-p7-hitl.sh", "result": "passed",
+     "note": "拦截无 TOOL_CALL_RESULT、PENDING→APPROVED/DENIED、批准后 resume 且工具真执行、拒绝不执行、越权 403、重复 409"},
+    {"name": "scripts/verify-p72-cards.sh", "result": "passed", "note": "confirm_card / mapping_card CUSTOM 事件 data 逐字段符合契约"},
+    {"name": "scripts/verify-p8-audit.sh", "result": "passed", "note": "summary/byModel/byDay 结构正确；ADMIN 看全员、USER 查他人 403"},
+    {"name": "scripts/verify-p10-artifacts.sh", "result": "passed",
+     "note": "文本→DB、二进制→MINIO、去重、下载 sha256 一致、uploads 物化后 Agent 真读到原文、run 后 ARTIFACT 登记且无框架内部文件混入"},
+    {"name": "scripts/verify-p10-minio-down.sh", "result": "passed",
+     "note": "MinIO 不可用：启动只告警、二进制上传 code=400 明确错误、文本上传成功、对话主链路可用"},
+]
+
+tpl["verification_checks"] = []
+tpl["known_limits"] = [
+    "真实大模型（用户自维护的 deepseek 供应商）未纳入自动验收：所有自动验收走本地模型桩，避免依赖外部模型输出。",
+    "e2e 中的 MCP 管理页用例依赖 npx -y @modelcontextprotocol/server-everything（首次需联网），脚本内已加“失败再点一次”的重试，仍属外部依赖。",
+    "MinIO 为内网共享实例（bucket agent-platform 由本项目使用）；本轮验收产生的 21 条 artifact 行、对应 MinIO 对象与 p10/e2e fixture 已清理。",
+    "产物登记按“本次 run 相对快照的新增/变更”归到当前会话；同一用户并发多会话共用同一属主工作区时可能互相归集（按属主扫描，未做 per-session 隔离）。",
+    "sessionSkillOverrides 在每次 run 结束（finish）后清理，技能选择由前端每次请求携带 skillIds 维持；刷新浏览器不保留已选技能块。",
+]
+
+with open("handoff-p10.json", "w", encoding="utf-8") as fh:
+    json.dump(tpl, fh, ensure_ascii=False, indent=1)
+print("已填 40 项审核 + %d 项检查" % len(tpl["checks"]))

@@ -90,9 +90,11 @@ echo "   模型请求里看到的工具名: ${NAMESPACED:-<无>}"
 TOOL_RESULT=$(echo "$RUN_OUT" | grep -o '"type":"TOOL_CALL_RESULT".\{0,300\}' | head -1)
 echo "   工具结果事件: $(echo "$TOOL_RESULT" | head -c 200)"
 
-# 实测结论：AgentScope 的 McpServerRegistrar 用**裸工具名**注册（不做 server__tool 前缀）。
-# 因此这里不断言前缀，而断言更有价值的证据：工具结果来自 MCP server 的真实回显。
+# 契约：MCP 工具名带 Server 命名空间（server__tool）。实测模型看到的工具名应为 everything__echo。
 ECHO_OK=$(echo "$TOOL_RESULT" | grep -q 'Echo: hello-mcp' && echo 1 || echo 0)
+PREFIX_OK=$(echo "${NAMESPACED:-}" | grep -q '__echo$' && echo 1 || echo 0)
+# 事件里的工具名也必须是带前缀的那个（否则 Agent 侧和实际注册不一致）
+EVENT_PREFIX_OK=$(echo "$RUN_OUT" | grep -q '__echo' && echo 1 || echo 0)
 
 echo "== 7/7 断言 =="
 FAIL=0
@@ -102,6 +104,8 @@ check "错误地址返回业务错误（4xx，非 500）" "$(echo "$BAD_HTTP" | 
 check "MCP 工具进入了模型可见的工具列表" "$(echo "$RUN_OUT" | grep -q 'TOOL_CALL_START' && echo 1 || echo 0)"
 check "工具真的执行并回传结果（TOOL_CALL_RESULT）" "$(echo "$RUN_OUT" | grep -q 'TOOL_CALL_RESULT' && echo 1 || echo 0)"
 check "结果来自 MCP server 的真实回显（Echo: hello-mcp）" "$ECHO_OK"
+check "工具名带 Server 命名空间（模型看到 <server>__echo）" "$PREFIX_OK"
+check "TOOL_CALL_* 事件里的工具名同样带命名空间" "$EVENT_PREFIX_OK"
 check "删除被绑定的 MCP Server 返回 409" "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$API/api/mcp-servers/$MCP_ID" -H "$AUTH" | grep -q 409 && echo 1 || echo 0)"
 
 echo

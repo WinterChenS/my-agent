@@ -3,10 +3,10 @@ name: agent-platform
 language: zh-CN
 phase: build
 status: active
-state_version: 10
+state_version: 16
 brief: brief.md
 document_constraints_version: 2
-shape_confirmation_hash: 3969216c24d64d06aede2f5045a2aed0ba542630022b89e16d938196ff8acf09
+shape_confirmation_hash: 38e41efc9e895511211e665ac38841f59d74fcabb95aacfee5ad2de7d2d633e0
 spec_changes:
   - capability: agent-configuration
     operation: create
@@ -14,6 +14,15 @@ spec_changes:
   - capability: agui-chat
     operation: create
     source: specs/agui-chat/spec.md
+  - capability: artifact-storage
+    operation: create
+    source: specs/artifact-storage/spec.md
+  - capability: chat-file-upload
+    operation: create
+    source: specs/chat-file-upload/spec.md
+  - capability: chat-skill-picker
+    operation: create
+    source: specs/chat-skill-picker/spec.md
   - capability: llm-configuration
     operation: create
     source: specs/llm-configuration/spec.md
@@ -36,153 +45,340 @@ workspace:
   finish: null
 loop:
   stage: repairing
-  goal_cycle: 2
+  goal_cycle: 3
   iteration: 2
   attempt: 0
   retry_epoch: 0
-  failed_iteration_count: 0
+  failed_iteration_count: 1
   no_progress_count: 0
   execution_failure_count: 0
-  previous_unresolved_ids: []
-  next_action: submit-builder-candidate
+  previous_unresolved_ids:
+    - A16
+  next_action: repair-failed-acceptance
 acceptance:
   - id: A1
     source: brief.md
     text: 输入：`POST /api/auth/login {"username":"admin","password":"Admin@123"}`
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 实测 POST /api/auth/login 返回 HTTP 200 且 code=0，data 含 token 与 user。
+      truncated: false
   - id: A2
     source: brief.md
     text: 期望：`{"code":0,"data":{"token":"<JWT>","user":{"id":1,"username":"admin","role":"ADMIN"}}}`
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 实测响应为
+        {"code":0,"msg":"ok","data":{"token":"eyJ...","user":{"id":1,"username":"admin","displayName":"平台管理员","role":"ADMIN"}}}，id/username/role
+        均符合。
+      truncated: false
   - id: A3
     source: brief.md
     text: 输入：无 token 访问 `GET /api/auth/me`
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 无 token 访问 GET /api/auth/me 实测返回 HTTP 401。
+      truncated: false
   - id: A4
     source: brief.md
     text: 期望：401；带 token 时返回当前用户 2. 大模型配置
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 无 token 返回 401（body code=401）；带 token 时返回当前用户（各脚本用 /api/auth/me 成功取到 admin
+        id=1），代码亦确认。
+      truncated: false
   - id: A5
     source: brief.md
     text: 输入：新建 provider（含 api_key）后 `GET /api/model-providers`
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: ProviderResponse.toProviderResponse 恒返回 MASK="****"，无明文；代码确认 list/get 均脱敏。
+      truncated: false
   - id: A6
     source: brief.md
     text: 期望：响应中 api_key 显示为 `****`，无明文；更新时不传 api_key 则保留旧密钥
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: updateProvider 仅在 StringUtils.hasText(request.apiKey())
+        时覆盖密文，不传则保留旧密钥，代码确认。
+      truncated: false
   - id: A7
     source: brief.md
     text: 输入：`POST /api/model-providers/{id}/test`
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p9 脚本实测 provider test 返回 {"code":0,"data":{"ok":true,"latencyMs":354}}。
+      truncated: false
   - id: A8
     source: brief.md
     text: 期望：`{"ok":true,"latencyMs":<n>}`；密钥无效时 `{"ok":false,"error":"..."}` 且 HTTP
       非 500 3. Agent 配置与绑定
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 成功形态实测 ok:true+latencyMs；无效 key 由 AguiModelConnectivityProbe catch 后返回
+        ok:false+error，HTTP 200 非 500，代码确认。
+      truncated: false
   - id: A9
     source: brief.md
     text: 输入：`POST /api/agents`（含 `skillIds:[1]`、`mcpServerIds:[1]`）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: POST /api/agents 支持 skillIds/mcpServerIds（p5/p6/p7/p8/p10 均实测创建带绑定的 agent
+        成功）。
+      truncated: false
   - id: A10
     source: brief.md
     text: 期望：`GET /api/agents/{id}` 回读含两个绑定数组；重复 `agent_id` 返回业务错误码 4. AG-UI 聊天主链路
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: toResponse 回读 findSkillIds/findMcpServerIds 两个数组（代码确认，p5
+        绑定技能后模型请求含技能内容佐证）；ensureUnique 对重复 agent_id 抛 conflict 业务错误。
+      truncated: false
   - id: A11
     source: brief.md
     text: 输入：`curl -N -X POST /agui/run`（SSE，带 Bearer 与 `RunAgentInput`）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: 多个脚本实测 curl -N POST /agui/run 成功输出 SSE 事件流。
+      truncated: false
   - id: A12
     source: brief.md
     text: 期望：事件序列含 `RUN_STARTED` → `TEXT_MESSAGE_START/CONTENT/END` →
       `RUN_FINISHED`；结束后 `chat_session`、`chat_message` 有对应行；前端气泡流式出现且刷新后历史仍在 5.
       MCP
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p6/p7/p72 实测事件序列含 RUN_STARTED → TEXT_MESSAGE_START/CONTENT/END →
+        RUN_FINISHED（工具场景另含 TOOL_CALL_*）。
+      truncated: false
   - id: A13
     source: brief.md
     text: 输入：`POST /api/mcp-servers/{id}/sync-tools`（指向真实测试 MCP server）
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p6 复跑对真实 everything MCP server sync-tools 成功，返回 13 个工具。
+      truncated: false
   - id: A14
     source: brief.md
     text: 期望：返回非空工具清单并写入 `tool_cache`；错误地址返回业务错误与原因
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p6 实测返回非空工具清单（13 个），代码写入 tool_cache；错误地址返回 code=400 业务错误（HTTP 400 非
+        500）含原因。
+      truncated: false
   - id: A15
     source: brief.md
     text: 输入：绑定该 server 后对话要求调用其工具
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p6 实测绑定 MCP 的 agent 对话出现 TOOL_CALL_START/ARGS/END/RESULT 事件。
+      truncated: false
   - id: A16
     source: brief.md
     text: 期望：出现 `TOOL_CALL_*` 事件且工具名带命名空间 6. HITL 卡片
-    result: pending
-    reason: null
+    result: failed
+    reason:
+      text: 'TOOL_CALL_* 事件出现且 MCP 工具真实执行（TOOL_CALL_RESULT="Echo: hello-mcp"），但实测
+        toolCallName 为裸名 "echo"，无 server 命名空间，与 spec「工具名带命名空间」不符。'
+      truncated: false
   - id: A17
     source: brief.md
     text: 输入：`REQUIRE_APPROVAL` 模式下触发工具调用的对话
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p7 实测 REQUIRE_APPROVAL 下首轮出现 interrupt 且无 TOOL_CALL_RESULT；p9 Playwright
+        剧本2 实测页面出现「需要审批」卡。
+      truncated: false
   - id: A18
     source: brief.md
     text: 期望：页面出现审批卡 → 点"批准" → 工具真实执行、run 继续；点"拒绝" → 收到拒绝反馈文本；`approval_record` 状态按
       PENDING→APPROVED/DENIED 流转；非 session 属主调用 decide 返回 403
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p7 实测批准后 resumeStatus=resolved、工具真实执行（POST_ACTING name=echo）、拒绝后
+        cancelled；p9 实测点批准显示「已批准」、点拒绝显示「已拒绝」；ApprovalService 代码将状态置
+        APPROVED/DENIED，非属主 403。
+      truncated: false
   - id: A19
     source: brief.md
     text: 输入：`demo-agent` 发送 `confirm_card` / `mapping_card` CUSTOM 事件
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p72 实测 demo-agent 发出 CUSTOM confirm_card 与 mapping_card，data 字段完整。
+      truncated: false
   - id: A20
     source: brief.md
     text: 期望：两种卡片按契约字段渲染，回传后 run 继续；未知 CUSTOM 事件降级为 JSON 折叠卡且不崩溃 7. Token 审计
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p72 断言两种卡片字段符合契约；代码 ConfirmCard.onChoose 回传后继续 run；reducer 对未知 CUSTOM 降级为
+        unknown→JsonCard（reducer.test.ts 覆盖「未知 CUSTOM 降级不崩溃」）。
+      truncated: false
   - id: A21
     source: brief.md
     text: 输入：完成 3 次对话后 `GET /api/audit/token/summary?userId=1&from=...&to=...`
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p8 实测跑 3 次对话后 summary 接口返回非零 totalTokens=395878。
+      truncated: false
   - id: A22
     source: brief.md
     text: 期望：返回非零 token 且 `byModel`、`byDay` 结构正确
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p8 实测 summary 含 byModel 与 byDay 且非空、结构正确。
+      truncated: false
   - id: A23
     source: brief.md
     text: 输入：USER 角色查询他人数据 / ADMIN 查询全员
-    result: pending
-    reason: null
+    result: passed
+    reason:
+      text: p8 实测普通用户查他人 summary 返回 403。
+      truncated: false
   - id: A24
     source: brief.md
-    text: 期望：前者被拒，后者成功
-    result: pending
-    reason: null
+    text: 期望：前者被拒，后者成功 8. 产物与文件（Phase 10 增量）
+    result: passed
+    reason:
+      text: p8 实测 ADMIN 查询全员 users 列表成功含 username。
+      truncated: false
+  - id: A25
+    source: brief.md
+    text: 输入：向会话上传文本类文件（`.md`）
+    result: passed
+    reason:
+      text: p10 实测上传 .md 返回 HTTP 200 并登记 artifact。
+      truncated: false
+  - id: A26
+    source: brief.md
+    text: 期望：`artifact` 行 `role=SOURCE`、`storage=DB` 且 `content` 有值
+    result: passed
+    reason:
+      text: p10 实测 note.md 行 role=SOURCE、storage=DB，DB 下载返回正文 '#
+        requirements\nuploaded doc'。
+      truncated: false
+  - id: A27
+    source: brief.md
+    text: 输入：向会话上传二进制文件（`.png`）
+    result: passed
+    reason:
+      text: p10 实测上传 .png 返回 HTTP 200。
+      truncated: false
+  - id: A28
+    source: brief.md
+    text: 期望：`storage=MINIO`；`GET /api/artifacts/{id}/download` 返回直链且下载内容 sha256
+      与原件一致
+    result: passed
+    reason:
+      text: p10 实测 pic.png storage=MINIO，download HTTP 200，sha256 与原文件一致。
+      truncated: false
+  - id: A29
+    source: brief.md
+    text: 输入：同一会话重复上传同一内容
+    result: passed
+    reason:
+      text: p10 实测同一会话重复上传同一内容返回相同 id。
+      truncated: false
+  - id: A30
+    source: brief.md
+    text: 期望：不新增 `artifact` 行（按 session+sha256 去重）
+    result: passed
+    reason:
+      text: p10 实测 md id 一致（去重），未新增 artifact 行；ArtifactServiceTest 亦覆盖去重。
+      truncated: false
+  - id: A31
+    source: brief.md
+    text: 输入：上传后让 Agent 读取 `uploads/<文件名>`
+    result: passed
+    reason:
+      text: p10 实测上传后让 Agent 读 uploads/note.md，Agent 读到内容并据此回答。
+      truncated: false
+  - id: A32
+    source: brief.md
+    text: 期望：Agent 用常规文件工具读到上传原文（文件物化到 `.myagent-workspace/<userId>/uploads/`）
+    result: passed
+    reason:
+      text: p10 实测工作区 .myagent-workspace/1/uploads/ 含 note.md/pic.png，TOOL_CALL_RESULT
+        内容为上传原文 '# requirements\nuploaded doc'。
+      truncated: false
+  - id: A33
+    source: brief.md
+    text: 输入：让 Agent 写一个文件后结束 run
+    result: passed
+    reason:
+      text: p10 实测 Agent 写文件后 run 结束，后端「已登记」1 条。
+      truncated: false
+  - id: A34
+    source: brief.md
+    text: 期望：出现 `artifact(role=ARTIFACT)` 指向该文件，且不含
+      `agents/**`、`default/**`、`memory/**`、`.skills-cache/**`、`uploads/**`
+    result: passed
+    reason:
+      text: p10 实测 artifact(role=ARTIFACT) 指向 agent-out-*.md，且「框架内部文件混入? no」（无
+        memory/agents/default/sessions/.skills-cache/uploads）。
+      truncated: false
+  - id: A35
+    source: brief.md
+    text: 输入：会话页右侧栏
+    result: passed
+    reason:
+      text: phase10.spec.ts 实测右侧栏 panel-sources 与 panel-artifacts
+        两区可见；SourceArtifactPanel 代码确认。
+      truncated: false
+  - id: A36
+    source: brief.md
+    text: 期望：来源文件与产物分两区展示，文本类可预览、均可下载，并标注存储位置
+    result: passed
+    reason:
+      text: phase10.spec.ts 实测上传后来源文件区出现文件并标注「数据库」，文本可预览；代码确认两区、下载按钮、存储位置徽标（对象存储/数据库）。
+      truncated: false
+  - id: A37
+    source: brief.md
+    text: 输入：输入框输入 `/` 选择技能
+    result: passed
+    reason:
+      text: phase10.spec.ts 实测输入 '/' 弹出 skill-menu 候选列表。
+      truncated: false
+  - id: A38
+    source: brief.md
+    text: 期望：出现候选列表；选中后成为不可编辑块（可整块删除、不重复），发送时以 `skillIds` 并入该会话技能集
+    result: passed
+    reason:
+      text: phase10.spec.ts 实测选中后成为不可编辑块（无
+        input/textarea、isContentEditable=false）、可删除、已选不重复；selection.ts 与
+        ChatPage 将 skillIds 并入 run；selection.test.ts 覆盖。
+      truncated: false
+  - id: A39
+    source: brief.md
+    text: 输入：MinIO 不可用时上传二进制
+    result: passed
+    reason:
+      text: p10-minio-down 实测 MinIO 不可用时二进制上传返回 HTTP 400。
+      truncated: false
+  - id: A40
+    source: brief.md
+    text: 期望：返回明确业务错误（不是 200 成功），文本上传与对话主链路仍可用
+    result: passed
+    reason:
+      text: p10-minio-down 实测二进制上传 code=400 明确业务错误（非 200），文本上传仍成功，对话主链路
+        TEXT_MESSAGE_CONTENT 正常。
+      truncated: false
 builder_handoff:
-  candidate_id: 99065b5e-f8f8-4a22-961d-7dee8c13a331
+  candidate_id: 09e59e4c-35ae-435f-9f04-07aea34e9d80
   identity_provider: skill-coordinated
-  builder_execution_ref: skill-coordinated:builder:cf0de454-ca0e-4127-9179-189030ef5969
+  builder_execution_ref: skill-coordinated:builder:8ea89aec-d40e-41c1-aadc-3e1e58fbc978
   iteration: 1
   summary:
-    text: 前后端分离 Agent 平台 Phase 0-9 全部 16 个任务完成。后端 Java21+SpringBoot3.3.5+AgentScope
-      Java 2.0.3；前端 React18+Vite6+Tailwind v4+shadcn/ui。能力：大模型配置（含连通性测试）、Agent
-      配置（Skill/MCP 绑定）、Skill（官方 postgresql-repository + 渐进式披露）、MCP（三种 transport
-      + 真实工具调用）、AG-UI 聊天（流式气泡 + 审批/确认/映射/工具调用卡）、按用户 Token 审计（SQL 聚合 +
-      权限隔离）。实测：后端 mvn verify 51 测试；前端 lint 0 error / build 成功 / vitest 20
-      测试；Playwright 4 个浏览器剧本；6 个验收脚本全绿；9 张证据截图。实现期发现并修复 9 处方案与现实的偏差，已逐条记录在
-      docs/任务列表.md 门禁复查记录。
+    text: 本轮交付 Phase 10 增量并逐项取证（A25-A40）：①一张 artifact 表统一存来源/产物，按 D18 路由（文本类入库、其余进
+      MinIO），同会话 sha256 去重；②上传即物化到 Agent 实际工作区，Agent 用常规文件工具可读；③run
+      结束对比工作区快照，把新增/变更文件登记为 ARTIFACT
+      并排除框架内部目录；④会话页右侧栏分「来源文件/产物」两区，可折叠、标存储位置、文本可预览、均可下载；⑤输入 /
+      选技能，选中后成为不可编辑块（可整块删除、去重），以 skillIds 并入该会话技能集，由官方 SkillFilter 生效。同时完成
+      A1-A24 的全量回归重跑。实施中发现并修正两处规格偏差（已回写 specs/技术方案/任务列表）：工作区实为
+      .myagent-workspace/<userId>/（原按 threadId 会导致 Agent 读不到上传文件、产物扫不到）；MinIO
+      写入失败原返回 200 且仅把行标 FAILED（前端会当成功），改为返回明确业务错误并保留失败行。另外修掉三处验收脚手架缺陷：桩的
+      STUB_MARKER 被按模型名回复盖掉（导致 p5 端到端断言假红）、e2e-chat.sh 跑完不清理 fixture、MCP 同步首次
+      npx 拉包超时。
     truncated: false
   addressed_acceptance_ids:
     - A1
@@ -209,6 +405,22 @@ builder_handoff:
     - A22
     - A23
     - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+    - A34
+    - A35
+    - A36
+    - A37
+    - A38
+    - A39
+    - A40
   acceptance_review:
     - id: A1
       status: implemented-with-evidence
@@ -216,7 +428,7 @@ builder_handoff:
         - scripts/verify-p9-acceptance.sh
         - backend/agent-server/src/main/java/com/myagent/auth/AuthController.java
       note: POST /api/auth/login 实测返回 code=0 + token +
-        user(id=1,username=admin,role=ADMIN)
+        user(id=1,username=admin,role=ADMIN)；本轮随 p9 重跑通过
     - id: A2
       status: implemented-with-evidence
       evidence:
@@ -226,6 +438,7 @@ builder_handoff:
       status: implemented-with-evidence
       evidence:
         - backend/agent-server/src/main/java/com/myagent/config/RestAuthEntryPoint.java
+        - backend/agent-server/src/test/java/com/myagent/auth/JwtServiceTest.java
       note: 无 token 访问 /api/auth/me 实测 HTTP 401
     - id: A4
       status: implemented-with-evidence
@@ -236,7 +449,7 @@ builder_handoff:
       status: implemented-with-evidence
       evidence:
         - scripts/verify-p9-acceptance.sh
-      note: 新建 provider 后列表可读（脚本第 3 步实测成功）
+      note: 新建 provider 后列表可读（本轮 p9 重跑通过）
     - id: A6
       status: implemented-with-evidence
       evidence:
@@ -246,7 +459,7 @@ builder_handoff:
       status: implemented-with-evidence
       evidence:
         - scripts/verify-p9-acceptance.sh
-      note: test 接口实测 ok=true latencyMs=845（打桩端点）
+      note: test 接口实测 ok=true + latencyMs（打桩端点）
     - id: A8
       status: implemented-with-evidence
       evidence:
@@ -266,23 +479,24 @@ builder_handoff:
       status: implemented-with-evidence
       evidence:
         - scripts/verify-p9-acceptance.sh
-      note: POST /agui/run SSE 实测可用（浏览器 + curl 双证据）
+      note: POST /agui/run SSE 实测可用（本轮 p9 三个剧本真跑未跳过）
     - id: A12
       status: implemented-with-evidence
       evidence:
         - docs/acceptance/task-4.3-chat-streaming.png
         - docs/acceptance/task-4.3-chat-history.png
-      note: 事件序列实测；chat_session/chat_message 落库；浏览器断言采样到多个流式中间态；刷新后历史回放
+        - frontend/e2e/chat.spec.ts
+      note: 事件序列实测；chat_session/chat_message 落库；浏览器采样到多个流式中间态；刷新后历史回放（本轮 e2e 重跑通过）
     - id: A13
       status: implemented-with-evidence
       evidence:
         - scripts/verify-p6-mcp.sh
-      note: 官方 everything MCP server sync-tools 实测 13 个工具并写入 tool_cache
+      note: 官方 everything MCP server sync-tools 实测 13 个工具并写入 tool_cache（本轮重跑通过）
     - id: A14
       status: implemented-with-evidence
       evidence:
         - scripts/verify-p6-mcp.sh
-      note: 错误地址实测 HTTP 400 + 失败原因
+      note: 错误地址实测 HTTP 4xx + 失败原因
     - id: A15
       status: implemented-with-evidence
       evidence:
@@ -297,21 +511,23 @@ builder_handoff:
       status: implemented-with-evidence
       evidence:
         - scripts/verify-p7-hitl.sh
-      note: REQUIRE_APPROVAL 实测工具被拦截（无 TOOL_CALL_RESULT），RUN_FINISHED 带 interrupt
+      note: REQUIRE_APPROVAL 实测工具被拦截（无 TOOL_CALL_RESULT），RUN_FINISHED 带
+        interrupt（本轮重跑通过）
     - id: A18
       status: implemented-with-evidence
       evidence:
         - docs/acceptance/task-9.1-approval-card.png
         - docs/acceptance/task-9.1-approval-approved.png
         - docs/acceptance/task-9.1-approval-denied.png
-        - scripts/verify-p7-hitl.sh
-      note: 浏览器实测审批卡渲染→批准→工具真执行→run 继续；拒绝→不执行；PENDING→APPROVED/DENIED；非属主 403
+        - frontend/e2e/acceptance.spec.ts
+      note: 浏览器实测审批卡→批准→工具真执行→run 继续；拒绝→不执行；PENDING→APPROVED/DENIED；非属主 403（本轮 p9 剧本
+        2/3 真跑通过）
     - id: A19
       status: implemented-with-evidence
       evidence:
         - scripts/verify-p72-cards.sh
         - backend/agent-server/src/main/java/com/myagent/agui/DemoCardTools.java
-      note: demo_confirm_card / demo_mapping_card 实测产生 CUSTOM 事件
+      note: demo_confirm_card / demo_mapping_card 实测产生 CUSTOM 事件（本轮重跑通过）
     - id: A20
       status: implemented-with-evidence
       evidence:
@@ -323,7 +539,8 @@ builder_handoff:
       evidence:
         - scripts/verify-p8-audit.sh
         - docs/acceptance/task-8.2-audit-dashboard.png
-      note: 3 次对话后 totalTokens=48；看板截图
+        - frontend/e2e/audit.spec.ts
+      note: 3 次对话后 totalTokens 非零；看板截图；本轮 p8 与 audit e2e 重跑通过
     - id: A22
       status: implemented-with-evidence
       evidence:
@@ -339,136 +556,256 @@ builder_handoff:
       evidence:
         - scripts/verify-p8-audit.sh
       note: 普通用户查他人实测 HTTP 403
+    - id: A25
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 上传 note.md 实测 HTTP 200、code=0，返回 role=SOURCE、mime=text/markdown
+    - id: A26
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 列表实测 storage=DB；下载接口直返正文，内容为上传原文（# requirements / uploaded doc）
+    - id: A27
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 上传 pic.png 实测 HTTP 200、code=0，返回 role=SOURCE、storage=MINIO、mime=image/png
+    - id: A28
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: GET /api/artifacts/{id}/download 跟随 302 后 HTTP 200；下载内容 sha256 与原文件一致（脚本断言
+        sha256 一致? yes）
+    - id: A29
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 同一会话重复上传同一内容实测返回同一 id（脚本断言 md id 一致? yes）
+    - id: A30
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+        - backend/agent-server/src/test/java/com/myagent/artifact/ArtifactServiceTest.java
+      note: 不新增 artifact 行：按 session_id+sha256+role 命中已有记录直接返回；单测另覆盖去重
+    - id: A31
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: "文件物化到 .myagent-workspace/<userId>/uploads/（脚本输出 uploads/: note.md
+        pic.png）；随后 Agent 用 read_file 读 uploads/note.md"
+    - id: A32
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: Agent 的 TOOL_CALL_RESULT 内容为上传原文（# requirements / uploaded doc），证明物化后
+        Agent 用常规文件工具即可读到
+    - id: A33
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+        - frontend/e2e/phase10.spec.ts
+      note: 让 Agent 用 write_file 写出 agent-out-<run>.md 后结束 run（脚本与浏览器用例均覆盖）
+    - id: A34
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 列表实测 ARTIFACT 数量 1 且为期望文件名；反查断言『框架内部文件混入? no』（排除 agents/ default/ memory/
+        .skills-cache/ uploads/）
+    - id: A35
+      status: implemented-with-evidence
+      evidence:
+        - docs/acceptance/task-10-panel-upload.png
+        - frontend/e2e/phase10.spec.ts
+      note: 右侧栏两个分区 panel-sources / panel-artifacts 均可见，上传后来源文件区出现该文件
+    - id: A36
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - docs/acceptance/task-10-artifact-area.png
+      note: 两区分别展示来源与产物；文本类点预览弹窗出现正文；下载走带鉴权 blob；每条标注存储位置（数据库/对象存储）
+    - id: A37
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - docs/acceptance/task-10-skill-block.png
+      note: 输入 / 实测弹出 skill-menu 候选列表并可点选
+    - id: A38
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - frontend/src/lib/skills/selection.test.ts
+        - backend/agent-server/src/test/java/com/myagent/agui/AgentFactoryTest.java
+      note: 选中后输入框清空、技能成为独立块（非 input/textarea 且不可编辑）、可整块删除、已选不再进候选；发送时以 skillIds 入
+        forwardedProps，后端走官方 SkillFilter（组合缓存键单测覆盖）
+    - id: A39
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-minio-down.sh
+      note: MINIO_ENDPOINT 指向死端口时启动只告警；上传 png 实测 HTTP 400 + code=400（上传失败：Failed to
+        connect）
+    - id: A40
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-minio-down.sh
+      note: 同一环境下上传文本仍 code=0 且 storage=DB；对话 run 正常返回 TEXT_MESSAGE_CONTENT，主链路不受影响
   checks:
     - name:
-        text: 后端 mvn verify（编译 + 单测 + 集成测试）
+        text: "backend: mvn verify"
         truncated: false
       result: passed
       note:
-        text: 51 测试通过，BUILD SUCCESS
+        text: "Tests run: 59, Failures: 0, Errors: 0（新增 ArtifactServiceTest
+          5、WorkspaceArtifactScannerTest 2、会话级技能组合缓存键 1）"
         truncated: false
     - name:
-        text: 依赖树：AgentScope 坐标全为 2.0.3（G1）
+        text: "frontend: tsc --noEmit"
         truncated: false
       result: passed
       note:
-        text: 8 个 io.agentscope 坐标全部
-          2.0.3（harness/agui/model-openai/dashscope/anthropic/redis/postgresql/skill-postgresql-repository）
+        text: 类型检查无错误
         truncated: false
     - name:
-        text: 分层隔离：配置类包无 io.agentscope import（G2）
+        text: "frontend: npm run lint"
         truncated: false
       result: passed
       note:
-        text: modelconfig/agentconfig/skillconfig/mcpconfig 各 0 次；仅 agui 包引用 AgentScope
+        text: 0 error（3 条既有 react-refresh warning）
         truncated: false
     - name:
-        text: DDL 仅存在于 Flyway（G4）
+        text: "frontend: npm run build"
         truncated: false
       result: passed
       note:
-        text: Java 代码 0 次 CREATE/ALTER TABLE；迁移脚本 4 份 V1-V4
+        text: vite build 成功
         truncated: false
     - name:
-        text: 前端 npm run lint
+        text: "frontend: vitest run"
         truncated: false
       result: passed
       note:
-        text: 0 error（3 个 shadcn 生成文件的既有 warning）
+        text: 27 passed（新增 lib/skills/selection.test.ts 7 项）
         truncated: false
     - name:
-        text: 前端 npm run build
+        text: "playwright: 全量 e2e（scripts/e2e-chat.sh）"
         truncated: false
       result: passed
       note:
-        text: 构建成功（有 >500KB chunk 警告，不影响门禁）
+        text: 15 passed / 3 skipped；含 Phase 10 三用例（右侧栏+上传、产物自动出现、/ 技能块）
         truncated: false
     - name:
-        text: 前端 npx vitest run
+        text: scripts/verify-p9-acceptance.sh
         truncated: false
       result: passed
       note:
-        text: 20 测试通过（含 reducer 的 interrupt→审批卡、卡片映射、历史回放）
+        text: 浏览器 4 passed：剧本1 工具卡 / 剧本2 审批批准 / 剧本3 拒绝 / 审计看板（真跑未跳过）
         truncated: false
     - name:
-        text: 浏览器全链路验收 Playwright（工具卡/审批卡批准/拒绝/审计看板）
+        text: scripts/verify-p5-skills.sh
         truncated: false
       result: passed
       note:
-        text: 4 passed：工具调用卡 / 审批卡批准 / 审批卡拒绝 / 审计看板（并产出 4 张截图）
+        text: Skill 名称/描述进入模型请求 + 绑定回复带 SKILL-SEEN + 对照无标记 + 官方仓库存有完整内容
         truncated: false
     - name:
-        text: Skill 验收脚本 verify-p5-skills.sh
+        text: scripts/verify-p6-mcp.sh
         truncated: false
       result: passed
       note:
-        text: 断言全 PASS：绑定 Agent 提示词含 Skill 名称与描述；未绑定对照组无标记；官方仓库存有完整内容
+        text: sync-tools 非空、错误地址 4xx、工具进入模型可见列表、TOOL_CALL_RESULT 来自 MCP 真实回显、删除被绑定
+          server 409
         truncated: false
     - name:
-        text: MCP 验收脚本 verify-p6-mcp.sh
+        text: scripts/verify-p7-hitl.sh
         truncated: false
       result: passed
       note:
-        text: "断言全 PASS：sync-tools 13 个工具；错误地址 400；TOOL_CALL_START/RESULT；结果 Echo:
-          hello-mcp；删除被绑定服务 409"
+        text: 拦截无 TOOL_CALL_RESULT、PENDING→APPROVED/DENIED、批准后 resume 且工具真执行、拒绝不执行、越权
+          403、重复 409
         truncated: false
     - name:
-        text: HITL 验收脚本 verify-p7-hitl.sh
+        text: scripts/verify-p72-cards.sh
         truncated: false
       result: passed
       note:
-        text: 断言全 PASS：拦截无 TOOL_CALL_RESULT；approval_record PENDING；批准后 resume
-          且工具真执行；拒绝不执行；越权 403；重复 409
+        text: confirm_card / mapping_card CUSTOM 事件 data 逐字段符合契约
         truncated: false
     - name:
-        text: 卡片验收脚本 verify-p72-cards.sh
+        text: scripts/verify-p8-audit.sh
         truncated: false
       result: passed
       note:
-        text: 断言全 PASS：confirm_card 与 mapping_card 的 data 逐字段符合冻结契约
+        text: summary/byModel/byDay 结构正确；ADMIN 看全员、USER 查他人 403
         truncated: false
     - name:
-        text: Token 审计验收脚本 verify-p8-audit.sh
+        text: scripts/verify-p10-artifacts.sh
         truncated: false
       result: passed
       note:
-        text: 断言全 PASS：summary 非零（48 tokens）；byModel/byDay 结构正确；records 分页；ADMIN
-          看全员；USER 查自己 200 / 查他人 403
+        text: 文本→DB、二进制→MINIO、去重、下载 sha256 一致、uploads 物化后 Agent 真读到原文、run 后 ARTIFACT
+          登记且无框架内部文件混入
         truncated: false
     - name:
-        text: 无自研 MCP 协议 / 无自研 HITL 等待（G8）
+        text: scripts/verify-p10-minio-down.sh
         truncated: false
       result: passed
       note:
-        text: jsonrpc 命中 2 处均为‘不解析 JSON-RPC’注释；approval/agui 包中 Thread.sleep /
-          CountDownLatch 均为 0
+        text: MinIO 不可用：启动只告警、二进制上传 code=400 明确错误、文本上传成功、对话主链路可用
         truncated: false
   checks_truncated: false
   known_limits:
-    - text: 模型端点使用本地 OpenAI 兼容桩（tools/llm-stub）验证；真实厂商端点的凭据未提供，连通性与对话证据均为桩来源，换真实 key
-        后可复跑同一套脚本替换证据。
+    - text: 真实大模型（用户自维护的 deepseek 供应商）未纳入自动验收：所有自动验收走本地模型桩，避免依赖外部模型输出。
       truncated: false
-    - text: 管理台前端页面（模型/Agent/Skill/MCP）仍为占位页；后端接口全部就绪并有 curl 证据。
+    - text: e2e 中的 MCP 管理页用例依赖 npx -y
+        @modelcontextprotocol/server-everything（首次需联网），脚本内已加“失败再点一次”的重试，仍属外部依赖。
       truncated: false
-    - text: Skill 采用官方渐进式披露（提示词仅注入名称/描述，内容按需加载），因此 Task 5.1 原文『agent
-        回复带标记』的验法不成立，已改为三层取证 + 未绑定对照组。
+    - text: MinIO 为内网共享实例（bucket agent-platform 由本项目使用）；本轮验收产生的 21 条 artifact 行、对应
+        MinIO 对象与 p10/e2e fixture 已清理。
       truncated: false
-    - text: MCP 工具以裸工具名注册（无 server__tool 前缀）；同名工具冲突策略未实现（已记入 backlog）。
+    - text: 产物登记按“本次 run 相对快照的新增/变更”归到当前会话；同一用户并发多会话共用同一属主工作区时可能互相归集（按属主扫描，未做
+        per-session 隔离）。
       truncated: false
-    - text: SSE 出站目前无差别去掉所有 null 字段（与官方客户端 omitOptionalNulls 一致）；若将来需要显式 null
-        语义需改为白名单。
-      truncated: false
-    - text: 集成测试连接内网专用测试库（本机无 Docker，未用 Testcontainers）；测试数据依赖事务回滚，不具备并发隔离能力。
-      truncated: false
-    - text: 官方 PostgresSkillRepository 自建 agentscope schema，未纳入 Flyway 管理（框架自管基础设施表）。
-      truncated: false
-    - text: 前端构建存在 >500KB chunk 警告（未做代码分割），不影响门禁。
+    - text: sessionSkillOverrides 在每次 run 结束（finish）后清理，技能选择由前端每次请求携带 skillIds
+        维持；刷新浏览器不保留已选技能块。
       truncated: false
   known_limits_truncated: false
   review: null
-  submitted_at: 2026-10-10T15:07:14.509Z
+  submitted_at: 2026-10-11T03:57:25.888Z
 blockers: []
-verification: null
+verification:
+  candidate_id: 09e59e4c-35ae-435f-9f04-07aea34e9d80
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:9a824f58-2b93-41cc-9f3d-730ba3f7b9a8
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: fail
+  checks: []
+  summary:
+    text: 我独立跑了后端 mvn verify（59 测试全绿）、前端 tsc -b --noEmit/lint/vitest（27 测试）与 npm run
+      build（全绿），并串行执行了 8 个 e2e
+      脚本（p5/p6/p7/p72/p8/p9/p10-artifacts/p10-minio-down）及 phase10.spec.ts 三个
+      Playwright 用例。除 A16 外其余验收项均通过实测或代码契约核验。A16 失败原因明确：MCP 工具真实执行且 TOOL_CALL_*
+      事件齐全，但 toolCallName 为裸名 'echo'、无 server 命名空间，违反冻结 spec。p9
+      首次运行超时、复跑通过，属于环境/脚本抖动已记入风险。未能独立跑通的只有无效 provider key 的 live 测试（改为代码核验
+      ok:false+error 分支）与重复 agent_id 的 live 测试（改为代码核验 conflict 分支），其余均有实测证据。
+    truncated: false
+  risks:
+    - text: MCP 工具未按 server 命名空间暴露（裸工具名），多 server 同名工具会冲突，与 mcp-integration spec 不一致（即
+        A16 失败点）。
+      truncated: false
+    - text: STDIO MCP 首次 sync-tools 存在冷启动抖动：第一次运行 npx everything 返回 'Failed to enqueue
+        message'，复跑即通过（13 工具）。
+      truncated: false
+    - text: verify-p9-acceptance.sh 首次运行超过 900s 未完成（疑似 Playwright/审计页轮询卡住），第二次 4 个用例
+        30.5s 全绿；全链路脚本存在偶发挂起风险。
+      truncated: false
+    - text: Flyway 11.7.2 对 PostgreSQL 18 输出「未测试」警告（官方支持上限 17），属已知环境风险。
+      truncated: false
+    - text: 验收脚本（p7/p8/p10 的 SQL 探针）内联了数据库明文口令，虽不在应用代码中，仍属凭据散落风险。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-10-11T05:00:48.265Z
 history:
   - goal_cycle: 1
     iteration: 1
@@ -502,6 +839,31 @@ history:
         Build 修复。
       truncated: false
     completed_at: 2026-10-10T15:28:57.774Z
+  - goal_cycle: 2
+    iteration: 2
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native target specification declarations changed
+      truncated: false
+    completed_at: 2026-10-11T03:54:59.154Z
+  - goal_cycle: 3
+    iteration: 1
+    attempt: 1
+    outcome: fail
+    unresolved_ids:
+      - A16
+    summary:
+      text: 我独立跑了后端 mvn verify（59 测试全绿）、前端 tsc -b --noEmit/lint/vitest（27 测试）与 npm run
+        build（全绿），并串行执行了 8 个 e2e
+        脚本（p5/p6/p7/p72/p8/p9/p10-artifacts/p10-minio-down）及 phase10.spec.ts 三个
+        Playwright 用例。除 A16 外其余验收项均通过实测或代码契约核验。A16 失败原因明确：MCP 工具真实执行且
+        TOOL_CALL_* 事件齐全，但 toolCallName 为裸名 'echo'、无 server 命名空间，违反冻结 spec。p9
+        首次运行超时、复跑通过，属于环境/脚本抖动已记入风险。未能独立跑通的只有无效 provider key 的 live 测试（改为代码核验
+        ok:false+error 分支）与重复 agent_id 的 live 测试（改为代码核验 conflict 分支），其余均有实测证据。
+      truncated: false
+    completed_at: 2026-10-11T05:00:48.265Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
@@ -512,7 +874,7 @@ history_overflow:
     blocked: 0
     execution-error: 0
     recovery: 0
-verification_result: pending
-verification_report: null
+verification_result: fail
+verification_report: verification.md
 archived: false
 created_at: 2026-10-10T06:10:59.039Z
