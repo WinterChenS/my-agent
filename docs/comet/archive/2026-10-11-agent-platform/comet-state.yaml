@@ -2,8 +2,8 @@ schema: comet.native.v4
 name: agent-platform
 language: zh-CN
 phase: archive
-status: active
-state_version: 45
+status: done
+state_version: 46
 brief: brief.md
 document_constraints_version: 2
 shape_confirmation_hash: 89107229088abbaa7c0a59f9d809f497b4edf62b848398e5b7e94deb95d9e767
@@ -56,7 +56,7 @@ workspace:
   target_branch: master
   finish: null
 loop:
-  stage: archive-ready
+  stage: done
   goal_cycle: 7
   iteration: 1
   attempt: 1
@@ -65,7 +65,7 @@ loop:
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
-  next_action: archive
+  next_action: null
 acceptance:
   - id: A1
     source: brief.md
@@ -1694,5 +1694,5 @@ history_overflow:
     recovery: 0
 verification_result: pass
 verification_report: verification.md
-archived: false
+archived: true
 created_at: 2026-10-10T06:10:59.039Z
