@@ -156,8 +156,21 @@ mkdir -p /tmp/dbprobe && cd /tmp/dbprobe
 cat > P10.java <<EOF
 import java.sql.*;
 public class P10 {
+
+  // 凭据从环境变量读取（不要把真实口令写进仓库）
+  static String env(String key, String fallback) {
+    String v = System.getenv(key);
+    return (v == null || v.isBlank()) ? fallback : v;
+  }
+  static String dbHost() { return env("DB_HOST", dbHost()); }
+  static String dbUser() { return env("DB_USERNAME", "agent"); }
+  static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
+  static String jdbcUrl() {
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform");
+  }
+
   public static void main(String[] a) throws Exception {
-    try (Connection c=DriverManager.getConnection("jdbc:postgresql://localhost:5432/agent_platform","app_user","CHANGE_ME");
+    try (Connection c=DriverManager.getConnection(jdbcUrl(),dbUser(), dbPassword());
          Statement s=c.createStatement()) {
       ResultSet rs=s.executeQuery("select role, storage, count(*) from artifact where session_id=$SID2 group by 1,2 order by 1,2");
       while(rs.next()) System.out.println("     role="+rs.getString(1)+" storage="+rs.getString(2)+" count="+rs.getInt(3));

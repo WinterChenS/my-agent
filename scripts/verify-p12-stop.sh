@@ -100,8 +100,21 @@ echo "== 5/6 落库与 token 用量 =="
 cd /tmp/dbprobe && cat > P12.java <<EOF
 import java.sql.*;
 public class P12 {
+
+  // 凭据从环境变量读取（不要把真实口令写进仓库）
+  static String env(String key, String fallback) {
+    String v = System.getenv(key);
+    return (v == null || v.isBlank()) ? fallback : v;
+  }
+  static String dbHost() { return env("DB_HOST", dbHost()); }
+  static String dbUser() { return env("DB_USERNAME", "agent"); }
+  static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
+  static String jdbcUrl() {
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform");
+  }
+
   public static void main(String[] a) throws Exception {
-    try (Connection c = DriverManager.getConnection("jdbc:postgresql://localhost:5432/agent_platform","app_user","CHANGE_ME");
+    try (Connection c = DriverManager.getConnection(jdbcUrl(),dbUser(), dbPassword());
          Statement s = c.createStatement()) {
       ResultSet r = s.executeQuery("select role, coalesce(agui_meta::text,'-') as meta, left(coalesce(content,''),60) as head from chat_message where session_id=$SID2 order by id");
       while (r.next()) System.out.println("   [" + r.getString(1) + "] meta=" + r.getString(2) + " content=" + r.getString(3).replace("\\n"," "));
@@ -120,7 +133,7 @@ check "停止接口返回 interrupted=true" "$(echo "$STOP_RESP" | grep -q '"int
 TOK_BEFORE=$(cd /tmp/dbprobe && cat > TB.java <<JEOF
 import java.sql.*;
 public class TB { public static void main(String[] a) throws Exception {
-  try (Connection c=DriverManager.getConnection("jdbc:postgresql://localhost:5432/agent_platform","app_user","CHANGE_ME");
+  try (Connection c=DriverManager.getConnection(jdbcUrl(),dbUser(), dbPassword());
        Statement s=c.createStatement(); ResultSet r=s.executeQuery("select count(*) from token_usage where session_id=$SID2")) {
     r.next(); System.out.print(r.getInt(1)); } } }
 JEOF

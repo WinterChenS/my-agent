@@ -1,17 +1,18 @@
-# 仅 dev profile。内网环境，按《技术方案.md》第 10 节允许明文。
+# 仅 dev profile 使用。**不要把真实口令写进这个文件**（它会被提交）。
+# 本地/内网部署时通过环境变量或未提交的 .env 提供（见 .env.example）。
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/agent_platform?stringtype=unspecified
-    username: app_user
-    password: CHANGE_ME
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/agent_platform?stringtype=unspecified}
+    username: ${DB_USERNAME:agent}
+    password: ${DB_PASSWORD:change-me}
     driver-class-name: org.postgresql.Driver
   data:
     redis:
-      host: localhost
-      port: 6379
-      password: CHANGE_ME
-      # 偏离方案：db0/db1 已被同实例其他应用占用，改用空闲的 db10（会话）/ db11（缓存）
-      database: 10
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:change-me}
+      # 偏离方案：默认实例的 db0/db1 常被其他应用占用，这里默认用 db10（会话）/ db11（缓存）
+      database: ${REDIS_DATABASE:10}
       timeout: 5s
 
 logging:

@@ -102,8 +102,21 @@ cd /tmp/dbprobe 2>/dev/null || { mkdir -p /tmp/dbprobe && cd /tmp/dbprobe; }
 cat > P5Check.java <<EOF
 import java.sql.*;
 public class P5Check {
+
+  // 凭据从环境变量读取（不要把真实口令写进仓库）
+  static String env(String key, String fallback) {
+    String v = System.getenv(key);
+    return (v == null || v.isBlank()) ? fallback : v;
+  }
+  static String dbHost() { return env("DB_HOST", dbHost()); }
+  static String dbUser() { return env("DB_USERNAME", "agent"); }
+  static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
+  static String jdbcUrl() {
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform");
+  }
+
   public static void main(String[] a) throws Exception {
-    try (Connection c = DriverManager.getConnection("jdbc:postgresql://localhost:5432/agent_platform", "app_user", "CHANGE_ME");
+    try (Connection c = DriverManager.getConnection(jdbcUrl(), dbUser(), dbPassword());
          PreparedStatement ps = c.prepareStatement(
              "SELECT count(*) FROM agentscope.agentscope_skills WHERE name = ? AND skill_content LIKE ?")) {
       ps.setString(1, "$SKILL_NAME");

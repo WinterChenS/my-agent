@@ -1,10 +1,11 @@
-# 仅 test profile：集成测试专用库 agent_platform_test，跑完由事务回滚。
+# 仅 test profile：集成测试专用库，跑完由事务回滚。
+# **不要把真实口令写进这个文件**（它会被提交）；用环境变量提供（见 .env.example）。
 spring:
   datasource:
     # stringtype=unspecified：允许把 String 写入 jsonb 列（params_json / tool_cache 等）
-    url: jdbc:postgresql://localhost:5432/agent_platform_test?stringtype=unspecified
-    username: app_user
-    password: CHANGE_ME
+    url: ${TEST_DB_URL:jdbc:postgresql://localhost:5432/agent_platform_test?stringtype=unspecified}
+    username: ${DB_USERNAME:agent}
+    password: ${DB_PASSWORD:change-me}
     driver-class-name: org.postgresql.Driver
   flyway:
     enabled: true
@@ -12,10 +13,10 @@ spring:
     locations: classpath:db/migration
   data:
     redis:
-      host: localhost
-      port: 6379
-      password: CHANGE_ME
-      database: 11
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:change-me}
+      database: ${REDIS_TEST_DATABASE:11}
 
 logging:
   level:

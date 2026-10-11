@@ -50,11 +50,24 @@ cd /tmp/dbprobe
 cat > Seed.java <<'JAVAEOF'
 import java.sql.*;
 public class Seed {
+
+  // 凭据从环境变量读取（不要把真实口令写进仓库）
+  static String env(String key, String fallback) {
+    String v = System.getenv(key);
+    return (v == null || v.isBlank()) ? fallback : v;
+  }
+  static String dbHost() { return env("DB_HOST", dbHost()); }
+  static String dbUser() { return env("DB_USERNAME", "agent"); }
+  static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
+  static String jdbcUrl() {
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform");
+  }
+
   public static void main(String[] a) throws Exception {
     String mark = System.getenv("MARK");
     String payload = "{\"content\": \"## Memory Flush " + mark + " 用户的长期记忆：项目在 D:/project/my-agent\"}";
-    String url = "jdbc:postgresql://localhost:5432/agent_platform";
-    try (Connection c = DriverManager.getConnection(url, "app_user", "CHANGE_ME");
+    String url = jdbcUrl();
+    try (Connection c = DriverManager.getConnection(url, dbUser(), dbPassword());
          PreparedStatement p = c.prepareStatement(
              "insert into memory_store (namespace_path, item_key, payload, version, created_at, updated_at) "
              + "values ('user/1', '/2026-10-11.md', ?::jsonb, 1, now(), now()) "
@@ -63,7 +76,7 @@ public class Seed {
       p.setString(1, payload);
       p.executeUpdate();
     }
-    try (Connection c = DriverManager.getConnection(url, "app_user", "CHANGE_ME");
+    try (Connection c = DriverManager.getConnection(url, dbUser(), dbPassword());
          Statement s = c.createStatement();
          ResultSet r = s.executeQuery(
              "select item_key, payload::text like '%" + mark + "%' as has_marker from memory_store")) {
@@ -112,10 +125,23 @@ echo "== 5/5 判据 =="
 cat > Check.java <<'JAVAEOF'
 import java.sql.*;
 public class Check {
+
+  // 凭据从环境变量读取（不要把真实口令写进仓库）
+  static String env(String key, String fallback) {
+    String v = System.getenv(key);
+    return (v == null || v.isBlank()) ? fallback : v;
+  }
+  static String dbHost() { return env("DB_HOST", dbHost()); }
+  static String dbUser() { return env("DB_USERNAME", "agent"); }
+  static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
+  static String jdbcUrl() {
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform");
+  }
+
   public static void main(String[] a) throws Exception {
     String mark = System.getenv("MARK");
-    String url = "jdbc:postgresql://localhost:5432/agent_platform";
-    try (Connection c = DriverManager.getConnection(url, "app_user", "CHANGE_ME");
+    String url = jdbcUrl();
+    try (Connection c = DriverManager.getConnection(url, dbUser(), dbPassword());
          Statement s = c.createStatement()) {
       ResultSet r = s.executeQuery("select item_key, payload::text like '%" + mark
           + "%' as has_marker, length(payload::text) as bytes from memory_store order by id");

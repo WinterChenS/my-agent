@@ -16,7 +16,11 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APPLY="${1:-}"
-DB_USER="app_user"; DB_PASS="CHANGE_ME"; DB="agent_platform"
+DB="agent_platform"
+# 凭据从环境变量读取（不要把真实口令写进仓库）
+DB_HOST="${DB_HOST:-localhost}"
+DB_USER="${DB_USERNAME:-agent}"
+DB_PASS="${DB_PASSWORD:?请先设置环境变量 DB_PASSWORD}"
 JDK="/c/Program Files/Java/jdk-21.0.3+9/bin"
 JAR="C:\\Users\\Administrator\\.m2\\repository\\org\\postgresql\\postgresql\\42.7.11\\postgresql-42.7.11.jar"
 
@@ -28,6 +32,19 @@ import java.sql.*;
 
 /** 只保留白名单；其余命中测试前缀的 agent/provider/model/会话按 MODE 处理。 */
 public class Clean {
+
+  // 凭据从环境变量读取（不要把真实口令写进仓库）
+  static String env(String key, String fallback) {
+    String v = System.getenv(key);
+    return (v == null || v.isBlank()) ? fallback : v;
+  }
+  static String dbHost() { return env("DB_HOST", dbHost()); }
+  static String dbUser() { return env("DB_USERNAME", "agent"); }
+  static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
+  static String jdbcUrl() {
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform");
+  }
+
     static final String KEEP_AGENT = "stub-demo-agent";
     static final String KEEP_PROVIDER = "deepseek";
     static final String KEEP_MODEL_PREFIX = "deepseek/";
@@ -50,8 +67,8 @@ public class Clean {
 
     public static void main(String[] args) throws Exception {
         boolean apply = args.length > 0 && "--yes".equals(args[0]);
-        String url = "jdbc:postgresql://localhost:5432/agent_platform";
-        try (Connection c = DriverManager.getConnection(url, "app_user", "CHANGE_ME")) {
+        String url = jdbcUrl();
+        try (Connection c = DriverManager.getConnection(url, dbUser(), dbPassword())) {
             c.setAutoCommit(true);
             int agents = 0, providers = 0, models = 0, sessions = 0, states = 0;
 
