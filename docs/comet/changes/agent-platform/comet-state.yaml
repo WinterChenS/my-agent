@@ -1,11 +1,12 @@
 schema: comet.native.v4
 name: agent-platform
 language: zh-CN
-phase: shape
+phase: archive
 status: active
-state_version: 39
+state_version: 45
 brief: brief.md
 document_constraints_version: 2
+shape_confirmation_hash: 89107229088abbaa7c0a59f9d809f497b4edf62b848398e5b7e94deb95d9e767
 spec_changes:
   - capability: agent-configuration
     operation: create
@@ -22,6 +23,9 @@ spec_changes:
   - capability: chat-run-control
     operation: create
     source: specs/chat-run-control/spec.md
+  - capability: chat-session-list
+    operation: create
+    source: specs/chat-session-list/spec.md
   - capability: chat-skill-picker
     operation: create
     source: specs/chat-skill-picker/spec.md
@@ -52,20 +56,1423 @@ workspace:
   target_branch: master
   finish: null
 loop:
-  stage: shape
+  stage: archive-ready
   goal_cycle: 7
-  iteration: 0
-  attempt: 0
+  iteration: 1
+  attempt: 1
   retry_epoch: 0
   failed_iteration_count: 0
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
-  next_action: prepare-shape-confirmation
-acceptance: []
-builder_handoff: null
+  next_action: archive
+acceptance:
+  - id: A1
+    source: brief.md
+    text: 输入：`POST /api/auth/login {"username":"admin","password":"Admin@123"}`
+    result: passed
+    reason:
+      text: POST /api/auth/login {"username":"admin","password":"Admin@123"} 返回 code:0
+        并含 token（本机直连后端实测）。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: 期望：`{"code":0,"data":{"token":"<JWT>","user":{"id":1,"username":"admin","role":"ADMIN"}}}`
+    result: passed
+    reason:
+      text: 响应 data.user 为 {id:1, username:admin, role:ADMIN}（另多出 displayName
+        字段，不影响契约字段）。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: 输入：无 token 访问 `GET /api/auth/me`
+    result: passed
+    reason:
+      text: 无 token 访问 GET /api/auth/me 实测 HTTP 401。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: 期望：401；带 token 时返回当前用户 2. 大模型配置
+    result: passed
+    reason:
+      text: 带 token 返回当前用户 {id:1, username:admin, role:ADMIN}。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: 输入：新建 provider（含 api_key）后 `GET /api/model-providers`
+    result: passed
+    reason:
+      text: 新建 provider（含 api_key）后响应中 apiKey 即为 ****（实测返回 "apiKey":"****"）。
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: 期望：响应中 api_key 显示为 `****`，无明文；更新时不传 api_key 则保留旧密钥
+    result: passed
+    reason:
+      text: GET /api/model-providers 列表无明文密钥（grep 无 sk-super-secret-key），apiKey 显示
+        ****；更新不传 api_key 保留旧密钥由 admin.spec 连通测试用例覆盖。
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: 输入：`POST /api/model-providers/{id}/test`
+    result: passed
+    reason:
+      text: POST /api/model-providers/{id}/test 可用；verify-p9 实测返回
+        {"ok":true,"latencyMs":404}。
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: 期望：`{"ok":true,"latencyMs":<n>}`；密钥无效时 `{"ok":false,"error":"..."}` 且 HTTP
+      非 500 3. Agent 配置与绑定
+    result: passed
+    reason:
+      text: 指向不可达端点时返回
+        {"ok":false,"latencyMs":269,"error":"ClosedChannelException"}，HTTP 200（非
+        500）。
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: 输入：`POST /api/agents`（含 `skillIds:[1]`、`mcpServerIds:[1]`）
+    result: passed
+    reason:
+      text: POST /api/agents 含 skillIds:[2]、mcpServerIds:[42] 创建成功并回显两个数组。
+      truncated: false
+  - id: A10
+    source: brief.md
+    text: 期望：`GET /api/agents/{id}` 回读含两个绑定数组；重复 `agent_id` 返回业务错误码 4. AG-UI 聊天主链路
+    result: passed
+    reason:
+      text: GET /api/agents/{id} 回读含 skillIds 与 mcpServerIds 两个绑定数组；重复 agent_id 实测返回
+        HTTP 409 {"code":409,"msg":"agent_id 已存在..."}。
+      truncated: false
+  - id: A11
+    source: brief.md
+    text: 输入：`curl -N -X POST /agui/run`（SSE，带 Bearer 与 `RunAgentInput`）
+    result: passed
+    reason:
+      text: curl SSE /agui/run 可用；verify-p6/p7/p72 与 e2e-chat.sh 均观察到 SSE 事件流。
+      truncated: false
+  - id: A12
+    source: brief.md
+    text: 期望：事件序列含 `RUN_STARTED` → `TEXT_MESSAGE_START/CONTENT/END` →
+      `RUN_FINISHED`；结束后 `chat_session`、`chat_message` 有对应行；前端气泡流式出现且刷新后历史仍在 5.
+      MCP
+    result: passed
+    reason:
+      text: 事件序列含 RUN_STARTED → TEXT_MESSAGE_START/CONTENT/END → RUN_FINISHED（p7/p72
+        输出与 chat.spec「流式气泡+刷新回放」用例通过）。
+      truncated: false
+  - id: A13
+    source: brief.md
+    text: 输入：`POST /api/mcp-servers/{id}/sync-tools`（指向真实测试 MCP server）
+    result: passed
+    reason:
+      text: sync-tools 对真实 MCP server 返回非空工具清单（13 个工具）。
+      truncated: false
+  - id: A14
+    source: brief.md
+    text: 期望：返回非空工具清单并写入 `tool_cache`；错误地址返回业务错误与原因
+    result: passed
+    reason:
+      text: 工具清单写入 tool_cache（官方 agentscope 仓库）；错误地址返回 HTTP 400 业务错误与原因（verify-p6）。
+      truncated: false
+  - id: A15
+    source: brief.md
+    text: 输入：绑定该 server 后对话要求调用其工具
+    result: passed
+    reason:
+      text: "绑定该 server 后对话触发了工具调用并回传真实结果（Echo: hello-mcp）。"
+      truncated: false
+  - id: A16
+    source: brief.md
+    text: 期望：出现 `TOOL_CALL_*` 事件且工具名带命名空间 6. HITL 卡片
+    result: passed
+    reason:
+      text: TOOL_CALL_* 事件出现且工具名带命名空间（模型可见 <server>__echo，事件内工具名同样带前缀）。
+      truncated: false
+  - id: A17
+    source: brief.md
+    text: 输入：`REQUIRE_APPROVAL` 模式下触发工具调用的对话
+    result: passed
+    reason:
+      text: REQUIRE_APPROVAL 模式触发工具调用被拦截并落 PENDING（verify-p7）。
+      truncated: false
+  - id: A18
+    source: brief.md
+    text: 期望：页面出现审批卡 → 点"批准" → 工具真实执行、run 继续；点"拒绝" → 收到拒绝反馈文本；`approval_record` 状态按
+      PENDING→APPROVED/DENIED 流转；非 session 属主调用 decide 返回 403
+    result: passed
+    reason:
+      text: 批准→工具真实执行（POST_ACTING SUCCESS）、拒绝→不执行；approval_record
+        PENDING→APPROVED/DENIED 流转；非属主 decide 403、重复决定 409；Playwright
+        审批卡批准/拒绝剧本通过。
+      truncated: false
+  - id: A19
+    source: brief.md
+    text: 输入：`demo-agent` 发送 `confirm_card` / `mapping_card` CUSTOM 事件
+    result: passed
+    reason:
+      text: demo-agent 分别发出 confirm_card 与 mapping_card CUSTOM 事件（verify-p72 两种卡片均通过）。
+      truncated: false
+  - id: A20
+    source: brief.md
+    text: 期望：两种卡片按契约字段渲染，回传后 run 继续；未知 CUSTOM 事件降级为 JSON 折叠卡且不崩溃 7. Token 审计
+    result: passed
+    reason:
+      text: 两种卡片按契约字段（ConfirmCardData title/message/options/requestId、MappingCardData
+        title/columns/rows）渲染；未知 CUSTOM 走 reducer 的 unknown 分支降级为 JSON
+        卡（CARD_BY_NAME[name] ?? "unknown"），前端不崩溃。
+      truncated: false
+  - id: A21
+    source: brief.md
+    text: 输入：完成 3 次对话后 `GET /api/audit/token/summary?userId=1&from=...&to=...`
+    result: passed
+    reason:
+      text: 完成 3 次对话后 GET /api/audit/token/summary 返回非零 totalTokens（实测 5547249）。
+      truncated: false
+  - id: A22
+    source: brief.md
+    text: 期望：返回非零 token 且 `byModel`、`byDay` 结构正确
+    result: passed
+    reason:
+      text: summary 含非空 byModel 与 byDay，结构正确（verify-p8 断言通过）。
+      truncated: false
+  - id: A23
+    source: brief.md
+    text: 输入：USER 角色查询他人数据 / ADMIN 查询全员
+    result: passed
+    reason:
+      text: ADMIN 可看全员 users 列表；USER 查询他人数据返回 403（verify-p8 造普通用户实测）。
+      truncated: false
+  - id: A24
+    source: brief.md
+    text: 期望：前者被拒，后者成功 8. 产物与文件（Phase 10 增量）
+    result: passed
+    reason:
+      text: 前者（USER 查他人）被拒 403，后者（ADMIN 查全员）成功。
+      truncated: false
+  - id: A25
+    source: brief.md
+    text: 输入：向会话上传文本类文件（`.md`）
+    result: passed
+    reason:
+      text: 上传 .md 文本文件成功（verify-p10 HTTP 200）。
+      truncated: false
+  - id: A26
+    source: brief.md
+    text: 期望：`artifact` 行 `role=SOURCE`、`storage=DB` 且 `content` 有值
+    result: passed
+    reason:
+      text: artifact 行 role=SOURCE、storage=DB 且 content 有值（列表显示 id=110 role=SOURCE
+        storage=DB file=note.md）。
+      truncated: false
+  - id: A27
+    source: brief.md
+    text: 输入：向会话上传二进制文件（`.png`）
+    result: passed
+    reason:
+      text: 上传 .png 二进制成功（HTTP 200）。
+      truncated: false
+  - id: A28
+    source: brief.md
+    text: 期望：`storage=MINIO`；`GET /api/artifacts/{id}/download` 返回直链且下载内容 sha256
+      与原件一致
+    result: passed
+    reason:
+      text: storage=MINIO；下载返回内容且 sha256 与原件一致（verify-p10 断言 yes）。
+      truncated: false
+  - id: A29
+    source: brief.md
+    text: 输入：同一会话重复上传同一内容
+    result: passed
+    reason:
+      text: 同一会话重复上传同一内容被识别（md id 一致）。
+      truncated: false
+  - id: A30
+    source: brief.md
+    text: 期望：不新增 `artifact` 行（按 session+sha256 去重）
+    result: passed
+    reason:
+      text: 重复上传不新增 artifact 行（按 session+sha256 去重）。
+      truncated: false
+  - id: A31
+    source: brief.md
+    text: 输入：上传后让 Agent 读取 `uploads/<文件名>`
+    result: passed
+    reason:
+      text: 上传后 Agent 读取 uploads/<文件> 成功读到上传原文（verify-p10 8a）。
+      truncated: false
+  - id: A32
+    source: brief.md
+    text: 期望：Agent 用常规文件工具读到上传原文（文件物化到 `.myagent-workspace/<userId>/uploads/`）
+    result: passed
+    reason:
+      text: 文件物化到 .myagent-workspace/<userId>/uploads/，Agent 用常规文件工具读到原文。
+      truncated: false
+  - id: A33
+    source: brief.md
+    text: 输入：让 Agent 写一个文件后结束 run
+    result: passed
+    reason:
+      text: 让 Agent 写文件后结束 run，产物被登记（agent-out-*.md）。
+      truncated: false
+  - id: A34
+    source: brief.md
+    text: 期望：出现 `artifact(role=ARTIFACT)` 指向该文件，且不含
+      `agents/**`、`default/**`、`memory/**`、`.skills-cache/**`、`uploads/**`
+    result: passed
+    reason:
+      text: 出现 artifact(role=ARTIFACT) 指向该文件；SQL 抽查 role=ARTIFACT count=1，且无
+        memory/agents/uploads/.skills-cache 等框架目录混入（verify-p10 断言 no）。
+      truncated: false
+  - id: A35
+    source: brief.md
+    text: 输入：会话页右侧栏
+    result: passed
+    reason:
+      text: 会话页右侧栏存在（SourceArtifactPanel 组件 + e2e phase10 通过）。
+      truncated: false
+  - id: A36
+    source: brief.md
+    text: 期望：来源文件与产物分两区展示，文本类可预览、均可下载，并标注存储位置
+    result: passed
+    reason:
+      text: 来源文件与产物分两区展示、文本类可预览、均可下载，并标注存储位置（"对象存储"/"数据库"，SourceArtifactPanel 代码 + e2e
+        通过）。
+      truncated: false
+  - id: A37
+    source: brief.md
+    text: 输入：输入框输入 `/` 选择技能
+    result: passed
+    reason:
+      text: 输入 / 弹出技能候选列表（e2e phase10 用例「/ 选技能」通过）。
+      truncated: false
+  - id: A38
+    source: brief.md
+    text: 期望：出现候选列表；选中后成为不可编辑块（可整块删除、不重复），发送时以 `skillIds` 并入该会话技能集
+    result: passed
+    reason:
+      text: 选中后成为不可编辑块、可整块删除、不重复，发送以 skillIds 并入会话技能集（e2e + selection.test.ts 7 项单测）。
+      truncated: false
+  - id: A39
+    source: brief.md
+    text: 输入：MinIO 不可用时上传二进制
+    result: passed
+    reason:
+      text: MinIO 指向不存在端口时后端起得来且二进制上传返回明确业务错误（HTTP 400 code:400）。
+      truncated: false
+  - id: A40
+    source: brief.md
+    text: 期望：返回明确业务错误（不是 200 成功），文本上传与对话主链路仍可用 9. 记忆与会话状态入库（Phase 11）
+    result: passed
+    reason:
+      text: 文本上传仍成功（storage=DB）、对话主链路不受影响（verify-p10-minio-down 通过）。
+      truncated: false
+  - id: A41
+    source: brief.md
+    text: 输入：完成一轮会触发长期记忆（Memory Flush）的对话
+    result: passed
+    reason:
+      text: 完成触发 Memory Flush 的对话后记忆可查（verify-p11）。
+      truncated: false
+  - id: A42
+    source: brief.md
+    text: 期望：长期记忆内容可在数据库的记忆表中用 SQL 查到，而不是只存在于工作区文件
+    result: passed
+    reason:
+      text: 长期记忆可在 memory_store 表中 SQL 查到（namespace user/1，key /2026-10-11.md，payload
+        672 字节），不是只存磁盘。
+      truncated: false
+  - id: A43
+    source: brief.md
+    text: 输入：同一 Agent 的下一轮对话
+    result: passed
+    reason:
+      text: 同一 Agent 下一轮对话触发新 flush（verify-p11 第 4 步）。
+      truncated: false
+  - id: A44
+    source: brief.md
+    text: 期望：Agent 仍能读到此前写入的长期记忆（经官方文件系统接口从库中读取），行为与磁盘版一致
+    result: passed
+    reason:
+      text: 删除磁盘 memory 文件后，再跑一轮仍读到原标记 MEMO-MARKER（memory_store 仍含原标记，磁盘文件数为
+        0），证明读取来自数据库。
+      truncated: false
+  - id: A45
+    source: brief.md
+    text: 输入：查询数据库表清单与数据
+    result: passed
+    reason:
+      text: 直连 DB 查询：memory_store、agent_state 表存在且分别有 1 / 53 行。
+      truncated: false
+  - id: A46
+    source: brief.md
+    text: 期望：存在会话状态表与记忆表，且对话结束后其中有该会话/该用户的状态行 10. 输入框上方附件（Phase 11）
+    result: passed
+    reason:
+      text: 会话状态表 agent_state 有 53 行、记忆表 memory_store 有 1
+        行；chat_session=53、chat_message=135、approval_record=8。
+      truncated: false
+  - id: A47
+    source: brief.md
+    text: 输入：在输入框处一次选择两个文件（可再追加）
+    result: passed
+    reason:
+      text: 一次选择两个文件可再追加（e2e phase10「多选与追加」用例通过）。
+      truncated: false
+  - id: A48
+    source: brief.md
+    text: 期望：文件以**可移除的条目**显示在输入框上方，输入框仍可正常使用，多选不互相覆盖
+    result: passed
+    reason:
+      text: 文件以可移除条目显示在输入框上方，输入框可正常使用，多选不互相覆盖（AttachmentStaging + stageFiles 去重 +
+        e2e）。
+      truncated: false
+  - id: A49
+    source: brief.md
+    text: 输入：点某个条目的移除按钮
+    result: passed
+    reason:
+      text: 点移除按钮仅该条目消失（removeAttachment + e2e）。
+      truncated: false
+  - id: A50
+    source: brief.md
+    text: 期望：仅该条目消失；因为尚未发送，数据库与工作区都不新增记录
+    result: passed
+    reason:
+      text: 尚未发送时移除不新增记录：e2e phase10 用例断言「移除后库里不留记录」，工作区也不新增。
+      truncated: false
+  - id: A51
+    source: brief.md
+    text: 输入：带着附件点发送
+    result: passed
+    reason:
+      text: 带附件点发送上传成功（e2e phase10「附件暂存+发送时上传」用例通过）。
+      truncated: false
+  - id: A52
+    source: brief.md
+    text: 期望：附件随消息上传成功（右侧栏「来源文件」出现对应条目），且 Agent 能读取到附件内容 11. 停止执行（Phase 12）
+    result: passed
+    reason:
+      text: 右侧栏「来源文件」出现对应条目，且 Agent 能读到附件内容（e2e + verify-p10 8a）。
+      truncated: false
+  - id: A53
+    source: brief.md
+    text: 输入：生成过程中点「停止」
+    result: passed
+    reason:
+      text: 生成中调停止接口返回 {"interrupted":true}（verify-p12）。
+      truncated: false
+  - id: A54
+    source: brief.md
+    text: 期望：前端立即回到可输入状态；服务端该 run 被中断，此后不再产生新的 token 消耗；已生成内容保留并在气泡上标注「已停止」
+    result: passed
+    reason:
+      text: 前端 stopRun 先 abort SSE 再 interrupt；服务端被中断、停止后 token_usage 不再新增、助手消息落库带
+        stopped 标记（verify-p12 断言全过）。
+      truncated: false
+  - id: A55
+    source: brief.md
+    text: 输入：生成过程中直接关闭页面 / 断开连接
+    result: passed
+    reason:
+      text: 关闭页面/断开连接触发 SseEmitter onCompletion/onError/onTimeout →
+        runningRuns.interrupt(threadId)（AguiRunController 代码接线）。
+      truncated: false
+  - id: A56
+    source: brief.md
+    text: 期望：服务端在数秒内自行中断该 run（不再继续跑完空烧 token）
+    result: passed
+    reason:
+      text: 断开后服务端数秒内自行中断：onCompletion→interrupt 兜底 + RunningRunRegistryTest 单测验证
+        interrupt 打到官方 Agent.interrupt + p12 实测中断后 token 不再增长。
+      truncated: false
+  - id: A57
+    source: brief.md
+    text: 输入：没有运行中的 run 时调用停止接口
+    result: passed
+    reason:
+      text: 没有运行中的 run 时调用停止接口返回 {"interrupted":false}（verify-p12 断言通过）。
+      truncated: false
+  - id: A58
+    source: brief.md
+    text: 期望：返回业务上的 `{interrupted:false}`，不是 500
+    result: passed
+    reason:
+      text: 返回业务 {interrupted:false} 而非 500（verify-p12 PASS）。
+      truncated: false
+  - id: A59
+    source: brief.md
+    text: 输入：停止后继续提问
+    result: passed
+    reason:
+      text: 停止后继续提问，新 run 正常完成（verify-p12 控制组完整 run + chat.spec 多轮对话回归通过）。
+      truncated: false
+  - id: A60
+    source: brief.md
+    text: 期望：新的 run 正常完成，历史消息不丢 12. 子 Agent 事件卡（Phase 12）
+    result: passed
+    reason:
+      text: 历史消息不丢（chat.spec「多轮对话：发第二条不清空之前的对话」与刷新回放用例通过）。
+      truncated: false
+  - id: A61
+    source: brief.md
+    text: 输入：触发一次子 Agent 执行（如 demo agent 的 `agent_spawn` / `agent_send`）
+    result: passed
+    reason:
+      text: 触发子 Agent 执行时 subagent.* 事件族按 source 聚合成一张卡片（reducer applySubagent +
+        SubagentCard）。
+      truncated: false
+  - id: A62
+    source: brief.md
+    text: 期望：界面不再出现「未识别事件」卡片；子 Agent 的输出聚合为**一张**可折叠卡片
+    result: passed
+    reason:
+      text: subagent.* 在 applyCustom 中先于 unknown 分支处理，不再出现「未识别事件」卡片；输出聚合为一张可折叠卡。
+      truncated: false
+  - id: A63
+    source: brief.md
+    text: 输入：查看收起态
+    result: passed
+    reason:
+      text: 收起态由 SubagentCard 折叠按钮控制。
+      truncated: false
+  - id: A64
+    source: brief.md
+    text: 期望：只占一行（子 Agent 名称 + 状态 + 工具调用次数），不刷屏
+    result: passed
+    reason:
+      text: 收起态只一行：子 Agent 名称 + 状态 + 工具调用次数（SubagentCard summary 实现）。
+      truncated: false
+  - id: A65
+    source: brief.md
+    text: 输入：展开该卡片
+    result: passed
+    reason:
+      text: 展开卡片可见正文与工具调用行（SubagentCard expanded 分支）。
+      truncated: false
+  - id: A66
+    source: brief.md
+    text: 期望：可见子 Agent 的正文文本与工具调用行，信息不丢失
+    result: passed
+    reason:
+      text: 展开后正文（subagent.text）与工具调用行不丢失（reducer 追加 delta + reducer.test 覆盖）。
+      truncated: false
+  - id: A67
+    source: brief.md
+    text: 输入：一轮里先后出现两个子 Agent
+    result: passed
+    reason:
+      text: 一轮出现两个子 Agent 按 source 各成一张卡片（reducer.test 覆盖 t1/alpha、t1/beta 分开）。
+      truncated: false
+  - id: A68
+    source: brief.md
+    text: 期望：按 `source` 各成一张卡片，互不混淆；父 Agent 的主回答照常流式渲染 13. 审计时间参数容错（Phase 12，顺带修复）
+    result: passed
+    reason:
+      text: 父 Agent 主回答照常流式渲染（文本事件独立于 subagent 聚合，chat.spec 流式通过）。
+      truncated: false
+  - id: A69
+    source: brief.md
+    text: 输入：`GET /api/audit/token/summary?from=2026-10-10&to=2026-10-11`（只传日期）
+    result: passed
+    reason:
+      text: 只传日期 from=2026-10-10&to=2026-10-11 正常返回（verify-p12 断言 200）。
+      truncated: false
+  - id: A70
+    source: brief.md
+    text: 期望：正常返回聚合结果（日期按服务端时区补齐），不是 500
+    result: passed
+    reason:
+      text: 日期按服务端时区补齐，非 500（verify-p12 PASS）。
+      truncated: false
+  - id: A71
+    source: brief.md
+    text: 输入：传入非法时间字符串
+    result: passed
+    reason:
+      text: 非法时间字符串返回明确业务错误 400（verify-p12 PASS）。
+      truncated: false
+  - id: A72
+    source: brief.md
+    text: 期望：返回明确业务错误，不是 500 14. 会话列表时间分组（Phase 13）
+    result: passed
+    reason:
+      text: 非法输入返回 400 而非 500（verify-p12 PASS）。
+      truncated: false
+  - id: A73
+    source: brief.md
+    text: 输入：打开聊天页（存在多个不同时间的会话）
+    result: passed
+    reason:
+      text: 聊天页左侧按分组显示（e2e phase13「会话列表按时间分组显示」通过）。
+      truncated: false
+  - id: A74
+    source: brief.md
+    text: 期望：左侧按「今天 / 昨天 / 最近 7 天 / 最近 30 天 / 更早」分组显示，每组有标题；空分组不显示
+    result: passed
+    reason:
+      text: 分组为今天/昨天/最近7天/最近30天/更早、每组有标题、空分组不显示（sessionGroups.ts + 单测 + e2e）。
+      truncated: false
+  - id: A75
+    source: brief.md
+    text: 输入：刚聊过的会话
+    result: passed
+    reason:
+      text: 刚聊过的会话出现在「今天」组（按 lastActiveAt 分组）。
+      truncated: false
+  - id: A76
+    source: brief.md
+    text: 期望：出现在「今天」组（按最后活跃时间，而不是按创建时间落到更早的组）
+    result: passed
+    reason:
+      text: 取最后活跃时间而非创建时间：sessionTime 优先 lastActiveAt 缺失回退 createdAt（单测覆盖）。
+      truncated: false
+  - id: A77
+    source: brief.md
+    text: 输入：某个会话的时间无法解析
+    result: passed
+    reason:
+      text: 时间无法解析时归入「更早」（sessionTime 返回 null → groupOf 更早，单测覆盖）。
+      truncated: false
+  - id: A78
+    source: brief.md
+    text: 期望：归入「更早」，不会从列表里消失 15. 输入框拖拽与粘贴附件（Phase 13）
+    result: passed
+    reason:
+      text: 解析失败不会从列表消失（单测「取不到时间时归入更早，不丢条目」）。
+      truncated: false
+  - id: A79
+    source: brief.md
+    text: 输入：把文件拖到聊天区上方
+    result: passed
+    reason:
+      text: 拖文件到聊天区触发 dragover/drop 处理（ChatPage section onDragOver/onDrop）。
+      truncated: false
+  - id: A80
+    source: brief.md
+    text: 期望：出现落区提示；松手后文件成为**输入框上方的待发送附件**（此时尚未上传，右侧栏没有来源文件）
+    result: passed
+    reason:
+      text: 出现落区提示（data-testid=drop-hint），松手成为输入框上方待发送附件，此时右侧栏无来源文件（e2e phase13 断言
+        panel-sources-item=0）。
+      truncated: false
+  - id: A81
+    source: brief.md
+    text: 输入：在输入框里粘贴一张截图或一个文件
+    result: passed
+    reason:
+      text: 输入框粘贴截图/文件进入待发送附件区（ChatPage onPaste + filesFromClipboard）。
+      truncated: false
+  - id: A82
+    source: brief.md
+    text: 期望：同样进入待发送附件区；粘贴**纯文本**时保持原有输入行为（不拦截）
+    result: passed
+    reason:
+      text: 纯文本粘贴不拦截：files.length===0 时不 preventDefault，保持原输入行为（代码 + sources.test.ts
+        覆盖）。
+      truncated: false
+  - id: A83
+    source: brief.md
+    text: 输入：一次拖入/粘贴多张截图
+    result: passed
+    reason:
+      text: 一次拖入/粘贴多张截图互不覆盖（normalizeIncomingFiles 补名）。
+      truncated: false
+  - id: A84
+    source: brief.md
+    text: 期望：多张互不覆盖（自动补不重名的名字），可分别移除
+    result: passed
+    reason:
+      text: 通用名/空名补成不重名可读名字（粘贴文件-<ts>-<n>.<ext>），可分别移除（sources.test.ts 覆盖多截图唯一名）。
+      truncated: false
+  - id: A85
+    source: brief.md
+    text: 输入：带着这些附件发送
+    result: passed
+    reason:
+      text: 带附件发送与点选上传走同一暂存链路（stageFiles/normalizeIncomingFiles 统一入口）。
+      truncated: false
+  - id: A86
+    source: brief.md
+    text: 期望：与点选上传完全一致：右侧栏「来源文件」出现对应条目，Agent 能读到附件内容
+    result: passed
+    reason:
+      text: 发送后右侧栏「来源文件」出现对应条目、Agent 能读到内容（与点选完全一致，e2e phase10 发送上传 + verify-p10 Agent
+        读取）。
+      truncated: false
+builder_handoff:
+  candidate_id: a14231c0-d51c-41b8-a22d-2cb54b77d8a5
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:b7ffee80-d85d-458e-b734-92888f7b1464
+  iteration: 1
+  summary:
+    text: 本轮交付 Phase 13（A73-A86）并汇总前几轮的修复与增量。①【会话列表时间分组】新增
+      lib/chat/sessionGroups.ts：按相对当天 00:00 的天数差分「今天/昨天/最近 7 天/最近 30 天/更早」，时间取
+      lastActiveAt（缺失回退
+      createdAt），处理跨日边界、时间无法解析（归更早、不丢条目）、时钟漂移（并入今天），只渲染非空分组；ChatPage
+      按组渲染标题。②【输入框拖拽/粘贴附件】新增
+      lib/attachments/sources.ts（DataTransfer/clipboardData →
+      File[]；通用名补成「粘贴文件-<ts>-<n>.<ext>」避免多张截图重名互相覆盖）；整个聊天区作为拖拽落区（dragover 高亮
+      drop-hint、drop 收下、dragleave 复位），输入框 onPaste
+      含文件时收进暂存（纯文本不拦截）；拖拽/粘贴/点选三条来源统一进既有暂存链路（D24：发送时才上传），因此不新增第二条上传路径，右侧栏/存储路由/物化/Agent
+      可读性天然一致。③ 本轮之前已完成并被本轮验收一并覆盖的：停止执行（官方 interrupt + 断连兜底 + stopped 标记）、子
+      Agent 事件卡、审计时间参数容错、RUN_ERROR 终态协议校正（修「Cannot send event type
+      'RUN_FINISHED'」）、上传 500 修复（按内容判入库）、记忆与会话状态落
+      PostgreSQL、附件在气泡显示且模型可感知、框架自管文件不再误入产物。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - A20
+    - A21
+    - A22
+    - A23
+    - A24
+    - A25
+    - A26
+    - A27
+    - A28
+    - A29
+    - A30
+    - A31
+    - A32
+    - A33
+    - A34
+    - A35
+    - A36
+    - A37
+    - A38
+    - A39
+    - A40
+    - A41
+    - A42
+    - A43
+    - A44
+    - A45
+    - A46
+    - A47
+    - A48
+    - A49
+    - A50
+    - A51
+    - A52
+    - A53
+    - A54
+    - A55
+    - A56
+    - A57
+    - A58
+    - A59
+    - A60
+    - A61
+    - A62
+    - A63
+    - A64
+    - A65
+    - A66
+    - A67
+    - A68
+    - A69
+    - A70
+    - A71
+    - A72
+    - A73
+    - A74
+    - A75
+    - A76
+    - A77
+    - A78
+    - A79
+    - A80
+    - A81
+    - A82
+    - A83
+    - A84
+    - A85
+    - A86
+  acceptance_review:
+    - id: A1
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p9-acceptance.sh
+        - backend/agent-server/src/main/java/com/myagent/auth/AuthController.java
+      note: POST /api/auth/login 实测返回 code=0 + token +
+        user(id=1,username=admin,role=ADMIN)
+    - id: A2
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/auth/dto/LoginResponse.java
+      note: 响应体 {code,msg,data:{token,user:{id,username,role}}} 与契约一致
+    - id: A3
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/config/RestAuthEntryPoint.java
+        - backend/agent-server/src/test/java/com/myagent/auth/JwtServiceTest.java
+      note: 无 token 访问 /api/auth/me 实测 HTTP 401
+    - id: A4
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/auth/JwtServiceTest.java
+      note: 带 token 返回当前用户；伪造 token 401；JwtService 往返单测通过
+    - id: A5
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p9-acceptance.sh
+      note: 新建 provider 后列表可读
+    - id: A6
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/modelconfig/ModelConfigServiceTest.java
+      note: 响应恒为 ****；库中为 AES-GCM 密文；更新不传 api_key 时密钥保留（3 条单测）
+    - id: A7
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p9-acceptance.sh
+      note: test 接口实测 ok=true + latencyMs（打桩端点）
+    - id: A8
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/agui/AguiModelConnectivityProbe.java
+      note: 不可达时 {ok:false,error:...} 且 HTTP 非 500
+    - id: A9
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/agentconfig/AgentConfigServiceTest.java
+      note: POST /api/agents 含 skillIds/mcpServerIds 创建成功
+    - id: A10
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/agentconfig/AgentConfigServiceTest.java
+      note: GET 回读两个绑定数组；重复 agent_id 返回 409
+    - id: A11
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p9-acceptance.sh
+      note: POST /agui/run SSE 实测可用（p9 三个剧本真跑未跳过）
+    - id: A12
+      status: implemented-with-evidence
+      evidence:
+        - docs/acceptance/task-4.3-chat-streaming.png
+        - docs/acceptance/task-4.3-chat-history.png
+        - frontend/e2e/chat.spec.ts
+      note: 事件序列实测；chat_session/chat_message 落库；浏览器采样到多个流式中间态；刷新后历史回放
+    - id: A13
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p6-mcp.sh
+      note: 官方 everything MCP server sync-tools 实测 13 个工具并写入 tool_cache
+    - id: A14
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p6-mcp.sh
+      note: 错误地址实测 HTTP 4xx + 失败原因
+    - id: A15
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p6-mcp.sh
+      note: 绑定后对话实测出现 TOOL_CALL_START/ARGS/END/RESULT，事件里的工具名为
+        <serverName>__<toolName>
+    - id: A16
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p6-mcp.sh
+        - backend/agent-server/src/main/java/com/myagent/agui/NamespacedMcpClientWrapper.java
+        - backend/agent-server/src/main/java/com/myagent/agui/McpToolkitFactory.java
+        - backend/agent-server/src/test/java/com/myagent/agui/NamespacedMcpClientWrapperTest.java
+      note: "工具名带 Server 命名空间：官方 McpClientBuilder + 官方 Toolkit.registerMcpClient
+        外只套一层加/去前缀的 NamespacedMcpClientWrapper；实测模型看到
+        <server>__echo、事件同前缀、工具真执行回显 Echo: hello-mcp；4 项单测"
+    - id: A17
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p7-hitl.sh
+      note: REQUIRE_APPROVAL 实测工具被拦截（无 TOOL_CALL_RESULT），RUN_FINISHED 带 interrupt
+    - id: A18
+      status: implemented-with-evidence
+      evidence:
+        - docs/acceptance/task-9.1-approval-card.png
+        - docs/acceptance/task-9.1-approval-approved.png
+        - docs/acceptance/task-9.1-approval-denied.png
+        - frontend/e2e/acceptance.spec.ts
+      note: 浏览器实测审批卡→批准→工具真执行→run 继续；拒绝→不执行；PENDING→APPROVED/DENIED；非属主 403（p9 剧本 2/3
+        真跑通过）
+    - id: A19
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p72-cards.sh
+        - backend/agent-server/src/main/java/com/myagent/agui/DemoCardTools.java
+      note: demo_confirm_card / demo_mapping_card 实测产生 CUSTOM 事件
+    - id: A20
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p72-cards.sh
+        - frontend/src/lib/agui/reducer.test.ts
+      note: 两种卡片 data 逐字段符合契约；未知 CUSTOM 降级 JSON 卡（单测）；确认卡回传后继续 run
+    - id: A21
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p8-audit.sh
+        - docs/acceptance/task-8.2-audit-dashboard.png
+        - frontend/e2e/audit.spec.ts
+      note: 3 次对话后 totalTokens 非零；看板截图；p8 与 audit e2e 通过
+    - id: A22
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p8-audit.sh
+      note: byModel/byDay 结构正确（SQL 聚合）
+    - id: A23
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p8-audit.sh
+      note: ADMIN 可查全员；USER 查自己被允许
+    - id: A24
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p8-audit.sh
+      note: 普通用户查他人实测 HTTP 403
+    - id: A25
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 上传 note.md 实测 HTTP 200、code=0，role=SOURCE、mime=text/markdown
+    - id: A26
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+        - backend/agent-server/src/test/java/com/myagent/artifact/ArtifactServiceTest.java
+      note: 列表实测 storage=DB；下载直返正文。另：入库前会做内容校验（合法 UTF-8 且无 NUL），不合格的文本类文件自动改走
+        MinIO——修复了『上传带 0x00 的文件导致 500』（用户实测）。
+    - id: A27
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 上传 pic.png 实测 role=SOURCE、storage=MINIO、mime=image/png
+    - id: A28
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: download 跟随 302 后 HTTP 200，内容 sha256 与原文件一致（MINIO 路径）
+    - id: A29
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 同一会话重复上传同一内容返回同一 id（md id 一致? yes）
+    - id: A30
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+        - backend/agent-server/src/test/java/com/myagent/artifact/ArtifactServiceTest.java
+      note: 按 session_id+sha256+role 命中已有记录直接返回；单测另覆盖去重
+    - id: A31
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: "物化到 .myagent-workspace/<userId>/uploads/（脚本输出 uploads/: note.md pic.png）"
+    - id: A32
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: Agent 的 TOOL_CALL_RESULT 为上传原文，证明物化后 Agent 用常规文件工具即可读到
+    - id: A33
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+        - frontend/e2e/phase10.spec.ts
+      note: Agent 用 write_file 写出 agent-out-<run>.md 后结束 run
+    - id: A34
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+      note: 实测 ARTIFACT 数量 1 且为期望文件名；反查断言『框架内部文件混入? no』
+    - id: A35
+      status: implemented-with-evidence
+      evidence:
+        - docs/acceptance/task-10-panel-upload.png
+        - frontend/e2e/phase10.spec.ts
+      note: 右侧栏 panel-sources / panel-artifacts
+        均可见；发送附件后来源文件区出现该文件；框架自管文件（MEMORY.md/AGENTS.md/KNOWLEDGE.md/tools.json）已从产物扫描中排除，不再误显示为产物
+    - id: A36
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - docs/acceptance/task-10-artifact-area.png
+      note: 两区分别展示来源与产物；文本类点预览弹窗出现正文；下载走带鉴权 blob；每条标注存储位置
+    - id: A37
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - docs/acceptance/task-10-skill-block.png
+      note: 输入 / 实测弹出 skill-menu 候选列表并可点选
+    - id: A38
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - frontend/src/lib/skills/selection.test.ts
+        - backend/agent-server/src/test/java/com/myagent/agui/AgentFactoryTest.java
+      note: 选中后输入框清空、技能成为独立块（非 input/textarea 且不可编辑）、可整块删除、已选不再进候选；发送时以 skillIds 入
+        forwardedProps
+    - id: A39
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-minio-down.sh
+      note: MinIO 指向死端口时启动只告警；上传 png 实测 HTTP 400 + code=400 明确错误
+    - id: A40
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-minio-down.sh
+      note: 同环境下文本上传仍成功、对话 run 正常，主链路不受影响
+    - id: A41
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p11-memory-read.sh
+        - backend/agent-server/src/main/java/com/myagent/agui/memory/PgAgentStateStore.java
+      note: 一轮对话会触发框架的 Memory Flush；实现侧把记忆读写接到官方 RemoteFilesystem（PG BaseStore），因此
+        flush 产物直接落库（实测 agent_state 行数随对话增长、memory_store 出现当次 flush 正文）
+    - id: A42
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p11-memory-read.sh
+      note: 实测 SQL 可查到长期记忆：memory_store 有行
+        namespace_path=user/1、item_key=/2026-10-11.md，payload 为该次 flush 正文；磁盘
+        memory 文件数始终为 0（不再只存在于工作区）
+    - id: A43
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p11-memory-read.sh
+      note: 同一用户（admin/user 1）开新会话继续对话，走同一记忆命名空间 user/1
+    - id: A44
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p11-memory-read.sh
+        - backend/agent-server/src/main/java/com/myagent/agui/memory/PgBaseStore.java
+      note: 判决性实验：先往 memory_store 种一段带随机标记的记忆，删掉工作区 memory/*.md 后再跑一轮触发
+        flush——库里那条记忆仍含原标记且 payload 变大，说明 flush 是经官方文件系统从库读到旧内容再追加写回，行为与磁盘版一致
+    - id: A45
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p11-memory-read.sh
+        - backend/agent-server/src/main/resources/db/migration/V6__memory_store.sql
+      note: 实测存在 agent_state 与 memory_store 两张表（V6 迁移日志 Migrating to version 6 -
+        memory store / Successfully applied 1 migration）
+    - id: A46
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p11-memory-read.sh
+      note: 对话结束后 agent_state 确有该会话/该用户的状态行：实测随对话增长到 5 行，键为 (userId,
+        threadId)、kind=SINGLE、payload ~1.1KB
+    - id: A47
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - frontend/src/lib/attachments/staging.test.ts
+      note: 一次选两个文件实测暂存区出现 2 条 attachment-chip；再选第三个为追加，计数 3（多选不互相覆盖）
+    - id: A48
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - docs/acceptance/task-11-attachment-staging.png
+      note: 文件以可移除条目显示在输入框上方；输入框仍可正常输入；同名同大小去重由 staging.test.ts 覆盖
+    - id: A49
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+      note: 点条目上的「移除附件 <name>」按钮：实测条目数 3→2，且剩余条目的文本不含被移除文件名
+    - id: A50
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+      note: 暂存期间不写库：实测移除后按本 Agent 的会话逐个查 /api/artifacts 返回 0
+        条；前端实现上也没调用上传接口（暂存只在浏览器内存里）
+    - id: A51
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - frontend/src/lib/attachments/message.test.ts
+      note: 带附件点发送：send() 先上传暂存附件，再把附件清单（[已上传附件] + uploads/<fileName>）拼进消息文本一并发出
+    - id: A52
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase10.spec.ts
+        - scripts/verify-p10-artifacts.sh
+      note: 发送后右侧栏出现保留的条目；并且修复了『气泡不显示附件 / Agent 感知不到附件』——e2e 断言用户气泡出现
+        message-attachment 条目、且库里 USER 消息含 [已上传附件] 与 uploads/<file>（模型收到的就是这段）
+    - id: A53
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+        - frontend/src/pages/chat/ChatPage.tsx
+      note: 生成中点「停止」：前端 stopRun() 立即 abort 在途 SSE 并调 POST
+        /api/sessions/{id}/interrupt，状态回到可输入（生成中按钮为 data-testid=stop-button
+        的「停止」）
+    - id: A54
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+      note: '实测：停止接口返回 {interrupted:true}；停止时 token_usage 行数=1，8 秒后仍=1（不再发起新的模型调用）；该条
+        ASSISTANT 消息落库 agui_meta={"stopped": true}，气泡据此标注「已停止」；已生成内容保留'
+    - id: A55
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/agui/AguiRunController.java
+      note: 断连兜底：emitter.onCompletion/onError/onTimeout 里若 run 尚未结束就调用
+        runningRuns.interrupt(threadId)（日志「已请求中断 run」）
+    - id: A56
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/agui/AguiRunController.java
+        - scripts/verify-p12-stop.sh
+      note: 兜底中断走官方 ReActAgent.interrupt(RuntimeContext)（G8：不自研中断）；停止后不再出现新的模型调用（见 A54
+        的 token 用量证据）
+    - id: A57
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+      note: 没有运行中的 run 时调用停止接口（run 已结束后再调一次）
+    - id: A58
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+      note: 实测 HTTP 200 + {interrupted:false}（不是 500）：登记表对未登记的 threadId 直接返回 false
+    - id: A59
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+        - backend/agent-server/src/main/java/com/myagent/agui/AguiRunController.java
+      note: 停止后继续提问：登记表按 threadId 在 finish() 清理，停止只影响当前 run
+    - id: A60
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+        - frontend/src/pages/chat/ChatPage.tsx
+      note: 历史不丢：停止只把最后一条助手气泡标记 stopped，用户/助手历史都保留（replayMessages 读 aguiMeta 还原）
+    - id: A61
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/agui/reducer.test.ts
+        - frontend/src/components/chat/SubagentCard.tsx
+      note: 官方会发
+        subagent.lifecycle/text/thinking/tool_call/tool_result/require_confirm；reducer
+        新增 applySubagent 分支处理这族事件
+    - id: A62
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/agui/reducer.test.ts
+      note: 单测断言：处理 subagent.* 后消息树里不存在 card=unknown 的「未识别事件」条目；同一 source 的多个 delta
+        聚合成 1 条 SubagentItem
+    - id: A63
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/components/chat/SubagentCard.tsx
+      note: 收起态只渲染一行：子 Agent 名称 + 状态（生成中…/已结束）+ 工具调用次数（默认 collapsed）
+    - id: A64
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/components/chat/SubagentCard.tsx
+      note: 一行约 28px（小图标 + 次要色文字 + 细边框），与既有「工具调用组」同一套极简样式，不再逐 delta 刷屏
+    - id: A65
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/components/chat/SubagentCard.tsx
+        - frontend/src/lib/agui/reducer.test.ts
+      note: 点击展开：显示聚合后的正文、thinking、工具调用行与 require_confirm 提示
+    - id: A66
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/agui/reducer.test.ts
+      note: 单测覆盖：text 增量聚合为完整文本（播放+商品+。→ 播放商品。）、thinking 与 confirm 不丢、tool_call 的
+        START/END 计数与完成标记正确
+    - id: A67
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/agui/reducer.test.ts
+      note: 单测覆盖：一轮里 source=t1/alpha 与 t1/beta 各自成卡、文本互不串（alpha 的两个 delta 合成 A2）
+    - id: A68
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/agui/reducer.test.ts
+        - frontend/src/pages/chat/ChatPage.tsx
+      note: 按 source 各成一张卡；父 Agent 主回答仍走 TEXT_MESSAGE_CONTENT 分支照常流式渲染；该族事件只把名字记进
+        agui_meta.customEvents、不写入消息正文
+    - id: A69
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+        - backend/agent-server/src/test/java/com/myagent/audit/service/AuditTimeParserTest.java
+      note: ?from=2026-10-10&to=2026-10-11（只传日期）实测 HTTP 200：AuditTimeParser
+        按服务端时区补齐当天起止
+    - id: A70
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+      note: 返回聚合结果（byModel/byDay 结构不变），不再是 500
+    - id: A71
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p12-stop.sh
+        - backend/agent-server/src/test/java/com/myagent/audit/service/AuditTimeParserTest.java
+      note: 非法时间（from=昨天、2026-13-99）实测返回 HTTP 400 业务错误（不是 500）
+    - id: A72
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/test/java/com/myagent/audit/service/AuditTimeParserTest.java
+      note: 单测断言非法输入抛 BizException（消息「时间参数格式不正确…」）；空值/空白按不传处理，保持原行为
+    - id: A73
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase13.spec.ts
+        - docs/acceptance/task-13-session-groups.png
+      note: 打开聊天页时左侧会话列表按时间分组渲染（组标题 data-testid=session-group）；截图
+        task-13-session-groups.png
+    - id: A74
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/chat/sessionGroups.ts
+        - frontend/src/lib/chat/sessionGroups.test.ts
+      note: 分档为 今天/昨天/最近 7 天/最近 30 天/更早（按相对当天 00:00
+        的天数差）；单测断言各档归属；只返回非空分组（groups.map(label) 断言不含空组）
+    - id: A75
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/chat/sessionGroups.test.ts
+        - frontend/e2e/phase13.spec.ts
+      note: 时间取 lastActiveAt（缺失回退 createdAt）：单测「优先用 lastActiveAt，缺失时用 createdAt」
+    - id: A76
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/chat/sessionGroups.test.ts
+      note: 刚聊过的会话归「今天」：单测断言今天 00:00/09:00 均为 daysAgo=0 → 「今天」；未来时间（时钟漂移）也并入今天
+    - id: A77
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/chat/sessionGroups.test.ts
+      note: 时间无法解析（null/非法字符串）：sessionTime 返回 null，groupOf 归「更早」，条目仍在列表里（单测断言不丢）
+    - id: A78
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/chat/sessionGroups.test.ts
+      note: 单测覆盖跨日边界（今天 00:00=0、昨天 00:00=1、前天 23:59=2）与「只返回非空分组、组内保持传入顺序」
+    - id: A79
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase13.spec.ts
+        - docs/acceptance/task-13-drag-drop.png
+      note: 把文件拖进聊天区（e2e 在页面内造真实 DataTransfer + File 并派发 dragover/drop）：松手后出现待发送附件；截图
+        task-13-drag-drop.png
+    - id: A80
+      status: implemented-with-evidence
+      evidence:
+        - frontend/e2e/phase13.spec.ts
+      note: e2e 断言：拖入后 data-testid=attachment-chip 计数为 1 且文件名正确；同时断言右侧栏
+        panel-sources-item 仍为 0（说明只是暂存、尚未上传）；另有用例断言 dragover 时 drop-hint
+        可见、dragleave 后消失
+    - id: A81
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/attachments/sources.ts
+        - frontend/src/lib/attachments/sources.test.ts
+      note: 输入框 onPaste：filesFromClipboard 从 clipboardData 取文件（单测：粘贴截图能拿到文件；只粘贴纯文本时返回空
+        → 不拦截，输入框保持原行为）；ChatPage 仅在含文件时 preventDefault
+    - id: A82
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/attachments/sources.test.ts
+      note: 单测覆盖：粘贴/拖拽来源的取文件规则（files 优先、items 回退且只取 kind=file、空输入返回空数组不抛错）、纯文本粘贴无文件
+    - id: A83
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/attachments/sources.test.ts
+      note: 一次多张截图：normalizeIncomingFiles
+        按「粘贴文件-<ts>-<序号>.<ext>」补名，单测断言两张截图得到互不相同的名字（暂存区按文件名+大小去重，因此不会互相吞掉）；可分别移除由
+        AttachmentStaging 的移除按钮覆盖
+    - id: A84
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/lib/attachments/sources.test.ts
+      note: 单测断言扩展名推断：优先取原名（shot.PNG → .png），其次 MIME（blob + image/webp →
+        .webp），都拿不到则留空；有真实名字的文件保持原名
+    - id: A85
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/pages/chat/ChatPage.tsx
+        - frontend/e2e/phase10.spec.ts
+      note: 拖拽/粘贴与点选走同一条暂存链路：stageIncoming() 规范化名字后调用 stageFiles()，send()
+        里与点选附件一起上传——因此不新增第二条上传路径，右侧栏/存储路由/物化/Agent 可读性完全一致
+    - id: A86
+      status: implemented-with-evidence
+      evidence:
+        - scripts/verify-p10-artifacts.sh
+        - frontend/e2e/phase10.spec.ts
+      note: 发送后右侧栏出现来源文件、Agent 能读到附件内容：沿用 Task 10.2 的实测（verify-p10-artifacts.sh
+        证明上传物化后 Agent 的 TOOL_CALL_RESULT 为上传原文）+ 同一暂存链路的一致性（e2e 已验证点选附件发送后右侧栏出现）
+  checks:
+    - name:
+        text: "backend: mvn verify"
+        truncated: false
+      result: passed
+      note:
+        text: "Tests run: 87, Failures: 0, Errors: 0"
+        truncated: false
+    - name:
+        text: "frontend: tsc/lint/build"
+        truncated: false
+      result: passed
+      note:
+        text: 类型检查无错误；lint 0 error（3 条既有 warning）；build 成功
+        truncated: false
+    - name:
+        text: "frontend: vitest run"
+        truncated: false
+      result: passed
+      note:
+        text: 66 passed（新增 sessionGroups 7 项、attachments/sources 9 项）
+        truncated: false
+    - name:
+        text: "playwright: 全量 e2e（scripts/e2e-chat.sh）"
+        truncated: false
+      result: passed
+      note:
+        text: 19 passed / 3 skipped（新增 phase13 三用例：分组显示、拖入即成为待发送附件、落区提示）
+        truncated: false
+    - name:
+        text: scripts/verify-p12-stop.sh
+        truncated: false
+      result: passed
+      note:
+        text: 停止执行：interrupted=true、停止后 token 不再新增、落库 stopped、迟到停止 false(200)、审计日期容错
+        truncated: false
+    - name:
+        text: scripts/verify-p11-memory-read.sh
+        truncated: false
+      result: passed
+      note:
+        text: 记忆入库 + 读取来自库的判决性实验
+        truncated: false
+    - name:
+        text: scripts/verify-p10-artifacts.sh
+        truncated: false
+      result: passed
+      note:
+        text: 产物/来源：路由、去重、下载 sha256、物化后 Agent 读到、自动登记
+        truncated: false
+    - name:
+        text: scripts/verify-p10-minio-down.sh
+        truncated: false
+      result: passed
+      note:
+        text: MinIO 不可用降级
+        truncated: false
+    - name:
+        text: scripts/verify-p9-acceptance.sh
+        truncated: false
+      result: passed
+      note:
+        text: 浏览器 4 剧本（工具卡/审批批准/拒绝/审计看板）
+        truncated: false
+    - name:
+        text: scripts/verify-p8-audit.sh
+        truncated: false
+      result: passed
+      note:
+        text: Token 审计与越权 403
+        truncated: false
+    - name:
+        text: scripts/verify-p7-hitl.sh
+        truncated: false
+      result: passed
+      note:
+        text: HITL 拦截→批准→resume 真执行
+        truncated: false
+    - name:
+        text: scripts/verify-p72-cards.sh
+        truncated: false
+      result: passed
+      note:
+        text: 卡片契约
+        truncated: false
+    - name:
+        text: scripts/verify-p6-mcp.sh
+        truncated: false
+      result: passed
+      note:
+        text: MCP 命名空间 + 真实执行回显
+        truncated: false
+    - name:
+        text: scripts/verify-p5-skills.sh
+        truncated: false
+      result: passed
+      note:
+        text: Skill 注入与对照组
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 粘贴来源只有前端单测（sources.test.ts）+ ChatPage onPaste 接线证据，没有浏览器端「粘贴文件」的 e2e（拖拽有两条
+        e2e）。
+      truncated: false
+    - text: 框架的中断是循环边界生效：已在飞的模型调用不会被掐断，因此单轮被停止时正文仍可能完整，被阻止的是后续轮次/收尾；验收以「停止后不再产生新的模型调用」为准。
+      truncated: false
+    - text: 子 Agent 事件卡只在实时流中渲染（该族事件不落库），刷新后不会重现；历史回放需另设计落库方案（非目标）。
+      truncated: false
+    - text: 停止执行的 UI 证据以 reducer 单测 + 后端脚本为主；Playwright 未做「生成中点停止」用例（需要可控的慢模型）。
+      truncated: false
+    - text: agent_state 的 agent 维度是框架语义里的 userId（RuntimeContext.getUserId()），不是平台
+        agent 主键。
+      truncated: false
+    - text: 真实大模型（用户自维护的 deepseek 供应商）未纳入自动验收；e2e 中 MCP 管理页依赖 npx 拉包（首次需联网）。
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-11T10:06:19.041Z
 blockers: []
-verification: null
+verification:
+  candidate_id: a14231c0-d51c-41b8-a22d-2cb54b77d8a5
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:fe3a0f7f-4ae7-41c8-9d28-309d74bb61aa
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: 独立只读验收完成：后端 mvn verify 87 测试 0 失败、前端 tsc/lint/vitest（66 测试）全绿；10 个 verify
+      脚本（p5/p6/p7/p72-confirm/p72-mapping/p8/p9/p10/p10-minio-down/p11/p12）全部退出码
+      0；e2e-chat.sh 22 个浏览器用例 19 passed/3 skipped（skipped 由 verify-p9 覆盖）；并对
+      A1–A10 契约做了直连后端 curl 与直连 PostgreSQL 的独立核验。86 项验收全部通过，无 failed、无 blocked。
+    truncated: false
+  risks:
+    - text: A55/A56（关页面自动中断）无专门的浏览器断开 e2e 用例，结论基于 AguiRunController
+        onCompletion/onError/onTimeout→runningRuns.interrupt 的代码接线 +
+        RunningRunRegistryTest 单测（interrupt 打到官方 Agent.interrupt）+ verify-p12
+        对中断后 token 不再增长的实测。
+      truncated: false
+    - text: e2e-chat.sh 的 22 个 Playwright 用例中有 3 个（acceptance.spec 审批卡三个剧本）显示
+        skipped；它们已由 verify-p9-acceptance.sh 单独跑通（4 passed），不构成失败。
+      truncated: false
+    - text: Flyway 对 PostgreSQL 18.3 输出官方「未测试版本」警告（支持上限声明 17），但 v1–v6
+        迁移已全部成功应用，标记为已知风险。
+      truncated: false
+    - text: A8 无效密钥路径以「不可达端点」触发（返回 ok:false + error，HTTP 200），满足「HTTP 非
+        500」契约；未用真实服务端拒绝的 401/403 场景单独验证。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-10-11T10:29:56.646Z
 history:
   - goal_cycle: 1
     iteration: 1
@@ -263,6 +1670,18 @@ history:
         说明：这两项代码已实现并通过我这边与独立验收的核实，本次修订主要是把它们登记为正式验收标准（口径与实现一致）。
       truncated: false
     completed_at: 2026-10-11T10:04:06.747Z
+  - goal_cycle: 7
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 独立只读验收完成：后端 mvn verify 87 测试 0 失败、前端 tsc/lint/vitest（66 测试）全绿；10 个 verify
+        脚本（p5/p6/p7/p72-confirm/p72-mapping/p8/p9/p10/p10-minio-down/p11/p12）全部退出码
+        0；e2e-chat.sh 22 个浏览器用例 19 passed/3 skipped（skipped 由 verify-p9 覆盖）；并对
+        A1–A10 契约做了直连后端 curl 与直连 PostgreSQL 的独立核验。86 项验收全部通过，无 failed、无 blocked。
+      truncated: false
+    completed_at: 2026-10-11T10:29:56.646Z
 history_overflow:
   dropped_entries: 0
   first_dropped_at: null
@@ -273,7 +1692,7 @@ history_overflow:
     blocked: 0
     execution-error: 0
     recovery: 0
-verification_result: pending
-verification_report: null
+verification_result: pass
+verification_report: verification.md
 archived: false
 created_at: 2026-10-10T06:10:59.039Z
