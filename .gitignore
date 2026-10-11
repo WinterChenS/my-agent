@@ -65,3 +65,9 @@ dispatch.json
 ref.txt
 acc.txt
 .p10tmp-*/
+
+# Comet 本地临时文件（handoff/verifier 输入与回执、临时脚本）
+.comet-*
+handoff-*.json
+fill-handoff.py
+make-verifier-prompt.py
