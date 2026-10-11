@@ -38,6 +38,8 @@ import {
   type StagedAttachment,
 } from "@/lib/attachments/staging";
 import { buildAttachmentBlock } from "@/lib/attachments/message";
+import { filesFromClipboard, filesFromDataTransfer, normalizeIncomingFiles } from "@/lib/attachments/sources";
+import { groupSessionsByTime } from "@/lib/chat/sessionGroups";
 import { listSkills, type SkillInfo } from "@/api/skills";
 import {
   addSkill,
@@ -64,6 +66,8 @@ export default function ChatPage() {
   const [skillHighlight, setSkillHighlight] = useState(0);
   const [artifactRefresh, setArtifactRefresh] = useState(0);
   const [uploading, setUploading] = useState(false);
+  // Phase 13：拖拽进聊天区时高亮提示
+  const [dragging, setDragging] = useState(false);
   // Phase 11 / D24：附件先暂存在浏览器，发送时才上传
   const [staged, setStaged] = useState<StagedAttachment[]>([]);
 
@@ -331,6 +335,16 @@ export default function ChatPage() {
     setSkillHighlight(0);
   }
 
+  /** 拖拽/粘贴进来的文件：补好名字后并入暂存区（与点选走同一条路）。 */
+  function stageIncoming(files: File[]) {
+    if (files.length === 0) {
+      return;
+    }
+    setError(null);
+    const normalized = normalizeIncomingFiles(files);
+    setStaged((prev) => stageFiles(prev, normalized));
+  }
+
   /** 选中文件 → 暂存（多选/追加/同名去重）；真正上传发生在 send()。 */
   function stageSelectedFiles(files: FileList | null) {
     if (!files || files.length === 0) {
@@ -340,7 +354,7 @@ export default function ChatPage() {
     // 先把 FileList 固化：它是「活」的，一旦清空 input.value 就变空；
     // 而状态更新函数是在事件处理之后才执行的，放在里面读会拿到空列表。
     const selected = Array.from(files);
-    setStaged((prev) => stageFiles(prev, selected));
+    setStaged((prev) => stageFiles(prev, normalizeIncomingFiles(selected)));
     if (fileRef.current) {
       // 允许再次选择同一个文件（否则浏览器的 change 事件不会再触发）
       fileRef.current.value = "";
@@ -485,7 +499,16 @@ export default function ChatPage() {
           {sessions.length === 0 && (
             <p className="text-muted-foreground p-2 text-xs">还没有会话，直接在右侧输入即可新建。</p>
           )}
-          {sessions.map((item) => (
+          {groupSessionsByTime(sessions).map((group) => (
+            <div key={group.label} className="mb-2">
+              {/* Phase 13：按时间分组，避免一长条散列 */}
+              <p
+                data-testid="session-group"
+                className="text-muted-foreground px-2 py-1 text-[11px] font-medium"
+              >
+                {group.label}
+              </p>
+              {group.items.map((item) => (
             <div
               key={item.id}
               className={`group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm ${
@@ -509,11 +532,34 @@ export default function ChatPage() {
                 <Trash2 className="size-3" />
               </Button>
             </div>
+              ))}
+            </div>
           ))}
         </div>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section
+        className="relative flex min-w-0 flex-1 flex-col"
+        onDragOver={(event) => {
+          // 必须 preventDefault，否则浏览器会当作打开文件
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          stageIncoming(filesFromDataTransfer(event.dataTransfer));
+        }}
+      >
+        {dragging && (
+          <div
+            data-testid="drop-hint"
+            className="bg-primary/10 border-primary/40 text-primary pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed text-sm font-medium"
+          >
+            松手即可添加为附件（发送时才上传）
+          </div>
+        )}
         <header className="border-b p-3">
           <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
             <span className="text-sm font-medium">聊天</span>
@@ -599,6 +645,14 @@ export default function ChatPage() {
                 onChange={(e) => {
                   setInput(e.target.value);
                   setSkillHighlight(0);
+                }}
+                onPaste={(event) => {
+                  // Phase 13：粘贴截图/文件直接进暂存区；纯文本粘贴保持原行为
+                  const files = filesFromClipboard(event.clipboardData);
+                  if (files.length > 0) {
+                    event.preventDefault();
+                    stageIncoming(files);
+                  }
                 }}
                 onKeyDown={(e) => {
                   // 菜单打开时优先走菜单按键
