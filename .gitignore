@@ -72,3 +72,4 @@ handoff-*.json
 fill-handoff*.py
 make-verifier-prompt*.py
 patch-*.py
+.p12-run.sse
