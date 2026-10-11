@@ -146,8 +146,10 @@ public class AguiRunController {
         TokenUsageRecorder.TokenContext tokenContext = tokenUsageRecorder.resolveContext(agentDbId);
         String runId = input.getRunId();
 
-        // Phase 12 / D25：区分「跑完了」与「客户端中途断开」，后者要兜底中断，避免空烧 token
+        // Phase 12 / D25：区分「跑完了」与「客户端中途断开」
         java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean(false);
+        // Phase 14：登记本轮 run（保存已生成文本；断开后进入宽限期而不是直接丢弃）
+        runningRuns.beginRun(threadId, runId);
         // AG-UI 协议校正：RUN_ERROR 是终态，之后不能再发任何事件（官方扩展会多发一个 RUN_FINISHED，
         // 官方客户端因此报 "Cannot send event type 'RUN_FINISHED'..."）。规则与单测见 AguiStreamGuard。
         AguiStreamGuard streamGuard = new AguiStreamGuard();
@@ -158,6 +160,7 @@ public class AguiRunController {
                         event -> {
                             send(emitter, event, streamGuard);
                             collect(event, assistantText, customEventNames, interrupts);
+                            runningRuns.syncText(threadId, assistantText);
                             recordTokenUsage(event, userId, session.getId(), agentDbId, tokenContext, runId);
                         },
                         error -> {
@@ -169,24 +172,13 @@ public class AguiRunController {
                         () -> finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText,
                                 customEventNames, interrupts, finished));
 
-        emitter.onCompletion(() -> {
-            subscription.dispose();
-            // 客户端断开（关页面/断网）时 run 还没结束 → 让服务端也停下来
-            if (!finished.get()) {
-                runningRuns.interrupt(threadId);
-            }
-        });
-        emitter.onError(ex -> {
-            subscription.dispose();
-            if (!finished.get()) {
-                runningRuns.interrupt(threadId);
-            }
-        });
+        // Phase 14：客户端断开（刷新页面/切页/关标签页）时**不要立刻** dispose + 中断——
+        // 实测那样做会让这一轮永远不落库（finish() 不执行 → 答案丢失，用户看到"对话没有接续"）。
+        // 现在改为进入宽限期：期间有人回来（前端轮询 /run）就继续跑；一直没人回来才中断，且中断后照样落库。
+        emitter.onCompletion(() -> runningRuns.markDetached(threadId));
+        emitter.onError(ex -> runningRuns.markDetached(threadId));
         emitter.onTimeout(() -> {
-            subscription.dispose();
-            if (!finished.get()) {
-                runningRuns.interrupt(threadId);
-            }
+            runningRuns.markDetached(threadId);
             emitter.complete();
         });
         return emitter;
@@ -264,6 +256,8 @@ public class AguiRunController {
             List<AguiEvent.Interrupt> interrupts,
             java.util.concurrent.atomic.AtomicBoolean finished) {
         finished.set(true);
+        // Phase 14：收尾时先标记完成（取消宽限期定时器），避免"已落库还被判为断开超时"而误中断
+        runningRuns.markFinished(threadId);
         // 是否被用户手动停止（停止入口会置位）——落进消息 meta，刷新回放也能标注「已停止」
         boolean stopped = runningRuns.consumeStopped(threadId);
         try {

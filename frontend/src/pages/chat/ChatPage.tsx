@@ -25,6 +25,7 @@ type ToolItem = Extract<ChatItem, { kind: "tool" }>;
 import {
   createSession,
   deleteSession,
+  getRunState,
   interruptSession,
   listAgents,
   listMessages,
@@ -132,6 +133,98 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView?.({ behavior: "smooth" });
   }, [chat.items]);
+
+  /**
+   * 接续正在跑的 run（Phase 14）。
+   *
+   * <p>用户刷新页面或切到别的页面再回来后，SSE 已经断了，但服务端那一轮**仍在跑**（断开后有宽限期）。
+   * 这里查出"已生成多少文本"，先把它接到气泡上继续显示，再轮询到这一轮结束，最后重新拉一次消息
+   * 拿到落库后的完整内容。
+   */
+  const resumeRunningRun = useCallback(
+    async (target: ChatSession) => {
+      if (!target.threadId) {
+        return;
+      }
+      const applyPartial = (text: string) => {
+        if (!text) {
+          return;
+        }
+        setChat((prev) => {
+          const items = [...prev.items];
+          for (let i = items.length - 1; i >= 0; i -= 1) {
+            const item = items[i];
+            if (item.kind === "text" && item.role === "assistant") {
+              items[i] = { ...item, content: text, streaming: true, stopped: false };
+              return { ...prev, items, status: "running" };
+            }
+          }
+          return {
+            items: [
+              ...items,
+              {
+                kind: "text",
+                id: `resumed-${target.id}`,
+                role: "assistant",
+                content: text,
+                streaming: true,
+              },
+            ],
+            status: "running",
+            runId: null,
+          };
+        });
+        setBusy(true);
+      };
+
+      const state = await getRunState(target.id).catch(() => null);
+      if (!state?.running) {
+        return false;
+      }
+      applyPartial(state.text);
+
+      // 轮询到这一轮结束（结束/宽限期超时后服务端会落库）
+      const deadline = Date.now() + 10 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        const next = await getRunState(target.id).catch(() => null);
+        if (!next) {
+          break;
+        }
+        applyPartial(next.text);
+        if (!next.running) {
+          break;
+        }
+      }
+      // 拉回落库后的最终内容（含「已停止」标记）
+      try {
+        setChat(replayMessages(await listMessages(target.id)));
+      } catch {
+        /* 拉取失败就保留轮询到的内容 */
+      }
+      setBusy(false);
+      return true;
+    },
+    [],
+  );
+
+  // 打开会话后、以及从别的页面/标签页回来时，都尝试接续
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+    void resumeRunningRun(session);
+  }, [session, resumeRunningRun]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && session) {
+        void resumeRunningRun(session);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [session, resumeRunningRun]);
 
   async function openSession(target: ChatSession) {
     setError(null);
