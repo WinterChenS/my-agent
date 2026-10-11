@@ -25,8 +25,8 @@
 | JDK | 21（Temurin） | `C:\Program Files\Java\jdk-21.0.3+9` |
 | Maven | 3.9.x | `C:\tools\apache-maven-3.9.16` |
 | Node | 20+（本机为 24） | `D:\Program Files\nodejs` |
-| PostgreSQL | 服务端实际为 18.3 | 内网主机，见 `application-dev.yml` |
-| Redis | 服务端实际为 8.6.3 | 内网主机，见 `application-dev.yml` |
+| PostgreSQL | 18.x（本机实测 18.3） | 连接由环境变量 `DB_*` 提供 |
+| Redis | 8.x（本机实测 8.6.3） | 连接由环境变量 `REDIS_*` 提供 |
 
 > 本机 **未安装 Docker**，因此不使用 Testcontainers / `docker compose`；集成测试直接连接专用测试库 `agent_platform_test`。
 
@@ -50,9 +50,42 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 
 Vite 已代理 `/api` 与 `/agui` 到 `http://localhost:8080`。
 
-## 连接配置
+## 连接配置（不含任何真实凭据）
 
-数据库与 Redis 连接位于 `backend/agent-server/src/main/resources/application-dev.yml`（仅 dev profile，内网明文）。`JWT_SECRET` 与 `AGENT_CRYPTO_KEY` 由环境变量提供，dev profile 有可用默认值。
+仓库里**不保存任何真实口令**：数据库/Redis/对象存储/MinIO 的连接与密钥全部由**环境变量**提供，
+`application*.yml` 里只有本地占位默认值。复制 `.env.example` 为 `.env`（已被 `.gitignore` 忽略）或直接导出：
+
+```bash
+# PostgreSQL（应用库与测试库）
+export DB_URL='jdbc:postgresql://<主机>:5432/agent_platform?stringtype=unspecified'
+export TEST_DB_URL='jdbc:postgresql://<主机>:5432/agent_platform_test?stringtype=unspecified'
+export DB_USERNAME='<用户名>'
+export DB_PASSWORD='<口令>'
+
+# Redis
+export REDIS_HOST='<主机>'
+export REDIS_PASSWORD='<口令>'
+export REDIS_DATABASE=10          # 会话；测试用 REDIS_TEST_DATABASE=11
+
+# 对象存储（MinIO / S3 兼容）
+export MINIO_ENDPOINT='http://<主机>:9000'
+export MINIO_PUBLIC_ENDPOINT='http://<对外可达地址>:9000'
+export MINIO_ACCESS_KEY='<accessKey>'
+export MINIO_SECRET_KEY='<secretKey>'
+export MINIO_BUCKET='agent-platform'
+
+# 应用自身的密钥（生产必须改）
+export JWT_SECRET='<>=32 字节随机串>'
+export AGENT_CRYPTO_KEY='<AES-GCM 主密钥>'
+```
+
+> 验收脚本（`scripts/verify-*.sh`）同样从 `DB_HOST` / `DB_USERNAME` / `DB_PASSWORD` 读连接信息，不内联口令。
+
+### 安全提示
+
+- `admin` 的初始口令是**公开的默认值**（见 `V2__seed.sql`，BCrypt 存储），首次登录后请立即修改。
+- 部署到非内网环境前，请改掉 `JWT_SECRET` 与 `AGENT_CRYPTO_KEY`，并开启 HTTPS。
+- 若曾把真实凭据写进过仓库，仅删文件不够：历史提交里仍可读到，需要重写历史（本仓库就是这么做的）。
 
 ## 质量门禁
 
