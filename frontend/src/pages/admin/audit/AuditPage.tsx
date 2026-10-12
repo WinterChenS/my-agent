@@ -209,6 +209,8 @@ export default function AuditPage() {
                 <TableHead>输入</TableHead>
                 <TableHead>输出</TableHead>
                 <TableHead>合计</TableHead>
+                <TableHead>单价（入/出）</TableHead>
+                <TableHead>成本</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -218,11 +220,21 @@ export default function AuditPage() {
                   <TableCell>{row.prompt_tokens}</TableCell>
                   <TableCell>{row.completion_tokens}</TableCell>
                   <TableCell>{row.total_tokens}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {row.price_input != null || row.price_output != null
+                      ? `${row.price_input ?? "-"} / ${row.price_output ?? "-"}`
+                      : "-"}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {row.cost_total != null
+                      ? `${Number(row.cost_total).toFixed(6)} ${row.currency ?? ""}`
+                      : "-"}
+                  </TableCell>
                 </TableRow>
               ))}
               {(summary?.byModel ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-muted-foreground text-center text-sm">
+                  <TableCell colSpan={6} className="text-muted-foreground text-center text-sm">
                     暂无数据
                   </TableCell>
                 </TableRow>

@@ -53,7 +53,12 @@ interface ModelForm {
   modelId: string;
   displayName: string;
   temperature: string;
+  topP: string;
+  contextWindow: string;
   maxTokens: string;
+  priceInput: string;
+  priceOutput: string;
+  priceCurrency: string;
   status: "ENABLED" | "DISABLED";
 }
 
@@ -72,7 +77,12 @@ const EMPTY_MODEL: ModelForm = {
   modelId: "",
   displayName: "",
   temperature: "",
+  topP: "",
+  contextWindow: "",
   maxTokens: "",
+  priceInput: "",
+  priceOutput: "",
+  priceCurrency: "CNY",
   status: "ENABLED",
 };
 
@@ -165,17 +175,30 @@ export default function ModelsPage() {
       toast.error("模型 ID 不能为空");
       return;
     }
-    const params: Record<string, unknown> = {};
-    if (modelForm.temperature.trim()) params.temperature = Number(modelForm.temperature);
-    if (modelForm.maxTokens.trim()) params.maxTokens = Number(modelForm.maxTokens);
-
+    const num = (text: string): number | null => (text.trim() ? Number(text) : null);
+    // Phase 15：这几项都作为显式字段提交（后端会校验范围，并确保"输出长度 ≤ 上下文长度"）
     const payload = {
       providerId: modelForm.providerId,
       modelId: modelForm.modelId.trim(),
       displayName: modelForm.displayName.trim() || null,
-      params,
+      params: {} as Record<string, unknown>,
+      temperature: num(modelForm.temperature),
+      topP: num(modelForm.topP),
+      contextWindow: num(modelForm.contextWindow),
+      maxTokens: num(modelForm.maxTokens),
+      priceInput: num(modelForm.priceInput),
+      priceOutput: num(modelForm.priceOutput),
+      priceCurrency: modelForm.priceCurrency || "CNY",
       status: modelForm.status,
     };
+    if (
+      payload.contextWindow != null &&
+      payload.maxTokens != null &&
+      payload.maxTokens > payload.contextWindow
+    ) {
+      toast.error("输出长度不能大于上下文长度");
+      return;
+    }
     try {
       if (modelForm.id == null) {
         await createModel(payload);
@@ -400,7 +423,8 @@ export default function ModelsPage() {
                     <TableHead>模型 ID</TableHead>
                     <TableHead>显示名</TableHead>
                     <TableHead>供应商</TableHead>
-                    <TableHead>参数</TableHead>
+                    <TableHead>采样 / 长度</TableHead>
+                    <TableHead>价格（每百万 token）</TableHead>
                     <TableHead>状态</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
@@ -419,8 +443,19 @@ export default function ModelsPage() {
                             modelId: m.modelId,
                             displayName: m.displayName ?? "",
                             temperature:
-                              params.temperature != null ? String(params.temperature) : "",
-                            maxTokens: params.maxTokens != null ? String(params.maxTokens) : "",
+                              m.temperature != null
+                                ? String(m.temperature)
+                                : params.temperature != null
+                                  ? String(params.temperature)
+                                  : "",
+                            topP: m.topP != null ? String(m.topP) : "",
+                            contextWindow:
+                              m.contextWindow != null ? String(m.contextWindow) : "",
+                            maxTokens:
+                              m.maxTokens != null ? String(m.maxTokens) : "",
+                            priceInput: m.priceInput != null ? String(m.priceInput) : "",
+                            priceOutput: m.priceOutput != null ? String(m.priceOutput) : "",
+                            priceCurrency: m.priceCurrency ?? "CNY",
                             status: m.status,
                           });
                           setModelDialog(true);
@@ -432,9 +467,15 @@ export default function ModelsPage() {
                       <TableCell className="text-xs">
                         {providers.find((p) => p.id === m.providerId)?.name ?? m.providerId}
                       </TableCell>
-                      <TableCell className="max-w-[200px] truncate font-mono text-xs">
-                        {m.params && Object.keys(m.params).length > 0
-                          ? JSON.stringify(m.params)
+                      <TableCell className="font-mono text-xs whitespace-nowrap">
+                        <div>温度 {m.temperature ?? "-"} · TopN {m.topP ?? "-"}</div>
+                        <div className="text-muted-foreground">
+                          上下文 {m.contextWindow ?? "-"} · 输出 {m.maxTokens ?? "-"}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs whitespace-nowrap">
+                        {m.priceInput != null || m.priceOutput != null
+                          ? `入 ${m.priceInput ?? "-"} / 出 ${m.priceOutput ?? "-"} ${m.priceCurrency ?? ""}`
                           : "-"}
                       </TableCell>
                       <TableCell>
@@ -469,8 +510,17 @@ export default function ModelsPage() {
                                 modelId: m.modelId,
                                 displayName: m.displayName ?? "",
                                 temperature:
-                                  params.temperature != null ? String(params.temperature) : "",
-                                maxTokens: params.maxTokens != null ? String(params.maxTokens) : "",
+                                  m.temperature != null
+                                    ? String(m.temperature)
+                                    : params.temperature != null
+                                      ? String(params.temperature)
+                                      : "",
+                                topP: m.topP != null ? String(m.topP) : "",
+                                contextWindow: m.contextWindow != null ? String(m.contextWindow) : "",
+                                maxTokens: m.maxTokens != null ? String(m.maxTokens) : "",
+                                priceInput: m.priceInput != null ? String(m.priceInput) : "",
+                                priceOutput: m.priceOutput != null ? String(m.priceOutput) : "",
+                                priceCurrency: m.priceCurrency ?? "CNY",
                                 status: m.status,
                               });
                               setModelDialog(true);
@@ -626,24 +676,68 @@ export default function ModelsPage() {
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 text-sm">
-                temperature
+                温度 temperature
                 <Input
                   value={modelForm.temperature}
                   onChange={(e) => setModelForm({ ...modelForm, temperature: e.target.value })}
-                  placeholder="0.7"
+                  placeholder="0–2，如 0.7"
                 />
               </label>
               <label className="space-y-1 text-sm">
-                最大输出 tokens（max_tokens）
+                Top-N（Top-P）
+                <Input
+                  value={modelForm.topP}
+                  onChange={(e) => setModelForm({ ...modelForm, topP: e.target.value })}
+                  placeholder="(0,1]，如 0.9"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                上下文长度（tokens）
+                <Input
+                  value={modelForm.contextWindow}
+                  onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })}
+                  placeholder="如 128000 / 1048576"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                输出长度（tokens）
                 <Input
                   value={modelForm.maxTokens}
                   onChange={(e) => setModelForm({ ...modelForm, maxTokens: e.target.value })}
-                  placeholder="留空=模型默认，常见 8192"
+                  placeholder="留空=默认，常见 8192"
                 />
+              </label>
+              <label className="space-y-1 text-sm">
+                输入价格 / 百万 token
+                <Input
+                  value={modelForm.priceInput}
+                  onChange={(e) => setModelForm({ ...modelForm, priceInput: e.target.value })}
+                  placeholder="如 1.5"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                输出价格 / 百万 token
+                <Input
+                  value={modelForm.priceOutput}
+                  onChange={(e) => setModelForm({ ...modelForm, priceOutput: e.target.value })}
+                  placeholder="如 6"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                价格货币
+                <select
+                  className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                  value={modelForm.priceCurrency}
+                  onChange={(e) => setModelForm({ ...modelForm, priceCurrency: e.target.value })}
+                >
+                  <option value="CNY">CNY（人民币）</option>
+                  <option value="USD">USD（美元）</option>
+                </select>
               </label>
             </div>
             <p className="text-muted-foreground -mt-1 text-xs">
-              ℹ️ max_tokens 是「单次生成的输出上限」，**不是**上下文长度（能塞多长的对话由模型决定）。
+              ℹ️ 这五项都会真正生效：温度/Top-N/输出长度随每次请求下发；上下文长度用于校验并决定历史压缩阈值；
+              价格用于审计看板按模型算成本（单位＝输入价/输出价「每百万 token」）。
             </p>
             {maxTokensWarning(modelForm.maxTokens) && (
               <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-700">

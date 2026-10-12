@@ -34,6 +34,20 @@ export interface ModelInfo {
   modelId: string;
   displayName: string | null;
   params: Record<string, unknown> | null;
+  /** Phase 15：采样温度 0–2 */
+  temperature: number | null;
+  /** Top-P 核采样（Top-N）0–1 */
+  topP: number | null;
+  /** 上下文窗口长度（token） */
+  contextWindow: number | null;
+  /** 单次输出长度上限（token） */
+  maxTokens: number | null;
+  /** 输入价格：每百万 token */
+  priceInput: number | null;
+  /** 输出价格：每百万 token */
+  priceOutput: number | null;
+  /** 价格货币：CNY / USD */
+  priceCurrency: string | null;
   status: "ENABLED" | "DISABLED";
   createdAt?: string;
   updatedAt?: string;
@@ -44,6 +58,14 @@ export interface ModelPayload {
   modelId: string;
   displayName?: string | null;
   params?: Record<string, unknown> | null;
+  /** Phase 15：这五项都会同步下发给模型（见 AgentFactor/ModelFactory） */
+  temperature?: number | null;
+  topP?: number | null;
+  contextWindow?: number | null;
+  maxTokens?: number | null;
+  priceInput?: number | null;
+  priceOutput?: number | null;
+  priceCurrency?: string | null;
   status?: "ENABLED" | "DISABLED";
 }
 

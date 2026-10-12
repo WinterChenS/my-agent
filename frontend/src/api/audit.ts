@@ -6,6 +6,11 @@ export interface TokenTotalsRow {
   total_tokens: number;
   model_id?: number | null;
   day?: string;
+  /** Phase 15：按模型价格（每百万 token）算出的成本，货币见 currency */
+  cost_total?: number | null;
+  currency?: string | null;
+  price_input?: number | null;
+  price_output?: number | null;
 }
 
 export interface TokenSummary {
@@ -13,6 +18,9 @@ export interface TokenSummary {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Phase 15：按模型价格汇总的成本；不同货币混合时为 MIXED */
+  costTotal?: number | null;
+  costCurrency?: string | null;
   byModel: TokenTotalsRow[];
   byDay: TokenTotalsRow[];
 }
