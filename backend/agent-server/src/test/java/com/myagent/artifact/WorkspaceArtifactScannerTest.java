@@ -16,7 +16,8 @@ import org.junit.jupiter.api.io.TempDir;
 class WorkspaceArtifactScannerTest {
 
     private WorkspaceArtifactScanner scanner(Path root) {
-        return new WorkspaceArtifactScanner(new AguiProperties(root.toString()));
+        return new WorkspaceArtifactScanner(
+                new AguiProperties(root.toString(), 120_000, 32_000, 30_000, 1_500));
     }
 
     @Test

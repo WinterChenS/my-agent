@@ -36,10 +36,44 @@ public class AguiSseSanitizer {
         try {
             JsonNode root = objectMapper.readTree(json);
             JsonNode cleaned = clean(root);
-            return objectMapper.writeValueAsString(cleaned);
+            JsonNode fixed = humanizeContextLength(cleaned);
+            return objectMapper.writeValueAsString(fixed);
         } catch (Exception ex) {
             return json;
         }
+    }
+
+    /**
+     * 把「上下文超长」这类厂商原始报错翻译成可操作的话。
+     *
+     * <p>实测：会话上下文涨到 127 万 tokens 时，厂商直接返回
+     * {@code context_length_exceeded}，前端只能看到一长串英文原文（还夹着 request_id），
+     * 用户不知道该做什么。这里替换成中文提示 + 具体建议。
+     */
+    private JsonNode humanizeContextLength(JsonNode node) {
+        if (!(node instanceof ObjectNode obj)) {
+            return node;
+        }
+        JsonNode type = obj.get("type");
+        JsonNode message = obj.get("message");
+        if (type == null || message == null || !"RUN_ERROR".equals(type.asText())) {
+            return node;
+        }
+        String text = message.asText();
+        if (text == null) {
+            return node;
+        }
+        boolean tooLong = text.contains("context_length_exceeded")
+                || text.contains("maximum context length")
+                || text.contains("exceeds the maximum");
+        if (tooLong) {
+            obj.put("message",
+                    "上下文超过模型窗口上限：这一轮要发给模型的内容太多了（历史 + 本轮附件/工具结果）。"
+                    + "建议：①新建一个会话继续（最有效）；②把该模型的 max_tokens（补全长度）调小，比如 8192，"
+                    + "不要占满窗口；③少让 Agent 读超大文件。原始报错：" + text);
+            obj.put("code", "CONTEXT_LENGTH_EXCEEDED");
+        }
+        return obj;
     }
 
     private JsonNode clean(JsonNode node) {

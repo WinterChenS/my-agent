@@ -22,17 +22,49 @@ public class AguiProperties {
     private static final Logger log = LoggerFactory.getLogger(AguiProperties.class);
 
     private final String workspaceRoot;
+    /** 上下文超过该 token 数即触发官方压缩（CompactionConfig.triggerTokens）。 */
+    private final int compactionTriggerTokens;
+    /** 压缩后保留的 token 数（CompactionConfig.keepTokens）。 */
+    private final int compactionKeepTokens;
+    /** 单条工具结果超过该字符数就外置到文件、只留预览（ToolResultEvictionConfig.maxResultChars）。 */
+    private final int toolResultMaxChars;
+    /** 外置后保留的预览字符数。 */
+    private final int toolResultPreviewChars;
 
     public AguiProperties(
-            @Value("${myagent.workspace-root:./.myagent-workspace}") String workspaceRoot) {
+            @Value("${myagent.workspace-root:./.myagent-workspace}") String workspaceRoot,
+            @Value("${myagent.compaction.trigger-tokens:120000}") int compactionTriggerTokens,
+            @Value("${myagent.compaction.keep-tokens:32000}") int compactionKeepTokens,
+            @Value("${myagent.tool-result.max-chars:30000}") int toolResultMaxChars,
+            @Value("${myagent.tool-result.preview-chars:1500}") int toolResultPreviewChars) {
         this.workspaceRoot = java.nio.file.Path.of(workspaceRoot)
                 .toAbsolutePath()
                 .normalize()
                 .toString();
+        this.compactionTriggerTokens = compactionTriggerTokens;
+        this.compactionKeepTokens = compactionKeepTokens;
+        this.toolResultMaxChars = toolResultMaxChars;
+        this.toolResultPreviewChars = toolResultPreviewChars;
         log.info("Agent 工作区根目录（已规范为绝对路径）: {}", this.workspaceRoot);
     }
 
     public String workspaceRoot() {
         return workspaceRoot;
+    }
+
+    public int compactionTriggerTokens() {
+        return compactionTriggerTokens;
+    }
+
+    public int compactionKeepTokens() {
+        return compactionKeepTokens;
+    }
+
+    public int toolResultMaxChars() {
+        return toolResultMaxChars;
+    }
+
+    public int toolResultPreviewChars() {
+        return toolResultPreviewChars;
     }
 }

@@ -23,6 +23,8 @@ import io.agentscope.core.permission.PermissionRule;
 import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
+import io.agentscope.harness.agent.memory.compaction.ToolResultEvictionConfig;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -231,6 +233,17 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .toolkit(toolkit)
                 // Phase 11 / D23：框架会话状态落数据库（替换默认 JsonFileAgentStateStore）
                 .stateStore(pgAgentStateStore)
+                // 上下文治理（官方能力）：历史超阈值就压缩；超长工具结果（例如被读进来的大文件正文）
+                // 外置到文件、只留预览。没有这两个配置时，上下文会无上限增长——实测出现过
+                // 1.8MB 的会话状态，向模型请求 127 万 tokens 直接被厂商拒绝（context_length_exceeded）。
+                .compaction(CompactionConfig.builder()
+                        .triggerTokens(aguiProperties.compactionTriggerTokens())
+                        .keepTokens(aguiProperties.compactionKeepTokens())
+                        .build())
+                .toolResultEviction(ToolResultEvictionConfig.builder()
+                        .maxResultChars(aguiProperties.toolResultMaxChars())
+                        .previewChars(aguiProperties.toolResultPreviewChars())
+                        .build())
                 // Phase 11 / D23：工作区 memory/** 经官方 CompositeFilesystem 路由到数据库
                 .filesystemRoute(MEMORY_ROUTE_PREFIX, memoryRemoteFilesystem)
                 // 权限上下文必须在 toolkit 之后构建：ask 规则要覆盖 Agent 实际拥有的工具
