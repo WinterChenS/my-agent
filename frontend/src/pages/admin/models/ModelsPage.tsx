@@ -424,7 +424,7 @@ export default function ModelsPage() {
                     <TableHead>显示名</TableHead>
                     <TableHead>供应商</TableHead>
                     <TableHead>采样 / 长度</TableHead>
-                    <TableHead>价格（每百万 token）</TableHead>
+                    <TableHead>价格 / 百万</TableHead>
                     <TableHead>状态</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
@@ -433,8 +433,8 @@ export default function ModelsPage() {
                   {models.map((m) => (
                     <TableRow key={m.id}>
                       <TableCell
-                        className="cursor-pointer font-mono text-xs underline decoration-dotted underline-offset-4"
-                        title="点击修改模型 ID"
+                        className="max-w-[200px] cursor-pointer truncate font-mono text-xs underline decoration-dotted underline-offset-4"
+                        title={m.modelId}
                         onClick={() => {
                           const params = (m.params ?? {}) as Record<string, unknown>;
                           setModelForm({
@@ -463,8 +463,16 @@ export default function ModelsPage() {
                       >
                         {m.modelId}
                       </TableCell>
-                      <TableCell>{m.displayName ?? "-"}</TableCell>
-                      <TableCell className="text-xs">
+                      <TableCell className="max-w-[120px] truncate" title={m.displayName ?? ""}>
+                        {m.displayName ?? "-"}
+                      </TableCell>
+                      <TableCell
+                        className="max-w-[120px] truncate text-xs"
+                        title={
+                          providers.find((p) => p.id === m.providerId)?.name ??
+                          String(m.providerId)
+                        }
+                      >
                         {providers.find((p) => p.id === m.providerId)?.name ?? m.providerId}
                       </TableCell>
                       <TableCell className="font-mono text-xs whitespace-nowrap">
@@ -486,17 +494,17 @@ export default function ModelsPage() {
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
                           <Button
-                            size="sm"
+                            size="icon"
                             variant="outline"
                             disabled={testingId != null}
+                            aria-label={testingId === m.id ? "测试中" : "测试"}
+                            title="用这个模型做连通测试"
                             onClick={() => {
                               const provider = providers.find((p) => p.id === m.providerId);
                               if (provider) void runTest(provider, m);
                             }}
-                            title="用这个模型做连通测试"
                           >
                             <PlugZap className="size-3.5" />
-                            {testingId === m.id ? "测试中…" : "测试"}
                           </Button>
                           <Button
                             size="icon"
@@ -700,7 +708,7 @@ export default function ModelsPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                输出长度（tokens）
+                最大输出 tokens（输出长度）
                 <Input
                   value={modelForm.maxTokens}
                   onChange={(e) => setModelForm({ ...modelForm, maxTokens: e.target.value })}

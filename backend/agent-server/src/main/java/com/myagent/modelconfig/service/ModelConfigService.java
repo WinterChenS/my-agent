@@ -127,12 +127,25 @@ public class ModelConfigService {
             throw BizException.badRequest("模型不属于该供应商");
         }
         String apiKey = cryptoService.decrypt(provider.getApiKeyCipher());
+        // Phase 15：连通测试必须测「真实配置」——把显式列并入参数，
+        // 否则表单填的 max_tokens 不会参与探测，非法配置在测试阶段就暴露不出来（用户实测踩过）。
+        Map<String, Object> probeParams = new java.util.HashMap<>(
+                model.getParams() == null ? Map.of() : model.getParams());
+        if (model.getTemperature() != null) {
+            probeParams.put("temperature", model.getTemperature());
+        }
+        if (model.getTopP() != null) {
+            probeParams.put("topP", model.getTopP());
+        }
+        if (model.getMaxTokens() != null) {
+            probeParams.put("maxTokens", model.getMaxTokens());
+        }
         return connectivityProbe.probe(
                 provider.getProviderType(),
                 provider.getBaseUrl(),
                 apiKey,
                 model.getModelId(),
-                model.getParams());
+                probeParams);
     }
 
     // ===================== model =====================

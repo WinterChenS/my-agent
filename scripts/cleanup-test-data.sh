@@ -53,9 +53,9 @@ public class Clean {
     static final String KEEP_PROVIDER = "deepseek";
     static final String KEEP_MODEL_PREFIX = "deepseek/";
     static final String[] TEST_AGENT_PREFIXES = {
-        "p3-", "p5-", "p6-", "p7-", "p7b-", "p7c-", "p7d-", "p8-", "p9-", "p10-", "p11-", "p11b-", "p11c-", "p12-", "rc-", "rc2-", "rc4-", "rv-", "k-agent-", "p15-", "p15-agent-",
+        "p3-", "p5-", "p6-", "p7-", "p7b-", "p7c-", "p7d-", "p8-", "p9-", "p10-", "p11-", "p11b-", "p11c-", "p12-", "rc-", "rc2-", "rc4-", "rv-", "k-agent-", "p15-", "p15-agent-", "p12-", "rr-", "mp-model-", "rp-",
         "e2e-", "verifier-", "ns-agent-", "a1-", "a5-", "a9-", "v2-", "TestV2",
-        "skill-test-agent", "dbg-", "factory-", "rollback-", "demo-agent-", "Agent-", "E2E-", "Manual-", "vcontract-", "vdc-", "vdc2-"
+        "skill-test-agent", "dbg-", "factory-", "rollback-", "demo-agent-", "Agent-", "E2E-", "Manual-", "vcontract-", "vdc-", "vdc2-", "mp-agent-", "rr-agent-", "c-agent-", "k-agent-", "rv-agent-", "rc-agent-", "rc2-agent-", "rc4-agent-", "P15-", "p15-agent-", "MP-", "RR-"
     };
     static final String[] TEST_PROVIDER_PREFIXES = {
         "P3-", "P5-", "P6-", "P7-", "P72-", "P8-", "P9-", "P10-", "P11", "P12-", "E2E-", "D1-", "DBG-", "RC-", "RC2-", "RC4-", "RV-", "K-Prov-",
