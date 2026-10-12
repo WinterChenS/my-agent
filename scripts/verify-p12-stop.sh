@@ -136,10 +136,25 @@ check "停止接口返回 interrupted=true" "$(echo "$STOP_RESP" | grep -q '"int
 # 判据：停止后不再产生新的模型调用（每轮模型调用写一行 token_usage）
 TOK_BEFORE=$(cd /tmp/dbprobe && cat > TB.java <<JEOF
 import java.sql.*;
-public class TB { public static void main(String[] a) throws Exception {
+public class TB {
+  static String env(String key, String fallback) {
+    String v = System.getenv(key);
+    return (v == null || v.isBlank()) ? fallback : v;
+  }
+  static String dbHost() { return env("DB_HOST", "localhost"); }
+  static String dbUser() { return env("DB_USERNAME", "agent"); }
+  static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
+  static String jdbcUrl() {
+    String url = System.getenv("DB_URL");
+    if (url != null && !url.isBlank()) return url;
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform")
+        + "?stringtype=unspecified";
+  }
+ public static void main(String[] a) throws Exception {
   try (Connection c=DriverManager.getConnection(jdbcUrl(),dbUser(), dbPassword());
        Statement s=c.createStatement(); ResultSet r=s.executeQuery("select count(*) from token_usage where session_id=$SID2")) {
     r.next(); System.out.print(r.getInt(1)); } } }
+
 JEOF
 "$JDK/java" -cp "$JAR" TB.java 2>/dev/null)
 sleep 8
