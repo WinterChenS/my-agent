@@ -45,6 +45,9 @@ public class LlmModel {
     /** 价格货币：CNY / USD。 */
     private String priceCurrency;
 
+    /** 是否支持图片输入（多模态）。 */
+    private Boolean multimodal;
+
     private String status;
 
     private OffsetDateTime createdAt;
@@ -146,6 +149,14 @@ public class LlmModel {
 
     public void setPriceCurrency(String priceCurrency) {
         this.priceCurrency = priceCurrency;
+    }
+
+    public Boolean getMultimodal() {
+        return multimodal;
+    }
+
+    public void setMultimodal(Boolean multimodal) {
+        this.multimodal = multimodal;
     }
 
     public String getStatus() {

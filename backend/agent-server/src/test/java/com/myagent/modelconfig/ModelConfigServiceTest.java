@@ -99,7 +99,7 @@ class ModelConfigServiceTest {
 
         ModelResponse model = service.createModel(new ModelRequest(
                 provider.id(), "gpt-4o-mini", "示例模型",
-                Map.of("temperature", 0.3, "maxTokens", 512), null, null, null, null, null, null, null, "ENABLED"));
+                Map.of("temperature", 0.3, "maxTokens", 512), null, null, null, null, null, null, null, null, "ENABLED"));
 
         assertThat(model.id()).isNotNull();
         ModelResponse loaded = service.getModel(model.id());
@@ -108,7 +108,7 @@ class ModelConfigServiceTest {
 
         // 同一供应商下同名模型冲突
         assertThatThrownBy(() -> service.createModel(new ModelRequest(
-                        provider.id(), "gpt-4o-mini", "重复", null, null, null, null, null, null, null, null, "ENABLED")))
+                        provider.id(), "gpt-4o-mini", "重复", null, null, null, null, null, null, null, null, null, "ENABLED")))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("已存在");
     }
@@ -116,7 +116,7 @@ class ModelConfigServiceTest {
     @Test
     void 供应商下有模型时不允许删除() {
         ProviderResponse provider = newProvider("测试供应商F");
-        service.createModel(new ModelRequest(provider.id(), "m-1", "模型1", null, null, null, null, null, null, null, null, "ENABLED"));
+        service.createModel(new ModelRequest(provider.id(), "m-1", "模型1", null, null, null, null, null, null, null, null, null, "ENABLED"));
 
         assertThatThrownBy(() -> service.deleteProvider(provider.id()))
                 .isInstanceOf(BizException.class)

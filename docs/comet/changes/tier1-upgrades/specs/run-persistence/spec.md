@@ -1,0 +1,23 @@
+# run-persistence
+
+## Purpose
+
+run 状态持久化（后端重启不丢「上一轮跑到哪」）＋长任务完成通知。
+
+## 设计
+
+- 新表 `agent_run`：threadId / runId / sessionId / 状态(RUNNING|FINISHED|ERROR|INTERRUPTED) / startedAt / endedAt / 已生成文本摘要。
+  run 开始写 RUNNING，收尾更新终态（与现有 `finish()` 同一处）。
+- 查询接口：按会话返回最近若干 run 的状态；前端在**后端重启后**仍能显示「上一轮状态」。
+- 通知：前端在非当前会话的 run 结束时给站内提示（toast/角标），点击跳回该会话；
+  可选浏览器通知（需用户授权）。实现方式：前端轮询 `GET /api/sessions/{id}/run` 或会话列表里的 running 标记。
+
+## 边界
+
+- **不做**分布式任务队列/跨进程恢复执行（登记 backlog）：重启后状态可见，但不会自动续跑。
+- 不改既有 SSE 契约。
+
+## 验收标准
+
+- 发起一轮后重启后端：再打开该会话能看到上一轮状态（FINISHED/INTERRUPTED），不是空白。
+- 在别的会话里跑完的长任务会给出站内提示并能跳回。

@@ -280,6 +280,16 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     }
 
 
+    /** 该 Agent 绑定的模型是否开启多模态（图片输入）；模型缺失或未开启都返回 false。 */
+    public boolean isMultimodal(Long agentDbId) {
+        Agent agent = agentDbId == null ? null : agentMapper.selectById(agentDbId);
+        if (agent == null || agent.getModelId() == null) {
+            return false;
+        }
+        LlmModel model = llmModelMapper.selectById(agent.getModelId());
+        return model != null && Boolean.TRUE.equals(model.getMultimodal());
+    }
+
     /**
      * 按 Agent 主键构建它使用的 ChatModel（标题生成等辅助能力复用同一套装配逻辑）。
      *

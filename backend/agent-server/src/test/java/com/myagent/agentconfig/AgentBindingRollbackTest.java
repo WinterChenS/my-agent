@@ -52,7 +52,7 @@ class AgentBindingRollbackTest {
                             "ENABLED"))
                     .id();
             modelId = modelConfigService
-                    .createModel(new ModelRequest(providerId, "rollback-model", null, null, null, null, null, null, null, null, null, "ENABLED"))
+                    .createModel(new ModelRequest(providerId, "rollback-model", null, null, null, null, null, null, null, null, null, null, "ENABLED"))
                     .id();
             skillId = jdbcTemplate.queryForObject(
                     "INSERT INTO skill (name, description, content, status) "

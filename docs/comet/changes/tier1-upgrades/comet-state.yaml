@@ -1,0 +1,157 @@
+schema: comet.native.v4
+name: tier1-upgrades
+language: zh-CN
+phase: build
+status: active
+state_version: 3
+brief: brief.md
+document_constraints_version: 2
+shape_confirmation_hash: 64513c9a6f8356f4a51d907b3d750dd6eb4e5eb0fbfae9b5608eb89b441d30ad
+spec_changes:
+  - capability: context-control
+    operation: create
+    source: specs/context-control/spec.md
+  - capability: cost-quota
+    operation: create
+    source: specs/cost-quota/spec.md
+  - capability: multimodal-input
+    operation: create
+    source: specs/multimodal-input/spec.md
+  - capability: run-persistence
+    operation: create
+    source: specs/run-persistence/spec.md
+workspace:
+  isolation: current
+  change_branch: master
+  target_branch: master
+  finish: null
+loop:
+  stage: building
+  goal_cycle: 1
+  iteration: 1
+  attempt: 0
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: submit-builder-candidate
+acceptance:
+  - id: A1
+    source: brief.md
+    text: 输入：编辑模型，打开「多模态」开关并保存
+    result: pending
+    reason: null
+  - id: A2
+    source: brief.md
+    text: 期望：模型列表/详情显示为已开启；关闭时不可发送图片 2. 图片真正喂给模型
+    result: pending
+    reason: null
+  - id: A3
+    source: brief.md
+    text: 输入：向已开启多模态的模型发起一轮，附带一张图片
+    result: pending
+    reason: null
+  - id: A4
+    source: brief.md
+    text: 期望：发给模型的请求里包含图像内容（**桩捕获的请求体为证**：出现 image 内容块/base64），且模型据此回答 3. 未开启多模态时的行为
+    result: pending
+    reason: null
+  - id: A5
+    source: brief.md
+    text: 输入：向未开启多模态的模型附带图片发送
+    result: pending
+    reason: null
+  - id: A6
+    source: brief.md
+    text: 期望：图片被剥离（不发给模型），前端/回复里明确提示「该模型未开启多模态，图片未发送」，不出现厂商 400 4. 图片限制
+    result: pending
+    reason: null
+  - id: A7
+    source: brief.md
+    text: 输入：发送超过大小上限的图片 / 非法格式 / 超过数量上限
+    result: pending
+    reason: null
+  - id: A8
+    source: brief.md
+    text: 期望：明确业务错误提示，不影响文本消息发送 5. 上下文用量可见
+    result: pending
+    reason: null
+  - id: A9
+    source: brief.md
+    text: 输入：打开一个较长会话
+    result: pending
+    reason: null
+  - id: A10
+    source: brief.md
+    text: 期望：输入框上方显示上下文用量与阈值，接近阈值时有醒目提示 6. 上下文可控
+    result: pending
+    reason: null
+  - id: A11
+    source: brief.md
+    text: 输入：点「压缩上下文」
+    result: pending
+    reason: null
+  - id: A12
+    source: brief.md
+    text: 期望：触发官方压缩并给出反馈（压缩前后用量下降）
+    result: pending
+    reason: null
+  - id: A13
+    source: brief.md
+    text: 输入：点「清空上下文」
+    result: pending
+    reason: null
+  - id: A14
+    source: brief.md
+    text: 期望：该会话模型上下文被清空（`agent_state` 无该会话状态），聊天记录仍在，随后对话正常 7. 运行状态持久化
+    result: pending
+    reason: null
+  - id: A15
+    source: brief.md
+    text: 输入：发起一轮后重启后端，再打开该会话
+    result: pending
+    reason: null
+  - id: A16
+    source: brief.md
+    text: 期望：能看到该会话上一轮的状态（已完成/已中断），不是「什么都没有」 8. 长任务完成通知
+    result: pending
+    reason: null
+  - id: A17
+    source: brief.md
+    text: 输入：切到别的会话，让原会话的 run 在后台跑完
+    result: pending
+    reason: null
+  - id: A18
+    source: brief.md
+    text: 期望：收到站内提示（toast/角标），点击可跳回该会话 9. 支出配额
+    result: pending
+    reason: null
+  - id: A19
+    source: brief.md
+    text: 输入：为某用户设置很小的日额度，连续对话直到超限
+    result: pending
+    reason: null
+  - id: A20
+    source: brief.md
+    text: 期望：超限后按配置**拒绝发起**（或仅告警），提示当前用量与额度；审计看板显示已用/额度
+    result: pending
+    reason: null
+builder_handoff: null
+blockers: []
+verification: null
+history: []
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-10-12T13:16:25.555Z

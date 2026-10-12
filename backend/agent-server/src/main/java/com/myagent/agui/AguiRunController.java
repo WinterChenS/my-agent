@@ -59,6 +59,7 @@ public class AguiRunController {
     private final SessionSkillOverrides sessionSkillOverrides;
     private final RunningRunRegistry runningRuns;
     private final SessionTitleService sessionTitleService;
+    private final MultimodalGuard multimodalGuard;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -72,7 +73,8 @@ public class AguiRunController {
             ArtifactCaptureService artifactCaptureService,
             SessionSkillOverrides sessionSkillOverrides,
             RunningRunRegistry runningRuns,
-            SessionTitleService sessionTitleService) {
+            SessionTitleService sessionTitleService,
+            MultimodalGuard multimodalGuard) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
@@ -85,6 +87,7 @@ public class AguiRunController {
         this.sessionSkillOverrides = sessionSkillOverrides;
         this.runningRuns = runningRuns;
         this.sessionTitleService = sessionTitleService;
+        this.multimodalGuard = multimodalGuard;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -113,21 +116,29 @@ public class AguiRunController {
                     "无法确定 Agent：请在 forwardedProps.agentId 指定 agent_id，或复用已有 threadId");
         }
 
+        // tier1-upgrades ①：模型未开启多模态时剥离图片并提示（避免厂商 400）
+        int overLimit = multimodalGuard.overLimit(input);
+        if (overLimit > 0) {
+            throw BizException.badRequest("单轮最多发送 5 张图片（超出 " + overLimit + " 张）");
+        }
+        MultimodalGuard.Result guarded = multimodalGuard.apply(input, agentFactory.isMultimodal(agentDbId));
+        RunAgentInput effectiveInput = guarded.input();
+
         ChatSession session = existing.orElseGet(
                 () -> chatSessionService.createForThread(userId, threadId, agentDbId));
 
         // resume 场景下不重复记录用户消息
-        if (input.getResume() == null || input.getResume().isEmpty()) {
-            persistUserMessage(session.getId(), input);
+        if (effectiveInput.getResume() == null || effectiveInput.getResume().isEmpty()) {
+            persistUserMessage(session.getId(), effectiveInput);
             // Phase 17：首条用户消息 → 异步生成会话标题（像 ChatGPT 那样）
-            sessionTitleService.generateIfFirstMessage(session, firstUserText(input));
+            sessionTitleService.generateIfFirstMessage(session, firstUserText(effectiveInput));
         }
 
         // 把用户身份通过 servlet 属性传给 runtime context 解析器（避免可伪造的请求头）
         httpRequest.setAttribute(PlatformRuntimeContextResolver.USER_ID_ATTRIBUTE, userId);
 
         // 会话级技能（D21）：把 forwardedProps.skillIds 交给 AgentResolver 并入官方 SkillFilter
-        sessionSkillOverrides.put(threadId, parseSkillIds(input.getForwardedProp("skillIds")));
+        sessionSkillOverrides.put(threadId, parseSkillIds(effectiveInput.getForwardedProp("skillIds")));
 
         // 产物自动登记（D22）：run 前快照该会话工作区，结束时对比新增/变更文件
         java.util.Map<String, Long> workspaceSnapshot =
@@ -135,7 +146,7 @@ public class AguiRunController {
 
         AguiRuntimeContextRequest<HttpServletRequest> contextRequest =
                 AguiRuntimeContextRequest.<HttpServletRequest>builder()
-                        .input(input)
+                        .input(effectiveInput)
                         .pathAgentId(StringUtils.hasText(agentRef) ? agentRef : String.valueOf(agentDbId))
                         .transport(AguiRuntimeContextRequest.Transport.MVC)
                         .method("POST")

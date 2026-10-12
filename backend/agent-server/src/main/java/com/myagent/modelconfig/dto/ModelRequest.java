@@ -17,4 +17,5 @@ public record ModelRequest(
         java.math.BigDecimal priceInput,
         java.math.BigDecimal priceOutput,
         String priceCurrency,
+        Boolean multimodal,
         String status) {}

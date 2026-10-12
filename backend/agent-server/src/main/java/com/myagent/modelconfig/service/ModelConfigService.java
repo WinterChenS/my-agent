@@ -256,6 +256,7 @@ public class ModelConfigService {
         model.setPriceInput(priceInput);
         model.setPriceOutput(priceOutput);
         model.setPriceCurrency(currency == null || currency.isEmpty() ? "CNY" : currency);
+        model.setMultimodal(Boolean.TRUE.equals(request.multimodal()));
     }
 
     // ===================== helpers =====================
@@ -339,6 +340,7 @@ public class ModelConfigService {
                 model.getPriceInput(),
                 model.getPriceOutput(),
                 model.getPriceCurrency(),
+                model.getMultimodal(),
                 model.getStatus(),
                 model.getCreatedAt(),
                 model.getUpdatedAt());
