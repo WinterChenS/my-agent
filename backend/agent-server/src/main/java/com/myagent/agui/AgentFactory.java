@@ -280,6 +280,14 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     }
 
 
+    /** 该会话模型的**有效**压缩触发阈值（与运行时一致：配置值与窗口 60% 取小）。 */
+    public int effectiveCompactionTrigger(Long agentDbId) {
+        Agent agent = agentDbId == null ? null : agentMapper.selectById(agentDbId);
+        LlmModel model = (agent == null || agent.getModelId() == null)
+                ? null : llmModelMapper.selectById(agent.getModelId());
+        return compactionTriggerFor(model == null ? null : model.getContextWindow());
+    }
+
     /** 该 Agent 绑定的模型是否开启多模态（图片输入）；模型缺失或未开启都返回 false。 */
     public boolean isMultimodal(Long agentDbId) {
         Agent agent = agentDbId == null ? null : agentMapper.selectById(agentDbId);

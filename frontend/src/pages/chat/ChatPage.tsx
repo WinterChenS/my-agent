@@ -9,6 +9,8 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
 import { SkillPicker } from "@/components/chat/SkillPicker";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
+import { ContextBar } from "@/components/chat/ContextBar";
+import type { ContextUsage } from "@/api/sessions";
 import { SubagentCard } from "@/components/chat/SubagentCard";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
 import { JsonCard } from "@/components/cards/JsonCard";
@@ -23,8 +25,11 @@ import type { ChatItem, ChatState, ConfirmCardData, MappingCardData } from "@/li
 
 type ToolItem = Extract<ChatItem, { kind: "tool" }>;
 import {
+  clearContext,
+  compactContext,
   createSession,
   deleteSession,
+  getContextUsage,
   getRunState,
   interruptSession,
   listAgents,
@@ -81,6 +86,9 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  const [contextNotice, setContextNotice] = useState<string | null>(null);
+  const [contextBusy, setContextBusy] = useState(false);
   // Phase 10：`/` 选技能（D21）、上传中状态、右侧栏刷新信号
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
@@ -257,6 +265,7 @@ export default function ChatPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载历史消息失败");
     }
+    void refreshContext(target);
   }
 
   function startNewSession() {
@@ -279,6 +288,57 @@ export default function ChatPage() {
   }
 
   /** 发起一轮 /agui/run；text 与 resume 二选一。 */
+  /** 刷新上下文用量（打开会话、每轮结束后调用）。 */
+  async function refreshContext(active: ChatSession | null) {
+    if (!active) {
+      setContextUsage(null);
+      return;
+    }
+    try {
+      setContextUsage(await getContextUsage(active.id));
+    } catch {
+      setContextUsage(null);
+    }
+  }
+
+  /** 压缩上下文：拿到压缩后的用量并反馈。 */
+  async function handleCompact() {
+    if (!session) return;
+    setContextBusy(true);
+    setContextNotice(null);
+    try {
+      const before = contextUsage;
+      const after = await compactContext(session.id);
+      setContextUsage(after);
+      const dropped = before ? before.estimatedTokens - after.estimatedTokens : 0;
+      setContextNotice(
+        dropped > 0
+          ? `已压缩上下文，用量下降 ${dropped.toLocaleString()} tokens`
+          : "已压缩上下文（框架判断当前无需精简）",
+      );
+    } catch (e) {
+      setContextNotice(`压缩失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  /** 清空上下文：删框架状态，聊天记录保留。 */
+  async function handleClearContext() {
+    if (!session) return;
+    setContextBusy(true);
+    setContextNotice(null);
+    try {
+      await clearContext(session.id);
+      setContextUsage(await getContextUsage(session.id));
+      setContextNotice("已清空上下文（聊天记录保留），模型将从头开始");
+    } catch (e) {
+      setContextNotice(`清空失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
   async function runTurn(
     active: ChatSession,
     options: {
@@ -341,6 +401,7 @@ export default function ChatPage() {
       }
     } finally {
       setBusy(false);
+      void refreshContext(session);
     }
   }
 
@@ -651,6 +712,7 @@ export default function ChatPage() {
               }`}
             >
               <button
+                data-testid="session-item"
                 className="flex-1 truncate text-left"
                 onClick={() => void openSession(item)}
                 title={item.threadId ?? ""}
@@ -742,6 +804,17 @@ export default function ChatPage() {
 
         <div className="border-t p-3">
           <div className="relative mx-auto w-full max-w-3xl">
+            <ContextBar
+              usage={contextUsage}
+              busy={contextBusy || busy}
+              onCompact={() => void handleCompact()}
+              onClear={() => void handleClearContext()}
+            />
+            {contextNotice && (
+              <div className="mb-2 text-xs text-muted-foreground" data-testid="context-notice">
+                {contextNotice}
+              </div>
+            )}
             <SkillPicker
               selected={selectedSkills}
               query={skillQuery}

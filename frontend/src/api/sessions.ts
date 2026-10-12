@@ -37,3 +37,30 @@ export function listMessages(sessionId: number) {
 export function listAgents() {
   return apiFetch<PageResult<AgentSummary>>("/api/agents?current=1&size=100");
 }
+
+/** 上下文用量快照（tier1-upgrades ②）。 */
+export type ContextUsage = {
+  estimatedTokens: number;
+  messages: number;
+  triggerTokens: number;
+  keepTokens: number;
+  compacted: boolean;
+  summaryPreview: string | null;
+};
+
+/** 看该会话上下文用量与阈值。 */
+export function getContextUsage(sessionId: number) {
+  return apiFetch<ContextUsage>(`/api/sessions/${sessionId}/context`);
+}
+
+/** 立刻压缩上下文（走官方压缩能力）。 */
+export function compactContext(sessionId: number) {
+  return apiFetch<ContextUsage>(`/api/sessions/${sessionId}/context/compact`, { method: "POST" });
+}
+
+/** 清空上下文（删框架状态；聊天记录保留）。 */
+export function clearContext(sessionId: number) {
+  return apiFetch<{ removed: number }>(`/api/sessions/${sessionId}/context/clear`, {
+    method: "POST",
+  });
+}
