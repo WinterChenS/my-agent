@@ -38,23 +38,27 @@ public class Clean {
     String v = System.getenv(key);
     return (v == null || v.isBlank()) ? fallback : v;
   }
-  static String dbHost() { return env("DB_HOST", dbHost()); }
+  static String dbHost() { return env("DB_HOST", "localhost"); }
   static String dbUser() { return env("DB_USERNAME", "agent"); }
   static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
   static String jdbcUrl() {
-    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform");
+    // 优先用完整 DB_URL（.env 里通常这么配）；否则用 DB_HOST/DB_NAME 拼
+    String url = System.getenv("DB_URL");
+    if (url != null && !url.isBlank()) return url;
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform")
+        + "?stringtype=unspecified";
   }
 
     static final String KEEP_AGENT = "stub-demo-agent";
     static final String KEEP_PROVIDER = "deepseek";
     static final String KEEP_MODEL_PREFIX = "deepseek/";
     static final String[] TEST_AGENT_PREFIXES = {
-        "p3-", "p5-", "p6-", "p7-", "p7b-", "p7c-", "p7d-", "p8-", "p9-", "p10-", "p11-", "p11b-", "p11c-", "p12-",
+        "p3-", "p5-", "p6-", "p7-", "p7b-", "p7c-", "p7d-", "p8-", "p9-", "p10-", "p11-", "p11b-", "p11c-", "p12-", "rc-", "rc2-", "rc4-", "rv-", "k-agent-",
         "e2e-", "verifier-", "ns-agent-", "a1-", "a5-", "a9-", "v2-", "TestV2",
         "skill-test-agent", "dbg-", "factory-", "rollback-", "demo-agent-", "Agent-", "E2E-", "Manual-", "vcontract-", "vdc-", "vdc2-"
     };
     static final String[] TEST_PROVIDER_PREFIXES = {
-        "P3-", "P5-", "P6-", "P7-", "P72-", "P8-", "P9-", "P10-", "P11", "P12-", "E2E-", "D1-", "DBG-",
+        "P3-", "P5-", "P6-", "P7-", "P72-", "P8-", "P9-", "P10-", "P11", "P12-", "E2E-", "D1-", "DBG-", "RC-", "RC2-", "RC4-", "RV-", "K-Prov-",
         "FactoryTest-", "AgentTest-", "SkillTest-", "rollback-", "TestV2-", "ns-prov-", "A1-", "A5-", "V2-", "Verifier-", "示例",
         "Test-", "TestI2-", "V-Prov-", "V-Bad-", "e2e-p10-prov-", "Manual-Provider-", "VContract-", "VDC-", "VDC2-", "vdc-", "vdc2-", "ns-", "A1-", "A5-"
     };

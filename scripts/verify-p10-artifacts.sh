@@ -162,11 +162,15 @@ public class P10 {
     String v = System.getenv(key);
     return (v == null || v.isBlank()) ? fallback : v;
   }
-  static String dbHost() { return env("DB_HOST", dbHost()); }
+  static String dbHost() { return env("DB_HOST", "localhost"); }
   static String dbUser() { return env("DB_USERNAME", "agent"); }
   static String dbPassword() { return env("DB_PASSWORD", "change-me"); }
   static String jdbcUrl() {
-    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform");
+    // 优先用完整 DB_URL（.env 里通常这么配）；否则用 DB_HOST/DB_NAME 拼
+    String url = System.getenv("DB_URL");
+    if (url != null && !url.isBlank()) return url;
+    return "jdbc:postgresql://" + dbHost() + ":5432/" + env("DB_NAME", "agent_platform")
+        + "?stringtype=unspecified";
   }
 
   public static void main(String[] a) throws Exception {
