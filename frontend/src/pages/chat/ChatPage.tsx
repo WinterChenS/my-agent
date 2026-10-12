@@ -52,6 +52,26 @@ import {
   type SkillOption,
 } from "@/lib/skills/selection";
 
+/** 图片文件 → AG-UI 的 image 内容块（base64 内联；官方适配器会转成 ImageBlock）。 */
+async function fileToImagePart(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return {
+    type: "image" as const,
+    source: {
+      type: "data" as const,
+      value: btoa(binary),
+      mimeType: file.type || "image/png",
+    },
+  };
+}
+
+/** 单轮图片数量上限（与后端守卫一致）。 */
+const MAX_IMAGES_PER_RUN = 5;
+
 export default function ChatPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
@@ -261,13 +281,25 @@ export default function ChatPage() {
   /** 发起一轮 /agui/run；text 与 resume 二选一。 */
   async function runTurn(
     active: ChatSession,
-    options: { text?: string; resume?: { interruptId: string; status: string; payload?: unknown }[] },
+    options: {
+      text?: string;
+      /** 图片内容块（多模态）；有值时消息 content 用「文本 + 图片」结构 */
+      parts?: unknown[];
+      resume?: { interruptId: string; status: string; payload?: unknown }[];
+    },
   ) {
     const agent = agentRef.current ?? (agentRef.current = createChatAgent());
     agent.threadId = active.threadId!;
     if (options.text) {
       agent.messages = [
-        { id: crypto.randomUUID(), role: "user", content: options.text },
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          // 有图片时按 AG-UI 内容块发送：{type:"image", source:{type:"data", value:base64, mimeType}}
+          content: options.parts?.length
+            ? [{ type: "text", text: options.text }, ...options.parts]
+            : options.text,
+        },
       ] as typeof agent.messages;
     } else {
       agent.messages = [] as typeof agent.messages;
@@ -358,6 +390,14 @@ export default function ChatPage() {
       outgoing = text + buildAttachmentBlock(fileNames.map((name) => `uploads/${name}`));
     }
 
+    // tier1-upgrades ①：把暂存里的图片作为内容块随消息发送（模型是否支持由后端守卫判定）
+    const imageFiles = staged.map((item) => item.file).filter((f) => f.type.startsWith("image/"));
+    if (imageFiles.length > MAX_IMAGES_PER_RUN) {
+      setError(`单轮最多发送 ${MAX_IMAGES_PER_RUN} 张图片（当前 ${imageFiles.length} 张）`);
+      return;
+    }
+    const imageParts = imageFiles.length > 0 ? await Promise.all(imageFiles.map(fileToImagePart)) : [];
+
     setStaged([]);
     setInput("");
     setChat((prev) => ({
@@ -374,7 +414,7 @@ export default function ChatPage() {
       status: "running",
       runId: null,
     }));
-    await runTurn(active, { text: outgoing });
+    await runTurn(active, { text: outgoing, parts: imageParts });
   }
 
   /** 审批决定 -> 记录结果 -> 用 resume 唤醒被拦截的执行。 */

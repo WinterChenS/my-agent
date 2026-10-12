@@ -48,6 +48,8 @@ export interface ModelInfo {
   priceOutput: number | null;
   /** 价格货币：CNY / USD */
   priceCurrency: string | null;
+  /** 是否支持图片输入（多模态） */
+  multimodal: boolean | null;
   status: "ENABLED" | "DISABLED";
   createdAt?: string;
   updatedAt?: string;

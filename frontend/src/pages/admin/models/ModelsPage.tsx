@@ -59,6 +59,8 @@ interface ModelForm {
   priceInput: string;
   priceOutput: string;
   priceCurrency: string;
+  /** tier1-upgrades ①：是否支持图片输入 */
+  multimodal: boolean;
   status: "ENABLED" | "DISABLED";
 }
 
@@ -83,6 +85,7 @@ const EMPTY_MODEL: ModelForm = {
   priceInput: "",
   priceOutput: "",
   priceCurrency: "CNY",
+  multimodal: false,
   status: "ENABLED",
 };
 
@@ -189,6 +192,7 @@ export default function ModelsPage() {
       priceInput: num(modelForm.priceInput),
       priceOutput: num(modelForm.priceOutput),
       priceCurrency: modelForm.priceCurrency || "CNY",
+      multimodal: modelForm.multimodal,
       status: modelForm.status,
     };
     if (
@@ -456,6 +460,7 @@ export default function ModelsPage() {
                             priceInput: m.priceInput != null ? String(m.priceInput) : "",
                             priceOutput: m.priceOutput != null ? String(m.priceOutput) : "",
                             priceCurrency: m.priceCurrency ?? "CNY",
+                            multimodal: m.multimodal === true,
                             status: m.status,
                           });
                           setModelDialog(true);
@@ -479,6 +484,9 @@ export default function ModelsPage() {
                         <div>温度 {m.temperature ?? "-"} · TopN {m.topP ?? "-"}</div>
                         <div className="text-muted-foreground">
                           上下文 {m.contextWindow ?? "-"} · 输出 {m.maxTokens ?? "-"}
+                        </div>
+                        <div className="text-muted-foreground">
+                          多模态 {m.multimodal ? "开" : "关"}
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs whitespace-nowrap">
@@ -529,6 +537,7 @@ export default function ModelsPage() {
                                 priceInput: m.priceInput != null ? String(m.priceInput) : "",
                                 priceOutput: m.priceOutput != null ? String(m.priceOutput) : "",
                                 priceCurrency: m.priceCurrency ?? "CNY",
+                            multimodal: m.multimodal === true,
                                 status: m.status,
                               });
                               setModelDialog(true);
@@ -730,6 +739,16 @@ export default function ModelsPage() {
                   onChange={(e) => setModelForm({ ...modelForm, priceOutput: e.target.value })}
                   placeholder="如 6"
                 />
+              </label>
+              <label className="flex items-center gap-2 self-end text-sm">
+                <input
+                  type="checkbox"
+                  data-testid="model-multimodal"
+                  className="size-4"
+                  checked={modelForm.multimodal}
+                  onChange={(e) => setModelForm({ ...modelForm, multimodal: e.target.checked })}
+                />
+                支持多模态（图片输入）
               </label>
               <label className="space-y-1 text-sm">
                 价格货币
