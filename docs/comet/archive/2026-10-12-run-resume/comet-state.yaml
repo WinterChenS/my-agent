@@ -2,8 +2,8 @@ schema: comet.native.v4
 name: run-resume
 language: zh-CN
 phase: archive
-status: active
-state_version: 9
+status: done
+state_version: 10
 brief: brief.md
 document_constraints_version: 2
 shape_confirmation_hash: 49bdea798274c804f04d77d442ba765b1d5c213e4e79c093b8a5ca2fc42fe529
@@ -17,7 +17,7 @@ workspace:
   target_branch: master
   finish: null
 loop:
-  stage: archive-ready
+  stage: done
   goal_cycle: 2
   iteration: 1
   attempt: 1
@@ -26,7 +26,7 @@ loop:
   no_progress_count: 0
   execution_failure_count: 0
   previous_unresolved_ids: []
-  next_action: archive
+  next_action: null
 acceptance:
   - id: A1
     source: brief.md
@@ -503,5 +503,5 @@ history_overflow:
     recovery: 0
 verification_result: pass
 verification_report: verification.md
-archived: false
+archived: true
 created_at: 2026-10-12T01:47:54.730Z
