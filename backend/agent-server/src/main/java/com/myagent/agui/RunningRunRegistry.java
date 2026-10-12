@@ -62,10 +62,16 @@ public class RunningRunRegistry {
                 return t;
             });
 
-    private final long graceMillis;
+    /**
+     * 「断开后最多再跑多久」的可选上限（毫秒）。**默认 0 = 不限制**：
+     * 后端把这一轮跑完为止，前端只是"观众"，随时可以进来接上（用户明确要求这个语义）。
+     * 想省钱时可设成正值（如 600000 = 断开 10 分钟后仍未有人回来才中断并落库）。
+     */
+    private final long maxDetachedMillis;
 
-    public RunningRunRegistry(@Value("${myagent.run.grace-millis:60000}") long graceMillis) {
-        this.graceMillis = graceMillis;
+    public RunningRunRegistry(
+            @Value("${myagent.run.max-detached-millis:0}") long maxDetachedMillis) {
+        this.maxDetachedMillis = Math.max(0L, maxDetachedMillis);
     }
 
     /** 开始一轮 run：登记实例与上下文，并清空上一轮的残留状态。 */
@@ -118,10 +124,11 @@ public class RunningRunRegistry {
     }
 
     /**
-     * 客户端断开：不立刻中断，进入宽限期。
+     * 客户端断开（刷新 / 切页 / 关标签页）。
      *
-     * <p>为什么不能立刻中断：用户只是刷新/切页时，SSE 也会断开；立刻中断会把这轮答案丢掉（实测：
-     * 断开后助手消息根本没落库）。宽限期内若有人回来就继续，一直没人回来才中断并落库。
+     * <p>**默认不中断**：这一轮由后端负责跑完（用户明确要求：无论前端在不在，后端都继续跑），
+     * 前端只是观众，随时可以再进来接上。只有在显式配置了 {@code myagent.run.max-detached-millis}
+     * （> 0）时才在超过该时长且仍无人回来时中断，并且中断后照样落库。
      */
     public void markDetached(String threadId) {
         RunHandle handle = threadId == null ? null : runs.get(threadId);
@@ -129,10 +136,11 @@ public class RunningRunRegistry {
             return;
         }
         handle.detachedAt = System.currentTimeMillis();
-        if (handle.graceTask == null) {
-            handle.graceTask = scheduler.schedule(
-                    () -> expireIfStillDetached(threadId), graceMillis, TimeUnit.MILLISECONDS);
+        if (maxDetachedMillis <= 0 || handle.graceTask != null) {
+            return; // 默认不设上限：让后端把这一轮跑完
         }
+        handle.graceTask = scheduler.schedule(
+                () -> expireIfStillDetached(threadId), maxDetachedMillis, TimeUnit.MILLISECONDS);
     }
 
     private void expireIfStillDetached(String threadId) {
@@ -141,13 +149,13 @@ public class RunningRunRegistry {
             return;
         }
         long idle = System.currentTimeMillis() - handle.detachedAt;
-        if (idle < graceMillis) {
+        if (idle < maxDetachedMillis) {
             // 期间有人回来又走了：再等一轮
             handle.graceTask = scheduler.schedule(
-                    () -> expireIfStillDetached(threadId), graceMillis - idle, TimeUnit.MILLISECONDS);
+                    () -> expireIfStillDetached(threadId), maxDetachedMillis - idle, TimeUnit.MILLISECONDS);
             return;
         }
-        log.info("run 断开超过宽限期（{}ms），中断以免空烧 token: threadId={}", graceMillis, threadId);
+        log.info("run 断开已超过配置上限（{}ms）且无人接续，中断并落库: threadId={}", maxDetachedMillis, threadId);
         interrupt(threadId);
     }
 
