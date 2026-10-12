@@ -90,16 +90,21 @@ public class SessionTitleService {
     }
 
     /** 调模型生成标题（失败时由调用方回退）。 */
-    String generate(Long agentDbId, String firstUserMessage) {
+    public String generate(Long agentDbId, String firstUserMessage) {
+        firstUserMessage = stripAttachmentBlock(firstUserMessage);
         ChatModelBase model = agentFactory.buildChatModelFor(agentDbId);
         Msg msg = Msg.builderForRole(MsgRole.USER).textContent(PROMPT + firstUserMessage).build();
         GenerateOptions options = GenerateOptions.builder()
                 // 标题很短：给足上限即可，不要占用太多窗口
-                .maxTokens(64)
-                .stream(false)
+                // 给足额度：部分模型（含推理型）额度太小会把预算花在思考上、正文为空
+                .maxTokens(512)
+                // 用流式：实测这个 OpenAI 兼容端点非流式解析不出文本，而流式正常
+                .stream(true)
                 .build();
         List<ChatResponse> responses = model.stream(List.of(msg), List.of(), options).collectList().block();
         String text = extract(responses);
+        log.info("标题生成模型原始输出 session agent={} raw={}", agentDbId,
+                text == null ? "null" : text.replace((char) 10, ' ').substring(0, Math.min(80, text.length())));
         String cleaned = sanitize(text);
         return cleaned.isBlank() ? fallbackTitle(firstUserMessage) : cleaned;
     }
@@ -124,6 +129,19 @@ public class SessionTitleService {
         return text.toString();
     }
 
+    /**
+     * 去掉我们自己加在用户消息末尾的「[已上传附件]」块。
+     *
+     * <p>那是给模型的路径提示，不应该出现在标题里（实测回填时标题被它污染）。
+     */
+    public static String stripAttachmentBlock(String content) {
+        if (content == null) {
+            return "";
+        }
+        int idx = content.indexOf("[已上传附件]");
+        return (idx >= 0 ? content.substring(0, idx) : content).strip();
+    }
+
     /** 清洗：去掉引号/换行/多余空白，并限长（模型偶尔会多说一句）。 */
     static String sanitize(String raw) {
         if (raw == null) {
@@ -142,12 +160,44 @@ public class SessionTitleService {
 
     /** 回退标题：首条消息截断（保留可读性）。 */
     static String fallbackTitle(String firstUserMessage) {
-        String text = firstUserMessage.strip().replace("\n", " ");
+        String text = stripAttachmentBlock(firstUserMessage).replace("\n", " ");
         if (text.length() <= FALLBACK_CHARS) {
             return text;
         }
         return text.substring(0, FALLBACK_CHARS) + "…";
     }
+
+    /**
+     * 历史会话标题回填（一次性运维动作）：给「标题仍是自动态」的会话按首条用户消息生成标题。
+     *
+     * <p>逐条同步生成（便于回报进度），单次调用限制条数，避免一次打爆模型。
+     *
+     * @return 实际更新的条数
+     */
+    public int backfill(java.util.List<FirstMessage> candidates) {
+        int updated = 0;
+        for (FirstMessage candidate : candidates) {
+            if (candidate == null || candidate.sessionId() == null
+                    || candidate.firstUserMessage() == null
+                    || candidate.firstUserMessage().isBlank()
+                    || candidate.agentId() == null) {
+                continue;
+            }
+            try {
+                String title = generate(candidate.agentId(), candidate.firstUserMessage());
+                updateIfAuto(candidate.sessionId(), title);
+                updated++;
+            } catch (Exception ex) {
+                log.warn("回填标题失败 sessionId={}: {}", candidate.sessionId(), ex.toString());
+                updateIfAuto(candidate.sessionId(), fallbackTitle(candidate.firstUserMessage()));
+                updated++;
+            }
+        }
+        return updated;
+    }
+
+    /** 回填候选：会话 + 它绑定的 Agent + 首条用户消息。 */
+    public record FirstMessage(Long sessionId, Long agentId, String firstUserMessage) {}
 
     /** 仅在 title_auto=true 时更新标题。 */
     private void updateIfAuto(Long sessionId, String title) {

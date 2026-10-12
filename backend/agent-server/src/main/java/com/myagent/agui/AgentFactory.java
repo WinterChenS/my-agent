@@ -320,8 +320,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         if (model.getMaxTokens() != null) {
             params.put("maxTokens", model.getMaxTokens());
         }
+        // 用流式：实测这个 OpenAI 兼容端点在「非流式」下解析不出文本（chat 路径同样是流式）。
         return modelFactory.create(
-                provider.getProviderType(), provider.getBaseUrl(), apiKey, model.getModelId(), params, false);
+                provider.getProviderType(), provider.getBaseUrl(), apiKey, model.getModelId(), params, true);
     }
 
     /** 压缩触发阈值：配置值与「模型窗口的 60%」取小（模型未配窗口时用配置值）。 */

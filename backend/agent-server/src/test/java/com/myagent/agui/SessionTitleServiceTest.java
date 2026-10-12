@@ -30,4 +30,22 @@ class SessionTitleServiceTest {
         String title = SessionTitleService.fallbackTitle(longMsg);
         assertThat(title).endsWith("…").hasSize(21);
     }
+
+    @org.junit.jupiter.api.Test
+    void 剥离附件说明块_标题不被路径提示污染() {
+        String withBlock = "评价一下这张图片\n[已上传附件] uploads/a.png\n[已上传附件] uploads/b.png";
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "评价一下这张图片", SessionTitleService.stripAttachmentBlock(withBlock));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "普通消息", SessionTitleService.stripAttachmentBlock("普通消息"));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "", SessionTitleService.stripAttachmentBlock("[已上传附件] uploads/a.png"));
+    }
+
+    @org.junit.jupiter.api.Test
+    void 回退标题不含附件说明块() {
+        String title = SessionTitleService.fallbackTitle("看一下这个\n[已上传附件] uploads/x.pdf\n...");
+        org.junit.jupiter.api.Assertions.assertFalse(title.contains("已上传附件"), title);
+        org.junit.jupiter.api.Assertions.assertTrue(title.startsWith("看一下这个"), title);
+    }
 }

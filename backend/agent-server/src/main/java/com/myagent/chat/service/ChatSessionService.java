@@ -117,6 +117,31 @@ public class ChatSessionService {
                 .eq(ChatMessage::getRole, "USER"));
     }
 
+    /**
+     * 找出「标题仍可自动覆盖」且有历史消息的会话，并取出各自的首条用户消息（Phase 17 回填用）。
+     */
+    public java.util.List<com.myagent.agui.SessionTitleService.FirstMessage> backfillCandidates(int limit) {
+        java.util.List<ChatSession> sessions = sessionMapper.selectList(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<ChatSession>lambdaQuery()
+                        .and(w -> w.isNull(ChatSession::getTitleAuto).or().eq(ChatSession::getTitleAuto, true))
+                        .orderByAsc(ChatSession::getId)
+                        .last("limit " + Math.max(1, limit)));
+        java.util.List<com.myagent.agui.SessionTitleService.FirstMessage> result = new java.util.ArrayList<>();
+        for (ChatSession session : sessions) {
+            ChatMessage first = messageMapper.selectOne(
+                    com.baomidou.mybatisplus.core.toolkit.Wrappers.<ChatMessage>lambdaQuery()
+                            .eq(ChatMessage::getSessionId, session.getId())
+                            .eq(ChatMessage::getRole, "USER")
+                            .orderByAsc(ChatMessage::getSeq, ChatMessage::getId)
+                            .last("limit 1"));
+            if (first != null && first.getContent() != null && !first.getContent().isBlank()) {
+                result.add(new com.myagent.agui.SessionTitleService.FirstMessage(
+                        session.getId(), session.getAgentId(), first.getContent()));
+            }
+        }
+        return result;
+    }
+
     public void touch(Long sessionId) {
         ChatSession session = sessionMapper.selectById(sessionId);
         if (session != null) {
