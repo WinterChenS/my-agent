@@ -73,3 +73,4 @@ patch-*.py
 /.comet/*
 !/.comet/config.yaml
 # <<< Comet managed project state <<<
+.rr-*.json
