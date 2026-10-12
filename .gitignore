@@ -1,10 +1,5 @@
 # Comet / OpenSpec skill 运行时（本地安装产物，体积大，可由 `comet init` / `comet update` 重建）
 .pi/skills/
-# >>> Comet managed project state >>>
-!/.comet/
-/.comet/*
-!/.comet/config.yaml
-# <<< Comet managed project state <<<
 
 # ===== Java / Maven =====
 target/
@@ -73,3 +68,8 @@ fill-handoff*.py
 make-verifier-prompt*.py
 patch-*.py
 .p12-run.sse
+# >>> Comet managed project state >>>
+!/.comet/
+/.comet/*
+!/.comet/config.yaml
+# <<< Comet managed project state <<<

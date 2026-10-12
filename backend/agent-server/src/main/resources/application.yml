@@ -9,6 +9,13 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+  servlet:
+    multipart:
+      # 容器层上限必须 >= 业务上限（myagent.minio.max-file-size-mb，默认 50MB），
+      # 否则大文件在进入我们代码之前就被容器拒掉（实测 1.2MB 图片即失败）。
+      # 默认比业务上限略高，让"超限"由业务层给出明确提示。
+      max-file-size: ${MYAGENT_MULTIPART_MAX_FILE:55MB}
+      max-request-size: ${MYAGENT_MULTIPART_MAX_REQUEST:60MB}
 
 server:
   port: 8080

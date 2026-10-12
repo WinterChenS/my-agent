@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /** 全局异常处理：任何异常都转换为 {@link Result}，不向客户端抛裸 500 堆栈。 */
@@ -58,6 +59,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AsyncRequestNotUsableException.class)
     public void handleClientAbort(AsyncRequestNotUsableException ex) {
         log.debug("客户端已断开，异步响应不可写: {}", ex.getMessage());
+    }
+
+    /**
+     * 上传超出容器上限（spring.servlet.multipart.*）。
+     *
+     * <p>实测坑：容器默认单文件上限只有 1MB，而业务上限是 50MB —— 超过 1MB 的图片在**进入我们代码之前**
+     * 就被容器拒掉，且原先直接泛化成 500（用户上传截图即触发）。这里给明确业务错误。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Result<Void>> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
+        log.warn("上传超出容器上限: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Result.error(400, "上传文件超过上限（单文件最大 55MB，可用 MYAGENT_MULTIPART_MAX_FILE 调整）"));
     }
 
     @ExceptionHandler(Exception.class)
