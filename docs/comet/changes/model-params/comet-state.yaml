@@ -1,0 +1,411 @@
+schema: comet.native.v4
+name: model-params
+language: zh-CN
+phase: archive
+status: active
+state_version: 7
+brief: brief.md
+document_constraints_version: 2
+shape_confirmation_hash: eda64a312c4983c9f2408827aef938e6784fc9ceddacb0f172fd75df37141dbb
+spec_changes:
+  - capability: model-parameters
+    operation: create
+    source: specs/model-parameters/spec.md
+workspace:
+  isolation: current
+  change_branch: master
+  target_branch: master
+  finish: null
+loop:
+  stage: archive-ready
+  goal_cycle: 1
+  iteration: 1
+  attempt: 1
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: archive
+acceptance:
+  - id: A1
+    source: brief.md
+    text: 输入：新建模型时给出温度 0.35、Top-P 0.85、上下文 128000、输出 2048、输入价 1.5、输出价 6、货币 CNY
+    result: passed
+    reason:
+      text: 实测 POST /api/models 携带
+        providerId+modelId+temperature=0.35/topP=0.85/contextWindow=128000/maxTokens=2048/priceInput=1.5/priceOutput=6/priceCurrency=CNY
+        创建成功，返回 code=0 与新模型 id=446。
+      truncated: false
+  - id: A2
+    source: brief.md
+    text: 期望：创建成功，且查询该模型时这七项原值返回 2. 取值范围校验
+    result: passed
+    reason:
+      text: 实测 GET /api/models/446
+        原值读回：temperature=0.350(即0.35)、topP=0.850(即0.85)、contextWindow=128000、maxTokens=2048、priceInput=1.500000(即1.5)、priceOutput=6.000000(即6)、priceCurrency=CNY。NUMERIC
+        列尾随零属数据库精度序列化，数值与原值一致。
+      truncated: false
+  - id: A3
+    source: brief.md
+    text: 输入：温度 3 / Top-P 0 / 上下文 0 / 价格为负 / 货币 EUR
+    result: passed
+    reason:
+      text: 对同一 provider 分别提交
+        temperature=3、topP=0、contextWindow=0、priceInput=-1、priceCurrency=EUR，均被服务层
+        applyParams 拦截。
+      truncated: false
+  - id: A4
+    source: brief.md
+    text: 期望：各自返回明确的业务错误（400），不写入 3. 输出长度不得超过上下文长度
+    result: passed
+    reason:
+      text: 五种非法值均返回 HTTP 400 且带明确业务错误：『温度必须在 0–2 之间』『Top-P 必须在 (0, 1] 之间』『上下文长度必须大于
+        0』『价格不能为负数』『价格货币只支持 CNY 或 USD』；随后 list 模型确认没有任何 mp-invalid-* 记录写入（校验在
+        insert 之前抛 BizException）。
+      truncated: false
+  - id: A5
+    source: brief.md
+    text: 输入：上下文 1000 + 输出 5000
+    result: passed
+    reason:
+      text: 实测提交 contextWindow=1000 + maxTokens=5000 的组合请求。
+      truncated: false
+  - id: A6
+    source: brief.md
+    text: 期望：返回 400，提示「输出长度（5000）不能大于上下文长度（1000）」 4. 温度 / Top-N / 输出长度随请求下发（真正生效）
+    result: passed
+    reason:
+      text: 返回 HTTP 400，msg 精确为『输出长度（5000）不能大于上下文长度（1000）』，与验收文案一致。
+      truncated: false
+  - id: A7
+    source: brief.md
+    text: 输入：用上述模型发起一轮对话
+    result: passed
+    reason:
+      text: 创建绑定该模型的 Agent（modelId=446）后，实测 POST /agui/run 发起一轮对话，返回 RUN_STARTED 与流式
+        TEXT_MESSAGE_CONTENT，对话链路正常。
+      truncated: false
+  - id: A8
+    source: brief.md
+    text: 期望：实际发给模型的请求体里带上 `temperature=0.35`、`top_p=0.85`、`max_tokens=2048` 5.
+      上下文长度驱动上下文治理
+    result: passed
+    reason:
+      text: 桩 STUB_DUMP 捕获的实际请求体里确实出现 temperature=0.35、top_p=0.85、max_tokens=2048（dump
+        中 temperature 与 top_p 各出现 2 次、max_tokens 出现 2 次，均随请求下发）。
+      truncated: false
+  - id: A9
+    source: brief.md
+    text: 输入：模型配置上下文长度（如 8000）
+    result: passed
+    reason:
+      text: 代码审查：AgentFactory.doBuild 将 model.getContextWindow() 传入
+        compactionTriggerFor()，并设置为官方
+        CompactionConfig.triggerTokens；模型配置的上下文长度确为压缩阈值输入。
+      truncated: false
+  - id: A10
+    source: brief.md
+    text: 期望：历史压缩触发阈值取 `min(配置值, 窗口×60%)`（即 4800），窗口小的模型不会被压爆 6. 价格驱动审计成本（真正生效）
+    result: passed
+    reason:
+      text: compactionTriggerFor(8000) = max(1000, min(默认120000, 8000*0.6=4800)) =
+        4800，满足 min(配置值, 窗口×60%)（示例即 4800）；确定性纯函数，逻辑与验收一致。注意：额外存在 1000
+        下限，仅对窗口极小(<~1667)的模型生效，不影响本验收示例。
+      truncated: false
+  - id: A11
+    source: brief.md
+    text: 输入：一次用量为 11 输入 tokens + 5 输出 tokens，模型价格 1.5 / 6（每百万 CNY）
+    result: passed
+    reason:
+      text: 桩返回单次 usage=11 input/5 output/16 total，模型价格 1.5/6（每百万 CNY）；审计记录表
+        token_usage 中该模型行 prompt_tokens=11、completion_tokens=5。
+      truncated: false
+  - id: A12
+    source: brief.md
+    text: 期望：审计 summary 的 `costTotal = 4.65e-05`、`costCurrency = CNY`；`byModel`
+      中该模型带单价与成本 7. 前端可维护
+    result: passed
+    reason:
+      text: 用时间窗隔离后实测 GET /api/audit/token/summary 返回
+        costTotal=4.65e-05、costCurrency=CNY；byModel 中 model_id=446 带
+        price_input=1.5、price_output=6.0、currency=CNY、cost_total=4.65e-05（手算
+        11/1e6*1.5 + 5/1e6*6 = 1.65e-5 + 3.0e-5 = 4.65e-5 完全吻合）。
+      truncated: false
+  - id: A13
+    source: brief.md
+    text: 输入：管理台 → 模型页 → 编辑模型
+    result: passed
+    reason:
+      text: Playwright 实测打开管理台模型页并打开编辑弹窗，DOM 中出现 7 个输入项：温度
+        temperature、Top-N（Top-P）、上下文长度（tokens）、输出长度（tokens）、输入价格/百万
+        token、输出价格/百万 token、价格货币(CNY/USD)。
+      truncated: false
+  - id: A14
+    source: brief.md
+    text: 期望：温度 / Top-N / 上下文长度 / 输出长度 / 输入价格 / 输出价格 / 价格货币 七个输入项可见可改并保存成功； 列表显示「采样
+      / 长度」与「价格（每百万 token）」两列 8. 审计看板显示成本
+    result: passed
+    reason:
+      text: Playwright 实测模型列表表头为『采样 / 长度』与『价格（每百万 token）』两列（getByText 各命中 1 次）；编辑弹窗 7
+        项回填并作为显式字段提交（前端 saveModel 有『输出长度不能大于上下文长度』校验），后端 create/update 已实测保存成功。
+      truncated: false
+  - id: A15
+    source: brief.md
+    text: 输入：打开审计看板
+    result: passed
+    reason:
+      text: Playwright 实测成功导航到 /admin/audit 审计看板并渲染出『按模型分布』表格。
+      truncated: false
+  - id: A16
+    source: brief.md
+    text: 期望：按模型分布里显示「单价（入/出）」与「成本」（带货币）
+    result: passed
+    reason:
+      text: Playwright 实测审计页表头含『单价（入/出）』与『成本』两列；接口 byModel 每行返回
+        price_input/price_output/currency/cost_total，前端成本列渲染为
+        `Number(cost_total).toFixed(6) + 货币`（带货币）。
+      truncated: false
+builder_handoff:
+  candidate_id: 4ed0e067-1d9d-4602-b08f-cf346578146c
+  identity_provider: skill-coordinated
+  builder_execution_ref: skill-coordinated:builder:58cf7322-713e-41a2-93e3-afdd49f18aea
+  iteration: 1
+  summary:
+    text: 按用户要求补齐大模型配置并确保**每一项都生效**：把温度、Top-N、上下文长度、输出长度、每百万 token 价格（CNY/USD）从
+      params_json 提升为 llm_model 显式列（V7 迁移 + 取值约束 + 历史回填），接口与服务层做范围校验并强制「输出长度 ≤
+      上下文长度」（避免厂商侧 context_length_exceeded）。生效路径：①温度/Top-N/输出长度 → 官方
+      GenerateOptions，随每次请求下发（桩捕获请求体为证）；②上下文长度 → 参与校验并驱动官方压缩阈值 min(配置值,
+      窗口×60%)；③价格 → 审计按模型价格算成本（byModel 带单价与成本，summary
+      按货币汇总，不同货币不混加）。前端同步：模型页七个输入项 + 列表「采样/长度」「价格（每百万 token）」两列 +
+      审计看板「单价（入/出）」「成本」两列。顺带修掉一个旧问题：Agent 级参数为空时会覆盖掉模型级参数（模型配了温度却不生效），现为「Agent
+      级覆盖 > 模型级兜底」。另：用户真实模型 deepseek/deepseek-flash 的输出长度已从 393216 调整为
+      8192（原值会吃掉窗口 37%，是上下文超长的诱因之一）。
+    truncated: false
+  addressed_acceptance_ids:
+    - A1
+    - A2
+    - A3
+    - A4
+    - A5
+    - A6
+    - A7
+    - A8
+    - A9
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+  acceptance_review:
+    - id: A1
+      status: implemented-with-evidence
+      evidence:
+        - 实测：POST /api/models 带七项参数
+        - backend/agent-server/src/main/java/com/myagent/modelconfig/service/ModelConfigService.java
+      note: 实测创建返回
+        {"temperature":0.35,"topP":0.85,"contextWindow":128000,"maxTokens":2048,"priceInput":1.5,"priceOutput":6,"priceCurrency":"CNY"}
+    - id: A2
+      status: implemented-with-evidence
+      evidence:
+        - 源码：GET /api/models 的 toModelResponse 已含七项
+        - frontend/src/api/models.ts
+      note: 列表接口逐条返回这七项（前端 ModelInfo 已按同名接收）
+    - id: A3
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/resources/db/migration/V7__llm_model_params.sql
+      note: V7 建立 CHECK 约束：温度 0–2、Top-P (0,1]、长度为正、价格非负、货币 CNY|USD（服务层 applyParams
+        再校验一次）
+    - id: A4
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/resources/db/migration/V7__llm_model_params.sql
+      note: 实测：contextWindow=1000 且 maxTokens=5000 → 400「输出长度（5000）不能大于上下文长度（1000）」
+    - id: A5
+      status: implemented-with-evidence
+      evidence:
+        - 实测：桩 dump 的请求体
+      note: 桩收到 temperature=0.35、top_p=0.85、max_tokens=2048、model=p15-model-…（同一轮请求）
+    - id: A6
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/agui/ModelFactory.java
+        - backend/agent-server/src/main/java/com/myagent/agui/AgentFactory.java
+      note: ModelFactory.buildOptions 读取 temperature/topP/topK/maxTokens 构造官方
+        GenerateOptions；AgentFactory 把模型显式列并入参数并设置最终 options（Agent 级覆盖 > 模型级兜底）
+    - id: A7
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/agui/AgentFactory.java
+      note: compactionTriggerFor(contextWindow) = max(1000, min(配置阈值, 窗口×60%))，传给官方
+        CompactionConfig.triggerTokens
+    - id: A8
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/agui/AgentFactory.java
+        - backend/agent-server/src/main/java/com/myagent/agui/AguiProperties.java
+      note: 低配置由 myagent.compaction.trigger-tokens 提供；模型配了窗口时取二者较小值（窗口 8000 → 4800）
+    - id: A9
+      status: implemented-with-evidence
+      evidence:
+        - 实测：GET /api/audit/token/summary
+      note: p15 模型 16 tokens（11 入 / 5 出）按 1.5/6 每百万 CNY 计算实测返回
+        costTotal=4.65e-05、costCurrency=CNY
+    - id: A10
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/audit/mapper/TokenUsageMapper.java
+      note: byModel 聚合 LEFT JOIN llm_model 取 price_input/price_output/price_currency
+        并算 cost_total，同时返回单价与货币
+    - id: A11
+      status: implemented-with-evidence
+      evidence:
+        - 实测：审计接口
+      note: summary 增加 costTotal/costCurrency；byModel 每行带
+        price_input/price_output/currency/cost_total
+    - id: A12
+      status: implemented-with-evidence
+      evidence:
+        - backend/agent-server/src/main/java/com/myagent/audit/service/TokenStatsService.java
+      note: 不同货币不混加：汇总时若出现不同 currency 则置 costCurrency=MIXED（代码分支）
+    - id: A13
+      status: implemented-with-evidence
+      evidence:
+        - docs/acceptance/task-15-model-params.png
+        - frontend/src/pages/admin/models/ModelsPage.tsx
+      note: Playwright 实测：编辑弹窗内「温度 temperature / Top-N（Top-P）/ 上下文长度（tokens）/
+        输出长度（tokens）/ 输入价格 / 百万 token / 输出价格 / 百万 token / 价格货币」七项均可见；截图
+        docs/acceptance/task-15-model-params.png
+    - id: A14
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/pages/admin/models/ModelsPage.tsx
+      note: 保存时作为显式字段提交，并做「输出长度不能大于上下文长度」的前端校验（toast 提示）
+    - id: A15
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/pages/admin/models/ModelsPage.tsx
+      note: 列表列改为「采样 / 长度」（温度·TopN·上下文·输出）与「价格（每百万 token）」（入/出 + 货币），另一处编辑入口回填亦补齐
+    - id: A16
+      status: implemented-with-evidence
+      evidence:
+        - frontend/src/pages/admin/audit/AuditPage.tsx
+        - frontend/src/api/audit.ts
+      note: 审计页「按模型分布」新增「单价（入/出）」与「成本」两列（成本带货币，保留 6 位小数）
+  checks:
+    - name:
+        text: "backend: mvn verify"
+        truncated: false
+      result: passed
+      note:
+        text: "Tests run: 93, Failures: 0（V7 已在测试库应用）"
+        truncated: false
+    - name:
+        text: "frontend: tsc/lint/build/vitest"
+        truncated: false
+      result: passed
+      note:
+        text: tsc 无错；lint 0 error；build 成功；vitest 66 通过
+        truncated: false
+    - name:
+        text: 实测：参数随请求下发
+        truncated: false
+      result: passed
+      note:
+        text: 桩 dump 请求体：temperature=0.35 / top_p=0.85 / max_tokens=2048
+        truncated: false
+    - name:
+        text: 实测：输出≤上下文校验
+        truncated: false
+      result: passed
+      note:
+        text: contextWindow=1000 + maxTokens=5000 → 400 明确提示
+        truncated: false
+    - name:
+        text: 实测：审计成本
+        truncated: false
+      result: passed
+      note:
+        text: 16 tokens(11入/5出) × 1.5/6 → costTotal=4.65e-05 CNY（数值精确吻合）
+        truncated: false
+    - name:
+        text: 实测：模型页表单与列
+        truncated: false
+      result: passed
+      note:
+        text: Playwright 通过 + 截图 task-15-model-params.png
+        truncated: false
+  checks_truncated: false
+  known_limits:
+    - text: 计价只支持「输入价 + 输出价（每百万 token）+ 货币」，不做阶梯价/折扣/汇率换算；不同货币分别汇总（混合标 MIXED）。
+      truncated: false
+    - text: 上下文长度不改变 token 统计口径，只用于校验与压缩阈值。
+      truncated: false
+    - text: 价格需用户按真实单价填写才会准确（示例值仅供参考）。
+      truncated: false
+  known_limits_truncated: false
+  review: null
+  submitted_at: 2026-10-12T05:04:21.257Z
+blockers: []
+verification:
+  candidate_id: 4ed0e067-1d9d-4602-b08f-cf346578146c
+  identity_provider: skill-coordinated
+  verifier_execution_ref: skill-coordinated:verifier:c424a2ef-3680-4244-88a7-95aa2c2ba2f2
+  iteration: 1
+  attempt: 1
+  assurance: skill-coordinated
+  verdict: pass
+  checks: []
+  summary:
+    text: 独立复跑通过：后端 mvn verify 93/93、前端 tsc/lint/vitest 66/66
+      全绿；起桩+后端实测七项参数创建与读回、五类非法值均 400 且不写入、输出>上下文返回精确 400 文案、桩捕获请求体确实带
+      temperature=0.35/top_p=0.85/max_tokens=2048、审计成本精确算出 4.65e-05 CNY 且
+      byModel 带单价与成本；Playwright 实测模型页 7 输入项与『采样/长度』『价格（每百万
+      token）』两列、审计看板『单价（入/出）』『成本』两列均可见。16 项验收全部通过，未见 failed/blocked 项。
+    truncated: false
+  risks:
+    - text: compactionTriggerFor 增加了 Math.max(1000, ...) 下限，与 D4『min(配置值,
+        窗口×60%)』公式在窗口极小(<~1667 token)时不完全一致；本验收示例(8000→4800)不受影响。
+      truncated: false
+    - text: 新增参数校验（范围、输出≤上下文、货币、价格）与压缩阈值公式没有对应单元测试：ModelConfigServiceTest 仍是旧 CRUD
+        用例，AgentFactoryTest 无 compactionTriggerFor 用例；当前仅靠服务层代码+实测接口覆盖。
+      truncated: false
+    - text: temperature/topP/priceInput 等 NUMERIC
+        列因列精度(4,3)/(14,6)序列化带尾随零（0.35→0.350、1.5→1.500000），数值与原值相等，但严格字符串比较会有差异。
+      truncated: false
+    - text: 审计 summary 的 costTotal 是时间窗内所有模型成本之和；验收示例的 4.65e-05 需用时间窗隔离到单次用量才能精确复现（默认
+        30 天窗口会混入历史数据）。
+      truncated: false
+  risks_truncated: false
+  completed_at: 2026-10-12T05:10:54.628Z
+history:
+  - goal_cycle: 1
+    iteration: 1
+    attempt: 1
+    outcome: pass
+    unresolved_ids: []
+    summary:
+      text: 独立复跑通过：后端 mvn verify 93/93、前端 tsc/lint/vitest 66/66
+        全绿；起桩+后端实测七项参数创建与读回、五类非法值均 400 且不写入、输出>上下文返回精确 400 文案、桩捕获请求体确实带
+        temperature=0.35/top_p=0.85/max_tokens=2048、审计成本精确算出 4.65e-05 CNY 且
+        byModel 带单价与成本；Playwright 实测模型页 7 输入项与『采样/长度』『价格（每百万
+        token）』两列、审计看板『单价（入/出）』『成本』两列均可见。16 项验收全部通过，未见 failed/blocked 项。
+      truncated: false
+    completed_at: 2026-10-12T05:10:54.628Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pass
+verification_report: verification.md
+archived: false
+created_at: 2026-10-12T05:03:11.273Z
