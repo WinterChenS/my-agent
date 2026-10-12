@@ -24,6 +24,27 @@ public class LlmModel {
     @TableField(value = "params_json", typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> params;
 
+    /** 采样温度 0–2（Phase 15 显式列）。 */
+    private java.math.BigDecimal temperature;
+
+    /** Top-P 核采样 0–1（Top-N）。 */
+    private java.math.BigDecimal topP;
+
+    /** 上下文窗口长度（token）。 */
+    private Integer contextWindow;
+
+    /** 单次输出长度上限（token）。 */
+    private Integer maxTokens;
+
+    /** 输入价格：每百万 token。 */
+    private java.math.BigDecimal priceInput;
+
+    /** 输出价格：每百万 token。 */
+    private java.math.BigDecimal priceOutput;
+
+    /** 价格货币：CNY / USD。 */
+    private String priceCurrency;
+
     private String status;
 
     private OffsetDateTime createdAt;
@@ -68,6 +89,63 @@ public class LlmModel {
 
     public void setParams(Map<String, Object> params) {
         this.params = params;
+    }
+
+
+    public java.math.BigDecimal getTemperature() {
+        return temperature;
+    }
+
+    public void setTemperature(java.math.BigDecimal temperature) {
+        this.temperature = temperature;
+    }
+
+    public java.math.BigDecimal getTopP() {
+        return topP;
+    }
+
+    public void setTopP(java.math.BigDecimal topP) {
+        this.topP = topP;
+    }
+
+    public Integer getContextWindow() {
+        return contextWindow;
+    }
+
+    public void setContextWindow(Integer contextWindow) {
+        this.contextWindow = contextWindow;
+    }
+
+    public Integer getMaxTokens() {
+        return maxTokens;
+    }
+
+    public void setMaxTokens(Integer maxTokens) {
+        this.maxTokens = maxTokens;
+    }
+
+    public java.math.BigDecimal getPriceInput() {
+        return priceInput;
+    }
+
+    public void setPriceInput(java.math.BigDecimal priceInput) {
+        this.priceInput = priceInput;
+    }
+
+    public java.math.BigDecimal getPriceOutput() {
+        return priceOutput;
+    }
+
+    public void setPriceOutput(java.math.BigDecimal priceOutput) {
+        this.priceOutput = priceOutput;
+    }
+
+    public String getPriceCurrency() {
+        return priceCurrency;
+    }
+
+    public void setPriceCurrency(String priceCurrency) {
+        this.priceCurrency = priceCurrency;
     }
 
     public String getStatus() {

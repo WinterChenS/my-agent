@@ -46,7 +46,7 @@ class AgentConfigServiceTest {
                         "AgentTest-Provider-" + System.nanoTime(), "OPENAI_COMPATIBLE", "http://localhost:8099/v1", "k", "ENABLED"))
                 .id();
         modelId = modelConfigService
-                .createModel(new ModelRequest(providerId, "agent-test-model", "测试模型", null, "ENABLED"))
+                .createModel(new ModelRequest(providerId, "agent-test-model", "测试模型", null, null, null, null, null, null, null, null, "ENABLED"))
                 .id();
 
         // skill / mcp_server 的完整实现分别在 Phase 5 / Phase 6，这里只造绑定所需的行。

@@ -184,16 +184,35 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         }
 
         String apiKey = cryptoService.decrypt(provider.getApiKeyCipher());
-        Map<String, Object> params = model.getParams() == null ? Map.of() : model.getParams();
+        // Phase 15：模型级显式列（温度/Top-P/输出长度）优先于历史 params_json，二者合并后交给模型工厂
+        Map<String, Object> params = new java.util.HashMap<>(
+                model.getParams() == null ? Map.of() : model.getParams());
+        if (model.getTemperature() != null) {
+            params.put("temperature", model.getTemperature());
+        }
+        if (model.getTopP() != null) {
+            params.put("topP", model.getTopP());
+        }
+        if (model.getMaxTokens() != null) {
+            params.put("maxTokens", model.getMaxTokens());
+        }
         ChatModelBase chatModel =
                 modelFactory.create(provider.getProviderType(), provider.getBaseUrl(), apiKey, model.getModelId(), params, true);
 
+        // 参数优先级：Agent 级覆盖 > 模型级（模型级也必须生效，不能被空 options 覆盖掉）
         GenerateOptions.Builder options = GenerateOptions.builder();
         if (agent.getTemperature() != null) {
             options.temperature(agent.getTemperature().doubleValue());
+        } else if (model.getTemperature() != null) {
+            options.temperature(model.getTemperature().doubleValue());
         }
         if (agent.getMaxTokens() != null) {
             options.maxTokens(agent.getMaxTokens());
+        } else if (model.getMaxTokens() != null) {
+            options.maxTokens(model.getMaxTokens());
+        }
+        if (model.getTopP() != null) {
+            options.topP(model.getTopP().doubleValue());
         }
 
         // Skill：官方仓库 + 按绑定过滤（只暴露该 Agent 绑定的启用 Skill）
@@ -237,7 +256,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 // 外置到文件、只留预览。没有这两个配置时，上下文会无上限增长——实测出现过
                 // 1.8MB 的会话状态，向模型请求 127 万 tokens 直接被厂商拒绝（context_length_exceeded）。
                 .compaction(CompactionConfig.builder()
-                        .triggerTokens(aguiProperties.compactionTriggerTokens())
+                        // Phase 15：上下文长度（模型窗口）也要生效——压缩阈值取「配置值」与
+                        // 「窗口的 60%」中的较小者，避免窗口小的模型被压爆、窗口大的模型压得过勤。
+                        .triggerTokens(compactionTriggerFor(model.getContextWindow()))
                         .keepTokens(aguiProperties.compactionKeepTokens())
                         .build())
                 .toolResultEviction(ToolResultEvictionConfig.builder()
@@ -256,6 +277,17 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 boundSkillNames,
                 mcpServers.stream().map(McpServer::getName).toList());
         return built;
+    }
+
+
+    /** 压缩触发阈值：配置值与「模型窗口的 60%」取小（模型未配窗口时用配置值）。 */
+    private int compactionTriggerFor(Integer contextWindow) {
+        int configured = aguiProperties.compactionTriggerTokens();
+        if (contextWindow == null || contextWindow <= 0) {
+            return configured;
+        }
+        int fromWindow = (int) (contextWindow * 0.6);
+        return Math.max(1000, Math.min(configured, fromWindow));
     }
 
     /** 权限模式 → AgentScope 权限模式。 */

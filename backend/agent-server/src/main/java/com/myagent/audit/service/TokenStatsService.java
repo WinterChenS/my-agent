@@ -53,6 +53,27 @@ public class TokenStatsService {
         result.put("promptTokens", number(totals, "prompt_tokens"));
         result.put("completionTokens", number(totals, "completion_tokens"));
         result.put("totalTokens", number(totals, "total_tokens"));
+        // Phase 15：价格生效——按货币汇总成本（不同货币不混加）
+        java.math.BigDecimal costTotal = java.math.BigDecimal.ZERO;
+        String currency = null;
+        boolean mixed = false;
+        for (Map<String, Object> row : byModel) {
+            Object cost = row.get("cost_total");
+            if (!(cost instanceof Number number)) {
+                continue;
+            }
+            java.math.BigDecimal value = new java.math.BigDecimal(number.toString());
+            Object cur = row.get("currency");
+            String rowCurrency = cur == null ? "CNY" : cur.toString();
+            if (currency == null) {
+                currency = rowCurrency;
+            } else if (!currency.equals(rowCurrency)) {
+                mixed = true;
+            }
+            costTotal = costTotal.add(value);
+        }
+        result.put("costTotal", costTotal);
+        result.put("costCurrency", mixed ? "MIXED" : currency);
         result.put("byModel", byModel);
         result.put("byDay", byDay);
         return result;

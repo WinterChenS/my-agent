@@ -96,6 +96,15 @@ public class ModelFactory {
             if (maxTokens instanceof Number number) {
                 builder.maxTokens(number.intValue());
             }
+            // Phase 15：Top-N（核采样 top_p / top_k）也要生效
+            Object topP = params.get("topP");
+            if (topP instanceof Number number) {
+                builder.topP(number.doubleValue());
+            }
+            Object topK = params.get("topK");
+            if (topK instanceof Number number) {
+                builder.topK(number.intValue());
+            }
         }
         return builder.build();
     }

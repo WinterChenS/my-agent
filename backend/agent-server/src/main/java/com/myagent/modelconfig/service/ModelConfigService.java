@@ -162,6 +162,7 @@ public class ModelConfigService {
         model.setModelId(request.modelId());
         model.setDisplayName(request.displayName());
         model.setParams(request.params() == null ? Map.of() : request.params());
+        applyParams(model, request);
         model.setStatus(normalizeStatus(request.status()));
         modelMapper.insert(model);
         cacheInvalidator.invalidateAll();
@@ -177,6 +178,7 @@ public class ModelConfigService {
         model.setModelId(request.modelId());
         model.setDisplayName(request.displayName());
         model.setParams(request.params() == null ? Map.of() : request.params());
+        applyParams(model, request);
         model.setStatus(normalizeStatus(request.status()));
         modelMapper.updateById(model);
         cacheInvalidator.invalidateAll();
@@ -192,6 +194,55 @@ public class ModelConfigService {
         }
         modelMapper.deleteById(id);
         cacheInvalidator.invalidateAll();
+    }
+
+
+    /**
+     * 写入并校验模型参数（Phase 15）：温度 / Top-P / 上下文长度 / 输出长度 / 价格。
+     *
+     * <p>关键规则：**输出长度不得超过上下文窗口**——否则就会出现"补全预算占满窗口"的配置，
+     * 一发请求就被厂商以 context_length_exceeded 拒绝（实测踩过）。
+     */
+    private void applyParams(LlmModel model, ModelRequest request) {
+        java.math.BigDecimal temperature = request.temperature();
+        if (temperature != null && (temperature.compareTo(java.math.BigDecimal.ZERO) < 0
+                || temperature.compareTo(new java.math.BigDecimal("2")) > 0)) {
+            throw BizException.badRequest("温度必须在 0–2 之间");
+        }
+        java.math.BigDecimal topP = request.topP();
+        if (topP != null && (topP.compareTo(java.math.BigDecimal.ZERO) <= 0
+                || topP.compareTo(java.math.BigDecimal.ONE) > 0)) {
+            throw BizException.badRequest("Top-P 必须在 (0, 1] 之间");
+        }
+        Integer contextWindow = request.contextWindow();
+        if (contextWindow != null && contextWindow <= 0) {
+            throw BizException.badRequest("上下文长度必须大于 0");
+        }
+        Integer maxTokens = request.maxTokens();
+        if (maxTokens != null && maxTokens <= 0) {
+            throw BizException.badRequest("输出长度必须大于 0");
+        }
+        if (contextWindow != null && maxTokens != null && maxTokens > contextWindow) {
+            throw BizException.badRequest(
+                    "输出长度（" + maxTokens + "）不能大于上下文长度（" + contextWindow + "）");
+        }
+        java.math.BigDecimal priceInput = request.priceInput();
+        java.math.BigDecimal priceOutput = request.priceOutput();
+        if ((priceInput != null && priceInput.signum() < 0) || (priceOutput != null && priceOutput.signum() < 0)) {
+            throw BizException.badRequest("价格不能为负数");
+        }
+        String currency = request.priceCurrency() == null ? null : request.priceCurrency().trim().toUpperCase(java.util.Locale.ROOT);
+        if (currency != null && !currency.isEmpty() && !currency.equals("CNY") && !currency.equals("USD")) {
+            throw BizException.badRequest("价格货币只支持 CNY 或 USD");
+        }
+
+        model.setTemperature(temperature);
+        model.setTopP(topP);
+        model.setContextWindow(contextWindow);
+        model.setMaxTokens(maxTokens);
+        model.setPriceInput(priceInput);
+        model.setPriceOutput(priceOutput);
+        model.setPriceCurrency(currency == null || currency.isEmpty() ? "CNY" : currency);
     }
 
     // ===================== helpers =====================
@@ -268,6 +319,13 @@ public class ModelConfigService {
                 model.getModelId(),
                 model.getDisplayName(),
                 model.getParams(),
+                model.getTemperature(),
+                model.getTopP(),
+                model.getContextWindow(),
+                model.getMaxTokens(),
+                model.getPriceInput(),
+                model.getPriceOutput(),
+                model.getPriceCurrency(),
                 model.getStatus(),
                 model.getCreatedAt(),
                 model.getUpdatedAt());

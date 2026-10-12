@@ -28,15 +28,24 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
             @Param("to") OffsetDateTime to);
 
     @Select("""
-            SELECT model_id                            AS model_id,
-                   coalesce(sum(prompt_tokens), 0)     AS prompt_tokens,
-                   coalesce(sum(completion_tokens), 0) AS completion_tokens,
-                   coalesce(sum(total_tokens), 0)      AS total_tokens
-            FROM token_usage
-            WHERE user_id = #{userId}
-              AND created_at >= #{from}
-              AND created_at <= #{to}
-            GROUP BY model_id
+            SELECT t.model_id                          AS model_id,
+                   coalesce(sum(t.prompt_tokens), 0)     AS prompt_tokens,
+                   coalesce(sum(t.completion_tokens), 0) AS completion_tokens,
+                   coalesce(sum(t.total_tokens), 0)      AS total_tokens,
+                   -- Phase 15：价格生效——按模型价格（每百万 token）算成本，货币取模型配置
+                   m.price_currency                     AS currency,
+                   m.price_input                        AS price_input,
+                   m.price_output                       AS price_output,
+                   coalesce(sum(
+                       t.prompt_tokens     / 1000000.0 * m.price_input
+                     + t.completion_tokens / 1000000.0 * m.price_output
+                   ), 0)                                AS cost_total
+            FROM token_usage t
+            LEFT JOIN llm_model m ON m.id = t.model_id
+            WHERE t.user_id = #{userId}
+              AND t.created_at >= #{from}
+              AND t.created_at <= #{to}
+            GROUP BY t.model_id, m.price_currency, m.price_input, m.price_output
             ORDER BY total_tokens DESC
             """)
     List<Map<String, Object>> byModel(

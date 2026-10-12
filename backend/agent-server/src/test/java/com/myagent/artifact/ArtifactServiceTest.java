@@ -67,7 +67,7 @@ class ArtifactServiceTest {
                         "http://localhost:8099/v1", "k", "ENABLED"))
                 .id();
         Long modelId = modelConfigService
-                .createModel(new ModelRequest(providerId, "art-test-model", null, null, "ENABLED"))
+                .createModel(new ModelRequest(providerId, "art-test-model", null, null, null, null, null, null, null, null, null, "ENABLED"))
                 .id();
         var agent = agentConfigService.create(new AgentRequest(
                 "ArtTest-Agent-" + System.nanoTime(), "art-test-agent-" + System.nanoTime(),
