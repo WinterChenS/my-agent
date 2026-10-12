@@ -280,6 +280,40 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     }
 
 
+    /**
+     * 按 Agent 主键构建它使用的 ChatModel（标题生成等辅助能力复用同一套装配逻辑）。
+     *
+     * <p>与 doBuild 用的是同一份模型/供应商校验与参数合并，避免两处配置不一致。
+     */
+    public ChatModelBase buildChatModelFor(Long agentDbId) {
+        Agent agent = agentMapper.selectById(agentDbId);
+        if (agent == null) {
+            throw BizException.notFound("Agent 不存在: " + agentDbId);
+        }
+        LlmModel model = agent.getModelId() == null ? null : llmModelMapper.selectById(agent.getModelId());
+        if (model == null) {
+            throw BizException.badRequest("Agent 未绑定有效模型: " + agent.getAgentId());
+        }
+        LlmProvider provider = llmProviderMapper.selectById(model.getProviderId());
+        if (provider == null) {
+            throw BizException.badRequest("模型对应的供应商不存在: " + model.getProviderId());
+        }
+        String apiKey = cryptoService.decrypt(provider.getApiKeyCipher());
+        Map<String, Object> params = new java.util.HashMap<>(
+                model.getParams() == null ? Map.of() : model.getParams());
+        if (model.getTemperature() != null) {
+            params.put("temperature", model.getTemperature());
+        }
+        if (model.getTopP() != null) {
+            params.put("topP", model.getTopP());
+        }
+        if (model.getMaxTokens() != null) {
+            params.put("maxTokens", model.getMaxTokens());
+        }
+        return modelFactory.create(
+                provider.getProviderType(), provider.getBaseUrl(), apiKey, model.getModelId(), params, false);
+    }
+
     /** 压缩触发阈值：配置值与「模型窗口的 60%」取小（模型未配窗口时用配置值）。 */
     private int compactionTriggerFor(Integer contextWindow) {
         int configured = aguiProperties.compactionTriggerTokens();

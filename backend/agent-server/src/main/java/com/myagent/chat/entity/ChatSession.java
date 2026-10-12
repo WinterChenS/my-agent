@@ -18,6 +18,9 @@ public class ChatSession {
 
     private String title;
 
+    /** Phase 17：标题是否可被自动生成覆盖（false = 人工指定）。 */
+    private Boolean titleAuto;
+
     /** AG-UI 的 threadId，与 user_id 组合唯一。 */
     private String threadId;
 
@@ -57,6 +60,14 @@ public class ChatSession {
 
     public void setTitle(String title) {
         this.title = title;
+    }
+
+    public Boolean getTitleAuto() {
+        return titleAuto;
+    }
+
+    public void setTitleAuto(Boolean titleAuto) {
+        this.titleAuto = titleAuto;
     }
 
     public String getThreadId() {

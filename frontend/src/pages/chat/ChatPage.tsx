@@ -297,6 +297,8 @@ export default function ChatPage() {
       );
       setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
       await refreshSessions();
+      // Phase 17：会话标题是异步生成的（首条消息后），稍等一下再刷一次列表，标题就能显示出来
+      window.setTimeout(() => void refreshSessions(), 1500);
       // 跑完一轮刷新右侧「产物」区（D22 自动登记）
       setArtifactRefresh((value) => value + 1);
     } catch (err) {

@@ -58,6 +58,7 @@ public class AguiRunController {
     private final ArtifactCaptureService artifactCaptureService;
     private final SessionSkillOverrides sessionSkillOverrides;
     private final RunningRunRegistry runningRuns;
+    private final SessionTitleService sessionTitleService;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -70,7 +71,8 @@ public class AguiRunController {
             AguiSseSanitizer sseSanitizer,
             ArtifactCaptureService artifactCaptureService,
             SessionSkillOverrides sessionSkillOverrides,
-            RunningRunRegistry runningRuns) {
+            RunningRunRegistry runningRuns,
+            SessionTitleService sessionTitleService) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
@@ -82,6 +84,7 @@ public class AguiRunController {
         this.artifactCaptureService = artifactCaptureService;
         this.sessionSkillOverrides = sessionSkillOverrides;
         this.runningRuns = runningRuns;
+        this.sessionTitleService = sessionTitleService;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -116,6 +119,8 @@ public class AguiRunController {
         // resume 场景下不重复记录用户消息
         if (input.getResume() == null || input.getResume().isEmpty()) {
             persistUserMessage(session.getId(), input);
+            // Phase 17：首条用户消息 → 异步生成会话标题（像 ChatGPT 那样）
+            sessionTitleService.generateIfFirstMessage(session, firstUserText(input));
         }
 
         // 把用户身份通过 servlet 属性传给 runtime context 解析器（避免可伪造的请求头）
@@ -334,6 +339,20 @@ public class AguiRunController {
             return (Map<String, Object>) map;
         }
         return raw == null ? null : Map.of("raw", raw);
+    }
+
+    /** 取本轮最后一条用户消息的文本（供标题生成使用）。 */
+    private static String firstUserText(RunAgentInput input) {
+        if (input.getMessages() == null || input.getMessages().isEmpty()) {
+            return null;
+        }
+        for (int i = input.getMessages().size() - 1; i >= 0; i--) {
+            AguiMessage message = input.getMessages().get(i);
+            if ("user".equalsIgnoreCase(message.getRole())) {
+                return message.getTextContent();
+            }
+        }
+        return null;
     }
 
     private void persistUserMessage(Long sessionId, RunAgentInput input) {

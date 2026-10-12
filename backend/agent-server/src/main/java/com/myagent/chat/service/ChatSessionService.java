@@ -109,6 +109,14 @@ public class ChatSessionService {
     }
 
     @Transactional
+    /** 该会话已有的用户消息条数（Phase 17：判断是否为「第一条」，用于自动生成标题）。 */
+    public long countUserMessages(Long sessionId) {
+        return messageMapper.selectCount(com.baomidou.mybatisplus.core.toolkit.Wrappers
+                .<ChatMessage>lambdaQuery()
+                .eq(ChatMessage::getSessionId, sessionId)
+                .eq(ChatMessage::getRole, "USER"));
+    }
+
     public void touch(Long sessionId) {
         ChatSession session = sessionMapper.selectById(sessionId);
         if (session != null) {
