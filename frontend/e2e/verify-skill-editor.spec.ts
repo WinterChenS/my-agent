@@ -48,19 +48,49 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   await page.waitForTimeout(300);
   expect(await page.locator('[contenteditable="true"] li').count()).toBeGreaterThan(0);
 
-  // ③ 输入 / 唤起工具菜单并插入
+  // ③-a 只打「/」（不带关键字）：本地工具必须出现、排在最前、且能被选中
+  //     —— 修复前这里会红：几百个 MCP 工具占满候选，本地工具被截断，根本看不到。
   await page.keyboard.press("Enter");
-  await page.keyboard.type("查订单请调用 ");
+  await page.keyboard.type("/");
+  await page.waitForTimeout(700);
+  await expect(page.getByTestId("skill-tool-menu")).toBeVisible({ timeout: 10000 });
+  const groups = await page.getByTestId("skill-tool-group").evaluateAll((els) =>
+    els.map((el) => (el.textContent ?? "").replace(/\s+/g, " ").trim()),
+  );
+  const shown = await page.getByTestId("skill-tool-option").evaluateAll((els) =>
+    els.map((el) => (el.querySelector("code")?.textContent ?? "").trim()),
+  );
+  console.log("[③-a 分组]", groups.slice(0, 3).join(" | "));
+  console.log("[③-a 候选前 8]", shown.slice(0, 8).join(", "));
+  expect(groups[0]).toContain("本地");                 // 第一组必须是本地工具
+  expect(shown).toContain("read_file");                // 本地工具真的能看到
+  const firstMcp = shown.findIndex((n) => n.includes("__"));
+  expect(firstMcp).toBeGreaterThan(shown.indexOf("write_file")); // 本地全部排在 MCP 之前
+  console.log("[③-a] 本地工具占据前", firstMcp, "项，第一个 MCP 候选在下标", firstMcp);
+
+  // 键盘选中并插入（高亮可能被鼠标悬停改过，所以断言「插进的是本地工具之一」）
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+  const afterFirstPick = await editable.innerText();
+  const insertedLocal = shown.slice(0, 24).find((n) => afterFirstPick.includes(n));
+  console.log("[③-a] 回车插入的本地工具:", insertedLocal, "| 菜单已关闭:", (await page.getByTestId("skill-tool-menu").count()) === 0);
+  expect(insertedLocal, "回车应插入一个本地工具").toBeTruthy();
+
+  // ③-b 输入 /read 过滤后插入
+  await page.keyboard.press("End");
+  await page.keyboard.type(" \n查订单请调用 ");
   await page.keyboard.type("/read");
-  await page.waitForTimeout(600);
-  const menu = page.getByTestId("skill-tool-menu");
-  await expect(menu).toBeVisible({ timeout: 10000 });
-  const optionText = (await page.getByTestId("skill-tool-option").first().innerText()).replace(/\s+/g, " ");
-  console.log("[③ 候选第一项]", optionText);
-  await page.getByTestId("skill-tool-option").first().click();
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(700);
+  await expect(page.getByTestId("skill-tool-menu")).toBeVisible({ timeout: 10000 });
+  const options = await page.getByTestId("skill-tool-option").evaluateAll((els) =>
+    els.map((el) => (el.querySelector("code")?.textContent ?? "").trim()),
+  );
+  console.log("[③-b /read 候选]", options.slice(0, 3).join(", "));
+  expect(options).toContain("read_file");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
   const afterInsert = await editable.innerText();
-  console.log("[③ 插入后含 read_file]", afterInsert.includes("read_file"), "| 残留 '/read'", afterInsert.includes("/read"));
+  console.log("[③-b] 含 read_file:", afterInsert.includes("read_file"), "| 残留 '/read':", afterInsert.includes("/read"));
   expect(afterInsert).toContain("read_file");
   expect(afterInsert.includes("/read")).toBe(false);
 

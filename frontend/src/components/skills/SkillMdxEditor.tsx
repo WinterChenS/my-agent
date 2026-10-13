@@ -82,12 +82,53 @@ export function SkillMdxEditor({
   const [query, setQuery] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
 
-  const filtered = useMemo(() => {
+  /**
+   * 候选按来源分组，**本地工具优先**，且每个 MCP 服务器限量。
+   *
+   * 为什么必须分组：MCP 服务器一多（本机 45 个 × 13 个工具 ≈ 600 条），
+   * 直接取前 12 条会**全被同一个服务器的工具占满**，本地工具（read_file / memory_* / agent_* …）
+   * 因为排在后面被截断，用户在 `/` 里根本看不到 —— 实测就是这个现象。
+   */
+  const grouped = useMemo(() => {
     const q = (query ?? "").toLowerCase();
-    return tools
-      .filter((t) => !q || t.name.toLowerCase().includes(q) || (t.hint ?? "").toLowerCase().includes(q))
-      .slice(0, 12);
+    const matches = tools.filter(
+      (t) => !q || t.name.toLowerCase().includes(q) || (t.hint ?? "").toLowerCase().includes(q),
+    );
+    const byGroup = new Map<string, ToolOption[]>();
+    for (const t of matches) {
+      const list = byGroup.get(t.group);
+      if (list) {
+        list.push(t);
+      } else {
+        byGroup.set(t.group, [t]);
+      }
+    }
+    const isLocal = (g: string) => g.includes("本地");
+    const groups = Array.from(byGroup.keys()).sort((a, b) => {
+      if (isLocal(a) !== isLocal(b)) {
+        return isLocal(a) ? -1 : 1; // 本地工具永远在最前
+      }
+      return a.localeCompare(b);
+    });
+    // 本地工具是平台自己的、数量有限（本机 24 个），而且正是写技能时最需要引用的 —— 全部列出；
+    // MCP 工具动辄几百个，没输关键字时每组只露前几条，让人接着打字去缩小范围。
+    const perGroup = q ? 30 : 6;
+    return groups.map((g) => {
+      const cap = isLocal(g) && !q ? 200 : perGroup;
+      const items = (byGroup.get(g) ?? [])
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .slice(0, cap);
+      return { group: g, items, total: byGroup.get(g)?.length ?? 0 };
+    });
   }, [query, tools]);
+
+  /** 扁平化，供键盘上下选择与插入使用。 */
+  const flat = useMemo(() => grouped.flatMap((g) => g.items), [grouped]);
+  const totalMatches = useMemo(
+    () => grouped.reduce((sum, g) => sum + g.total, 0),
+    [grouped],
+  );
 
   const insertTool = useCallback((name: string) => {
     editorRef.current?.insertMarkdown("`" + name + "`");
@@ -120,16 +161,16 @@ export function SkillMdxEditor({
       } else if (event.key === "ArrowDown") {
         event.preventDefault();
         event.stopPropagation();
-        setHighlight((h) => (filtered.length ? (h + 1) % filtered.length : 0));
+        setHighlight((h) => (flat.length ? (h + 1) % flat.length : 0));
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
         event.stopPropagation();
-        setHighlight((h) => (filtered.length ? (h - 1 + filtered.length) % filtered.length : 0));
+        setHighlight((h) => (flat.length ? (h - 1 + flat.length) % flat.length : 0));
       } else if (event.key === "Enter" || event.key === "Tab") {
         event.preventDefault();
         event.stopPropagation();
-        if (filtered.length > 0) {
-          insertTool(filtered[Math.min(highlight, filtered.length - 1)].name);
+        if (flat.length > 0) {
+          insertTool(flat[Math.min(highlight, flat.length - 1)].name);
         }
       } else if (event.key === "Backspace") {
         event.preventDefault();
@@ -148,9 +189,9 @@ export function SkillMdxEditor({
     };
     el.addEventListener("keydown", onKeyDown, true);
     return () => el.removeEventListener("keydown", onKeyDown, true);
-  }, [filtered, highlight, insertTool, query]);
+  }, [flat, highlight, insertTool, query]);
 
-  const menuVisible = query !== null && filtered.length > 0;
+  const menuVisible = query !== null && flat.length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 text-sm">
@@ -222,33 +263,54 @@ export function SkillMdxEditor({
         {menuVisible && (
           <div
             data-testid="skill-tool-menu"
-            className="bg-popover absolute right-2 bottom-2 left-2 z-50 max-h-60 overflow-auto rounded-md border shadow-lg"
+            className="bg-popover absolute right-2 bottom-2 left-2 z-50 max-h-72 overflow-auto rounded-md border shadow-lg"
           >
-            {filtered.map((option, index) => (
-              <button
-                key={`${option.group}:${option.name}`}
-                type="button"
-                data-testid="skill-tool-option"
-                className={cn(
-                  "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs",
-                  index === highlight ? "bg-accent" : "hover:bg-accent/60",
-                )}
-                onMouseEnter={() => setHighlight(index)}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  insertTool(option.name);
-                }}
-              >
-                <span className="flex items-center gap-1.5">
-                  <Terminal className="size-3 shrink-0 opacity-60" />
-                  <code className="font-mono">{option.name}</code>
-                </span>
-                <span className="text-muted-foreground truncate">
-                  {option.group}
-                  {option.hint ? ` · ${option.hint}` : ""}
-                </span>
-              </button>
+            {grouped.map(({ group, items, total }) => (
+              <div key={group}>
+                {/* 分组标题：本地工具在最上面，MCP 工具按服务器分组，不会被单个服务器刷屏 */}
+                <div
+                  data-testid="skill-tool-group"
+                  className="bg-muted/60 text-muted-foreground sticky top-0 px-3 py-1 text-[11px] font-medium"
+                >
+                  {group}
+                  <span className="ml-1 font-normal">
+                    （{items.length === total ? total : `${items.length} / ${total}`}）
+                  </span>
+                </div>
+                {items.map((option) => {
+                  const index = flat.indexOf(option);
+                  return (
+                    <button
+                      key={`${option.group}:${option.name}`}
+                      type="button"
+                      data-testid="skill-tool-option"
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs",
+                        index === highlight ? "bg-accent" : "hover:bg-accent/60",
+                      )}
+                      onMouseEnter={() => setHighlight(index)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        insertTool(option.name);
+                      }}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Terminal className="size-3 shrink-0 opacity-60" />
+                        <code className="font-mono">{option.name}</code>
+                      </span>
+                      <span className="text-muted-foreground max-w-[45%] truncate">
+                        {option.hint ?? ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             ))}
+            <div className="text-muted-foreground border-t px-3 py-1 text-[11px]">
+              共 {totalMatches} 项匹配
+              {totalMatches > flat.length ? "，继续输入可缩小范围" : ""}
+              （本地工具排在最前）
+            </div>
           </div>
         )}
       </div>
