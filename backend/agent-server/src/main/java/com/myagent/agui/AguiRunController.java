@@ -181,6 +181,8 @@ public class AguiRunController {
                         },
                         error -> {
                             log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
+                            // tier1-upgrades ③：这一轮的失败原因也要落库（状态记 ERROR）
+                            runningRuns.markError(threadId, String.valueOf(error.getMessage()));
                             sendRunError(emitter, threadId, input.getRunId(), error, streamGuard);
                             finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText,
                                     customEventNames, interrupts, finished);

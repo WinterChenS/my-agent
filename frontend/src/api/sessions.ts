@@ -64,3 +64,19 @@ export function clearContext(sessionId: number) {
     method: "POST",
   });
 }
+
+/** 一轮 run 的历史条目（tier1-upgrades ③，落库副本）。 */
+export type RunHistoryItem = {
+  id: number;
+  runId: string | null;
+  status: "RUNNING" | "FINISHED" | "INTERRUPTED" | "ERROR";
+  startedAt: string | null;
+  endedAt: string | null;
+  textSummary?: string | null;
+  error?: string | null;
+};
+
+/** 该会话最近几轮的状态（后端重启后仍能看到「上一轮跑到哪」）。 */
+export function getRunHistory(sessionId: number, limit = 5) {
+  return apiFetch<RunHistoryItem[]>(`/api/sessions/${sessionId}/runs?limit=${limit}`);
+}

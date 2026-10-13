@@ -35,6 +35,8 @@ public class RunningRunRegistry {
     private static final Logger log = LoggerFactory.getLogger(RunningRunRegistry.class);
 
     /** 单个 run 的句柄。 */
+    private final com.myagent.run.service.AgentRunService agentRunService;
+
     private static final class RunHandle {
         volatile Agent agent;
         volatile RuntimeContext context;
@@ -45,6 +47,8 @@ public class RunningRunRegistry {
         volatile String runId;
         /** run 是否已进入收尾（落库完成）。 */
         volatile boolean finished;
+        /** 出错信息（有值则落库为 ERROR）。 */
+        volatile String error;
         /** 0 = 有客户端在跟；>0 = 最后一次断开的时间戳。 */
         volatile long detachedAt;
         /** 宽限期定时任务（断线后启动，回来时取消）。 */
@@ -69,9 +73,18 @@ public class RunningRunRegistry {
      */
     private final long maxDetachedMillis;
 
+    // 两个构造器时必须指明 Spring 用哪个（另一个是给单测的无落库版本）
+    @org.springframework.beans.factory.annotation.Autowired
     public RunningRunRegistry(
-            @Value("${myagent.run.max-detached-millis:0}") long maxDetachedMillis) {
+            @Value("${myagent.run.max-detached-millis:0}") long maxDetachedMillis,
+            com.myagent.run.service.AgentRunService agentRunService) {
         this.maxDetachedMillis = Math.max(0L, maxDetachedMillis);
+        this.agentRunService = agentRunService;
+    }
+
+    /** 不带落库的构造（单测 / 不需要持久化 run 状态的场景）。 */
+    public RunningRunRegistry(long maxDetachedMillis) {
+        this(maxDetachedMillis, null);
     }
 
     /** 开始一轮 run：登记实例与上下文，并清空上一轮的残留状态。 */
@@ -82,6 +95,10 @@ public class RunningRunRegistry {
         RunHandle handle = new RunHandle();
         handle.runId = runId;
         runs.put(threadId, handle);
+        // tier1-upgrades ③：把「开跑了」也落库，重启后仍能看到上一轮状态
+        if (agentRunService != null) {
+            agentRunService.start(threadId, runId);
+        }
     }
 
     /** 官方 AgentResolver 解析出实例时登记。 */
@@ -159,11 +176,24 @@ public class RunningRunRegistry {
         interrupt(threadId);
     }
 
+    /** 记下这一轮的失败原因（落库时会把状态记为 ERROR）。 */
+    public void markError(String threadId, String message) {
+        RunHandle handle = threadId == null ? null : runs.get(threadId);
+        if (handle != null && handle.error == null) {
+            handle.error = message;
+        }
+    }
+
     /** run 收尾完成（已落库）：清理登记。 */
     public void markFinished(String threadId) {
         RunHandle handle = threadId == null ? null : runs.get(threadId);
         if (handle != null) {
             handle.finished = true;
+            // tier1-upgrades ③：终态落库（用户停止过 → INTERRUPTED）
+            if (agentRunService != null) {
+                agentRunService.finish(
+                        threadId, handle.stopped.get(), handle.text.toString(), handle.error);
+            }
             ScheduledFuture<?> task = handle.graceTask;
             if (task != null) {
                 task.cancel(false);

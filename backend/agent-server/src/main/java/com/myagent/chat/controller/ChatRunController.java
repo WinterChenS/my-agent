@@ -10,6 +10,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -23,10 +24,15 @@ public class ChatRunController {
 
     private final ChatSessionService chatSessionService;
     private final RunningRunRegistry runningRuns;
+    private final com.myagent.run.service.AgentRunService agentRunService;
 
-    public ChatRunController(ChatSessionService chatSessionService, RunningRunRegistry runningRuns) {
+    public ChatRunController(
+            ChatSessionService chatSessionService,
+            RunningRunRegistry runningRuns,
+            com.myagent.run.service.AgentRunService agentRunService) {
         this.chatSessionService = chatSessionService;
         this.runningRuns = runningRuns;
+        this.agentRunService = agentRunService;
     }
 
     /** 返回体：是否确实发出了中断。 */
@@ -53,6 +59,41 @@ public class ChatRunController {
         return Result.ok(new RunStateResponse(
                 snapshot.running(), snapshot.text(), snapshot.runId(), snapshot.stopped()));
     }
+
+    /**
+     * 该会话最近几轮的状态（tier1-upgrades ③，落库副本）。
+     *
+     * <p>后端重启后前端据此显示「上一轮：已完成 / 已中断」，不会只看到一片空白。
+     * 只返回摘要字段，不回传整段文本。
+     */
+    @GetMapping("/api/sessions/{id}/runs")
+    public Result<java.util.List<RunHistoryItem>> runHistory(
+            @AuthenticationPrincipal JwtPrincipal principal,
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "5") int limit) {
+        Long userId = requireUserId(principal);
+        chatSessionService.requireOwned(userId, id);
+        return Result.ok(agentRunService.recentBySession(id, limit).stream()
+                .map(run -> new RunHistoryItem(
+                        run.getId(),
+                        run.getRunId(),
+                        run.getStatus(),
+                        run.getStartedAt() == null ? null : run.getStartedAt().toString(),
+                        run.getEndedAt() == null ? null : run.getEndedAt().toString(),
+                        run.getTextSummary(),
+                        run.getError()))
+                .toList());
+    }
+
+    /** 一轮 run 的历史条目（列表展示用）。 */
+    public record RunHistoryItem(
+            Long id,
+            String runId,
+            String status,
+            String startedAt,
+            String endedAt,
+            String textSummary,
+            String error) {}
 
     @PostMapping("/api/sessions/{id}/interrupt")
     public Result<InterruptResponse> interrupt(

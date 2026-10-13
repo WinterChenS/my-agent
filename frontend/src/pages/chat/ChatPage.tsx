@@ -10,7 +10,8 @@ import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
 import { SkillPicker } from "@/components/chat/SkillPicker";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ContextBar } from "@/components/chat/ContextBar";
-import type { ContextUsage } from "@/api/sessions";
+import type { ContextUsage, RunHistoryItem } from "@/api/sessions";
+import { lastRunHint } from "@/lib/chat/runStatus";
 import { SubagentCard } from "@/components/chat/SubagentCard";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
 import { JsonCard } from "@/components/cards/JsonCard";
@@ -30,6 +31,7 @@ import {
   createSession,
   deleteSession,
   getContextUsage,
+  getRunHistory,
   getRunState,
   interruptSession,
   listAgents,
@@ -89,6 +91,12 @@ export default function ChatPage() {
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [contextNotice, setContextNotice] = useState<string | null>(null);
   const [contextBusy, setContextBusy] = useState(false);
+  /** 该会话上一轮的状态提示（tier1-upgrades ③）。 */
+  const [lastRun, setLastRun] = useState<RunHistoryItem | null>(null);
+  /** 后台跑完的站内提示。 */
+  const [runNotice, setRunNotice] = useState<string | null>(null);
+  /** 正在后台跑、需要盯着结束的会话（id → 标题）。 */
+  const watchingRuns = useRef<Map<number, string>>(new Map());
   // Phase 10：`/` 选技能（D21）、上传中状态、右侧栏刷新信号
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
@@ -266,6 +274,45 @@ export default function ChatPage() {
       setError(err instanceof Error ? err.message : "加载历史消息失败");
     }
     void refreshContext(target);
+    void refreshLastRun(target);
+  }
+
+  /** 后台 run 完成检测：用户切到别的会话时，原会话跑完给一条站内提示（tier1-upgrades ③）。 */
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const watching = Array.from(watchingRuns.current.entries());
+      if (watching.length === 0) {
+        return;
+      }
+      for (const [sessionId, title] of watching) {
+        void (async () => {
+          try {
+            const state = await getRunState(sessionId);
+            if (!state.running) {
+              watchingRuns.current.delete(sessionId);
+              setRunNotice(`会话「${title}」已完成`);
+            }
+          } catch {
+            watchingRuns.current.delete(sessionId);
+          }
+        })();
+      }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  /** 拉该会话最近一轮状态（后端重启后据此显示「上一轮：已完成/已中断」）。 */
+  async function refreshLastRun(target: ChatSession | null) {
+    if (!target) {
+      setLastRun(null);
+      return;
+    }
+    try {
+      const runs = await getRunHistory(target.id, 5);
+      setLastRun(runs[0] ?? null);
+    } catch {
+      setLastRun(null);
+    }
   }
 
   function startNewSession() {
@@ -388,6 +435,8 @@ export default function ChatPage() {
         },
       );
       setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
+      // tier1-upgrades ③：这一轮结束后刷新「上一轮」提示
+      void refreshLastRun(active);
       await refreshSessions();
       // Phase 17：会话标题是异步生成的（首条消息后），稍等一下再刷一次列表，标题就能显示出来
       window.setTimeout(() => void refreshSessions(), 1500);
@@ -804,6 +853,47 @@ export default function ChatPage() {
 
         <div className="border-t p-3">
           <div className="relative mx-auto w-full max-w-3xl">
+            {lastRunHint(lastRun) && (
+              <div
+                className="mb-2 text-xs text-muted-foreground"
+                data-testid="last-run-hint"
+              >
+                {lastRunHint(lastRun)}
+              </div>
+            )}
+            {runNotice && (
+              <div
+                className="mb-2 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs"
+                data-testid="run-notice"
+              >
+                <span>{runNotice}</span>
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0"
+                  data-testid="run-notice-jump"
+                  onClick={() => {
+                    const target = sessions.find((item) =>
+                      runNotice.includes(item.title ?? `会话 ${item.id}`),
+                    );
+                    if (target) {
+                      void openSession(target);
+                    }
+                    setRunNotice(null);
+                  }}
+                >
+                  跳到该会话
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto p-0 text-muted-foreground"
+                  onClick={() => setRunNotice(null)}
+                >
+                  知道了
+                </Button>
+              </div>
+            )}
             <ContextBar
               usage={contextUsage}
               busy={contextBusy || busy}
