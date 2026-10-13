@@ -46,13 +46,13 @@ public class McpToolkitFactory {
      *
      * <p>单个 Server 注册失败不影响其它 Server（逐个 try/catch 并告警）。
      *
-     * @param includeDemoTools 是否额外注册 demo 卡片工具（仅 demo-agent）
+     * @param includeDemoTools 是否注册 AG-UI 交互卡片工具（确认卡/映射卡）——平台对所有 Agent 开放
      */
     public Toolkit buildToolkit(List<McpServer> servers, boolean includeDemoTools) {
         Toolkit toolkit = new Toolkit();
         if (includeDemoTools) {
             DemoCardTools.tools().forEach(toolkit::registerAgentTool);
-            log.info("已注册 {} 个 demo 卡片工具", DemoCardTools.tools().size());
+            log.info("已注册 {} 个 AG-UI 交互卡片工具", DemoCardTools.tools().size());
         }
         if (servers == null || servers.isEmpty()) {
             return toolkit;

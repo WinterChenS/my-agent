@@ -237,7 +237,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                         com.baomidou.mybatisplus.core.toolkit.Wrappers.<McpServer>lambdaQuery()
                                 .in(McpServer::getId, boundMcpIds)
                                 .eq(McpServer::getStatus, "ENABLED"));
-        Toolkit toolkit = mcpToolkitFactory.buildToolkit(mcpServers, isDemoAgent(agent.getAgentId()));
+        // AG-UI 交互卡片工具（确认卡/映射卡）对所有 Agent 开放：
+        // 它们是只读的「往界面发一张卡」工具，不产生副作用；只在 demo-agent 上开放会让
+        // 「用技能驱动 AG-UI 交互」这件事对其它 Agent 失效（别人的 Agent 拿不到工具）。
+        Toolkit toolkit = mcpToolkitFactory.buildToolkit(mcpServers, true);
 
         HarnessAgent built = HarnessAgent.builder()
                 .name(agent.getName())
