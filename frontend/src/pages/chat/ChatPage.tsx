@@ -427,6 +427,8 @@ export default function ChatPage() {
 
     setChat((prev) => ({ ...prev, status: "running" }));
     setBusy(true);
+    // tier1-upgrades ③：登记为「后台盯梢」，用户切走后跑完会收到站内提示
+    watchingRuns.current.set(active.id, active.title ?? `会话 ${active.id}`);
     try {
       await agent.runAgent(
         {
