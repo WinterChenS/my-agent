@@ -101,7 +101,7 @@ export function SkillMarkdownEditor({
   }
 
   return (
-    <div className="space-y-1 text-sm">
+    <div className="flex h-full min-h-0 flex-col gap-1 text-sm">
       <div className="flex items-center justify-between">
         <span>
           内容（Markdown）
@@ -121,13 +121,13 @@ export function SkillMarkdownEditor({
         </Button>
       </div>
 
-      <div className={cn("grid gap-3", showPreview ? "lg:grid-cols-2" : "grid-cols-1")}>
+      <div className={cn("grid min-h-0 flex-1 gap-3", showPreview ? "lg:grid-cols-2" : "grid-cols-1")}>
         {/* 编辑区 */}
-        <div className="relative">
+        <div className="relative flex min-h-0 flex-col">
           <textarea
             ref={areaRef}
             data-testid="skill-content-input"
-            className="border-input min-h-[320px] w-full rounded-md border bg-transparent p-3 font-mono text-xs leading-relaxed"
+            className="border-input min-h-[240px] w-full flex-1 resize-none rounded-md border bg-transparent p-3 font-mono text-xs leading-relaxed"
             value={value}
             disabled={disabled}
             placeholder={"# 规则\n\n回答时在末尾加【OK】。\n\n需要查订单时调用 `orders__query`。"}
@@ -192,7 +192,7 @@ export function SkillMarkdownEditor({
           <div
             data-testid="skill-content-preview"
             className={cn(
-              "border-input min-h-[320px] overflow-auto rounded-md border p-3",
+              "border-input min-h-[240px] flex-1 overflow-auto rounded-md border p-3",
               "prose prose-sm prose-neutral dark:prose-invert max-w-none",
               "prose-p:my-1.5 prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold",
               "prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5",

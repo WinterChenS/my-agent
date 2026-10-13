@@ -28,6 +28,7 @@ import {
   type SkillInfo,
 } from "@/api/skills";
 import { listTools, type ToolEntry } from "@/api/tools";
+import { cn } from "@/lib/utils";
 import { SkillMarkdownEditor } from "@/components/skills/SkillMarkdownEditor";
 
 interface FormState {
@@ -266,13 +267,22 @@ export default function SkillsPage() {
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-5xl">
+        <DialogContent
+          data-testid="skill-dialog"
+          className={cn(
+            // 技能正文是要写 Markdown 的，弹窗必须够大：
+            // 默认 DialogContent 带 sm:max-w-lg（512px）且无高度约束，双栏会挤成一团。
+            // 这里显式给出「宽 + 高」，并用 grid-rows 让中间的表单区吃掉剩余高度。
+            "h-[88vh] max-w-[95vw] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden",
+            "sm:max-w-[95vw] lg:max-w-[88vw] xl:max-w-7xl",
+          )}
+        >
           <DialogHeader>
             <DialogTitle>
               {form.id == null ? "新建 Skill" : `编辑 Skill（当前 v${form.version}）`}
             </DialogTitle>
           </DialogHeader>
-          <div className="grid gap-3">
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 text-sm">
                 名称
@@ -304,11 +314,13 @@ export default function SkillsPage() {
                 placeholder="一句话说明这个 Skill 做什么"
               />
             </label>
-            <SkillMarkdownEditor
-              value={form.content}
-              onChange={(next) => setForm({ ...form, content: next })}
-              tools={tools}
-            />
+            <div className="flex min-h-0 flex-1 flex-col">
+              <SkillMarkdownEditor
+                value={form.content}
+                onChange={(next) => setForm({ ...form, content: next })}
+                tools={tools}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
