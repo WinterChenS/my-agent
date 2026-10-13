@@ -108,6 +108,66 @@ public class MultimodalGuard {
         return count;
     }
 
+    /** 单张图片大小上限（按 base64 解码后的字节数）。 */
+    private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
+
+    /** 允许的图片格式。 */
+    private static final java.util.Set<String> ALLOWED_MIME =
+            java.util.Set.of("image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif");
+
+    /**
+     * 校验本轮图片是否合规（tier1-upgrades ① 的「图片限制」）。
+     *
+     * <p>三道：单轮张数 ≤5、单张 ≤5MB、格式仅 png/jpeg/webp/gif。返回人类可读的问题列表（空=合规）。
+     * 校验失败时整轮拒绝（文本消息请单独发送）——错误提示必须说明是哪张、错在哪。
+     */
+    public List<String> validateImages(RunAgentInput input) {
+        List<String> problems = new ArrayList<>();
+        if (input == null || !input.hasMessages()) {
+            return problems;
+        }
+        int index = 0;
+        int total = 0;
+        for (AguiMessage message : input.getMessages()) {
+            MessageContent content = message.getContent();
+            if (!(content instanceof MessageContent.Blocks blocks) || blocks.parts() == null) {
+                continue;
+            }
+            for (InputContent part : blocks.parts()) {
+                if (!(part instanceof ImageInputContent image)) {
+                    continue;
+                }
+                total++;
+                index++;
+                // ImageInputContent / InputContentDataSource 都是 record，用 record 访问器
+                io.agentscope.core.agui.model.InputContentSource src = image.source();
+                String mime = null;
+                String value = null;
+                if (src instanceof io.agentscope.core.agui.model.InputContentDataSource data) {
+                    mime = data.mimeType();
+                    value = data.value();
+                } else if (src != null) {
+                    mime = String.valueOf(src);
+                }
+                if (mime == null || !ALLOWED_MIME.contains(mime.toLowerCase())) {
+                    problems.add("第 " + index + " 张图片格式不支持（仅支持 png/jpeg/webp/gif）：" + mime);
+                    continue;
+                }
+                if (value != null) {
+                    long bytes = (long) (value.length() / 4.0 * 3);
+                    if (bytes > MAX_IMAGE_BYTES) {
+                        problems.add("第 " + index + " 张图片过大（"
+                                + (bytes / 1024 / 1024) + "MB，上限 5MB）");
+                    }
+                }
+            }
+        }
+        if (total > MAX_IMAGES_PER_RUN) {
+            problems.add("单轮最多发送 " + MAX_IMAGES_PER_RUN + " 张图片（当前 " + total + " 张）");
+        }
+        return problems;
+    }
+
     /** 单轮图片数量上限（超出返回超出张数，0 表示合规）。 */
     public int overLimit(RunAgentInput input) {
         int total = 0;

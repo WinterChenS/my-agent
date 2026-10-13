@@ -133,9 +133,10 @@ public class AguiRunController {
         }
 
         // tier1-upgrades ①：模型未开启多模态时剥离图片并提示（避免厂商 400）
-        int overLimit = multimodalGuard.overLimit(input);
-        if (overLimit > 0) {
-            throw BizException.badRequest("单轮最多发送 5 张图片（超出 " + overLimit + " 张）");
+        // 图片合规校验：张数 / 单张大小 / 格式（spec 的「图片限制」）
+        java.util.List<String> imageProblems = multimodalGuard.validateImages(input);
+        if (!imageProblems.isEmpty()) {
+            throw BizException.badRequest(String.join("；", imageProblems) + "。请调整后重发（文本消息可单独发送）");
         }
         MultimodalGuard.Result guarded = multimodalGuard.apply(input, agentFactory.isMultimodal(agentDbId));
         RunAgentInput effectiveInput = guarded.input();
