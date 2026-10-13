@@ -93,7 +93,7 @@ class SkillConfigServiceTest {
                 null,
                 null,
                 "ALWAYS_ALLOW",
-                null,
+                null,null,null,null,
                 "ENABLED",
                 List.of(skill.id()),
                 List.of()));

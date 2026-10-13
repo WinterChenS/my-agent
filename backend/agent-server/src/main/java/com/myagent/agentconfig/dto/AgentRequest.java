@@ -19,6 +19,7 @@ public record AgentRequest(
         Integer maxTokens,
         @NotBlank(message = "permissionMode 不能为空") String permissionMode,
         Integer maxIterations,
+        java.math.BigDecimal dailyQuota, java.math.BigDecimal monthlyQuota, String quotaCurrency,
         String status,
         List<Long> skillIds,
         List<Long> mcpServerIds) {}

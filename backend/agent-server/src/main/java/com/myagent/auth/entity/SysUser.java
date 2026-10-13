@@ -24,6 +24,11 @@ public class SysUser {
 
     private OffsetDateTime createdAt;
 
+    private java.math.BigDecimal dailyQuota;
+    private java.math.BigDecimal monthlyQuota;
+    private String quotaCurrency;
+    private String quotaMode;
+
     private OffsetDateTime updatedAt;
 
     public Long getId() {
@@ -88,5 +93,37 @@ public class SysUser {
 
     public void setUpdatedAt(OffsetDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public java.math.BigDecimal getDailyQuota() {
+        return dailyQuota;
+    }
+
+    public void setDailyQuota(java.math.BigDecimal dailyQuota) {
+        this.dailyQuota = dailyQuota;
+    }
+
+    public java.math.BigDecimal getMonthlyQuota() {
+        return monthlyQuota;
+    }
+
+    public void setMonthlyQuota(java.math.BigDecimal monthlyQuota) {
+        this.monthlyQuota = monthlyQuota;
+    }
+
+    public String getQuotaCurrency() {
+        return quotaCurrency;
+    }
+
+    public void setQuotaCurrency(String quotaCurrency) {
+        this.quotaCurrency = quotaCurrency;
+    }
+
+    public String getQuotaMode() {
+        return quotaMode;
+    }
+
+    public void setQuotaMode(String quotaMode) {
+        this.quotaMode = quotaMode;
     }
 }

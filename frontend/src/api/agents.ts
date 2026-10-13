@@ -13,6 +13,10 @@ export interface AgentDetail {
   maxTokens: number | null;
   permissionMode: PermissionMode;
   maxIterations: number | null;
+  /** tier1-upgrades ④：Agent 级额度（null=不限） */
+  dailyQuota?: number | null;
+  monthlyQuota?: number | null;
+  quotaCurrency?: string | null;
   status: "ENABLED" | "DISABLED";
   skillIds: number[];
   mcpServerIds: number[];
@@ -29,6 +33,9 @@ export interface AgentPayload {
   maxTokens?: number | null;
   permissionMode: PermissionMode;
   maxIterations?: number | null;
+  dailyQuota?: number | null;
+  monthlyQuota?: number | null;
+  quotaCurrency?: string | null;
   status?: "ENABLED" | "DISABLED";
   skillIds: number[];
   mcpServerIds: number[];

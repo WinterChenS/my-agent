@@ -71,7 +71,7 @@ class ArtifactServiceTest {
                 .id();
         var agent = agentConfigService.create(new AgentRequest(
                 "ArtTest-Agent-" + System.nanoTime(), "art-test-agent-" + System.nanoTime(),
-                "p", modelId, null, null, "ALWAYS_ALLOW", null, "ENABLED", List.of(), List.of()));
+                "p", modelId, null, null, "ALWAYS_ALLOW", null,null,null,null, "ENABLED", List.of(), List.of()));
         return chatSessionService.create(1L, new SessionRequest(agent.id(), "产物测试", null));
     }
 

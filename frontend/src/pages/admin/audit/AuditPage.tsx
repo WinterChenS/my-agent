@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { getUserQuota, setUserQuota, type QuotaStatus } from "@/api/quota";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,12 @@ export default function AuditPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [summary, setSummary] = useState<TokenSummary | null>(null);
+  // tier1-upgrades ④：额度（显示已用/额度，并可设置）
+  const [quota, setQuota] = useState<QuotaStatus | null>(null);
+  const [quotaDaily, setQuotaDaily] = useState("");
+  const [quotaMonthly, setQuotaMonthly] = useState("");
+  const [quotaMode, setQuotaMode] = useState<"BLOCK" | "WARN">("BLOCK");
+  const [quotaNotice, setQuotaNotice] = useState<string | null>(null);
   const [records, setRecords] = useState<TokenRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +95,7 @@ export default function AuditPage() {
         }),
       ]);
       setSummary(summaryData);
+      void loadQuota(selectedUser);
       setRecords(page.records);
       setTotal(page.total);
     } catch (err) {
@@ -96,6 +104,44 @@ export default function AuditPage() {
       setLoading(false);
     }
   }, [selectedUser, from, to]);
+
+  /** 拉该用户的额度状态（审计看板显示已用/额度）。 */
+  const loadQuota = useCallback(async (targetUserId: number | null) => {
+    if (targetUserId == null) {
+      setQuota(null);
+      return;
+    }
+    try {
+      const data = await getUserQuota(targetUserId);
+      setQuota(data);
+      setQuotaDaily(data.dailyQuota == null ? "" : String(data.dailyQuota));
+      setQuotaMonthly(data.monthlyQuota == null ? "" : String(data.monthlyQuota));
+      setQuotaMode(data.mode);
+    } catch {
+      setQuota(null);
+    }
+  }, []);
+
+  /** 保存额度（空 = 不限）。 */
+  async function saveQuota() {
+    const targetUserId = Number(selectedUser);
+    if (!targetUserId) {
+      setQuotaNotice("请先选择要设置额度的用户");
+      return;
+    }
+    try {
+      const saved = await setUserQuota(targetUserId, {
+        dailyQuota: quotaDaily.trim() === "" ? null : Number(quotaDaily),
+        monthlyQuota: quotaMonthly.trim() === "" ? null : Number(quotaMonthly),
+        currency: quota?.currency ?? "CNY",
+        mode: quotaMode,
+      });
+      setQuota(saved);
+      setQuotaNotice("额度已保存");
+    } catch (e) {
+      setQuotaNotice(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -187,6 +233,80 @@ export default function AuditPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card data-testid="quota-card">
+        <CardHeader className="p-3">
+          <CardTitle className="text-sm">支出额度（用户 #{selectedUser || "-"}）</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 p-3 pt-0">
+          <div className="grid gap-3 text-sm sm:grid-cols-2" data-testid="quota-usage">
+            <div>
+              今日已用 <span className="font-semibold">{quota?.usedToday ?? 0}</span> {quota?.currency ?? "CNY"}
+              <span className="text-muted-foreground ml-2">
+                / 日额度 {quota?.dailyQuota ?? "不限"}
+              </span>
+            </div>
+            <div>
+              本月已用 <span className="font-semibold">{quota?.usedMonth ?? 0}</span> {quota?.currency ?? "CNY"}
+              <span className="text-muted-foreground ml-2">
+                / 月额度 {quota?.monthlyQuota ?? "不限"}
+              </span>
+            </div>
+          </div>
+          {quota?.exceeded && (
+            <div className="text-destructive text-xs" data-testid="quota-exceeded">
+              已超出额度：{quota.message}
+            </div>
+          )}
+          {quota?.nearLimit && (
+            <div className="text-xs text-amber-600" data-testid="quota-near">
+              已用额度接近上限（≥80%）
+            </div>
+          )}
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="space-y-1 text-xs">
+              日额度
+              <Input
+                className="h-8 w-28"
+                data-testid="quota-daily"
+                placeholder="不限"
+                value={quotaDaily}
+                onChange={(e) => setQuotaDaily(e.target.value)}
+              />
+            </label>
+            <label className="space-y-1 text-xs">
+              月额度
+              <Input
+                className="h-8 w-28"
+                data-testid="quota-monthly"
+                placeholder="不限"
+                value={quotaMonthly}
+                onChange={(e) => setQuotaMonthly(e.target.value)}
+              />
+            </label>
+            <label className="space-y-1 text-xs">
+              超限行为
+              <select
+                className="border-input h-8 rounded-md border px-2 text-xs"
+                data-testid="quota-mode"
+                value={quotaMode}
+                onChange={(e) => setQuotaMode(e.target.value as "BLOCK" | "WARN")}
+              >
+                <option value="BLOCK">BLOCK（拒绝发起）</option>
+                <option value="WARN">WARN（仅告警）</option>
+              </select>
+            </label>
+            <Button size="sm" data-testid="quota-save" onClick={() => void saveQuota()}>
+              保存额度
+            </Button>
+            {quotaNotice && (
+              <span className="text-muted-foreground text-xs" data-testid="quota-notice">
+                {quotaNotice}
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="p-3">

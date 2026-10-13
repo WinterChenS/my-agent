@@ -15,6 +15,7 @@ public record AgentResponse(
         Integer maxTokens,
         String permissionMode,
         Integer maxIterations,
+        java.math.BigDecimal dailyQuota, java.math.BigDecimal monthlyQuota, String quotaCurrency,
         String status,
         List<Long> skillIds,
         List<Long> mcpServerIds,

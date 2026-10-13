@@ -60,6 +60,7 @@ public class AguiRunController {
     private final RunningRunRegistry runningRuns;
     private final SessionTitleService sessionTitleService;
     private final MultimodalGuard multimodalGuard;
+    private final com.myagent.quota.service.QuotaService quotaService;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -74,7 +75,8 @@ public class AguiRunController {
             SessionSkillOverrides sessionSkillOverrides,
             RunningRunRegistry runningRuns,
             SessionTitleService sessionTitleService,
-            MultimodalGuard multimodalGuard) {
+            MultimodalGuard multimodalGuard,
+            com.myagent.quota.service.QuotaService quotaService) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
@@ -88,6 +90,7 @@ public class AguiRunController {
         this.runningRuns = runningRuns;
         this.sessionTitleService = sessionTitleService;
         this.multimodalGuard = multimodalGuard;
+        this.quotaService = quotaService;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -114,6 +117,19 @@ public class AguiRunController {
         if (agentDbId == null) {
             throw BizException.badRequest(
                     "无法确定 Agent：请在 forwardedProps.agentId 指定 agent_id，或复用已有 threadId");
+        }
+
+        // tier1-upgrades ④：发起前检查支出配额（spec：只在发起前检查，不做事后强制中断）
+        boolean isResume = input.getResume() != null && !input.getResume().isEmpty();
+        if (!isResume) {
+            com.myagent.quota.dto.QuotaStatus quota = quotaService.evaluate(userId, agentDbId);
+            if (quota.exceeded() && "BLOCK".equals(quota.mode())) {
+                throw BizException.badRequest("已超出支出额度，无法发起：" + quota.message());
+            }
+            if (quota.exceeded()) {
+                log.warn("支出额度已超（WARN 模式，放行）userId={} agentId={} 提示={}",
+                        userId, agentDbId, quota.message());
+            }
         }
 
         // tier1-upgrades ①：模型未开启多模态时剥离图片并提示（避免厂商 400）

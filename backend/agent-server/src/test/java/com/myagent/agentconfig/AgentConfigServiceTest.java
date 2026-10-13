@@ -72,7 +72,7 @@ class AgentConfigServiceTest {
                 new BigDecimal("0.50"),
                 1024,
                 "REQUIRE_APPROVAL",
-                15,
+                15,null,null,null,
                 "ENABLED",
                 skillIds,
                 mcpIds);
@@ -106,7 +106,7 @@ class AgentConfigServiceTest {
                 created.id(),
                 new AgentRequest(
                         created.name(), created.agentId(), "新提示词", modelId, null, null,
-                        "ALWAYS_ALLOW", null, "ENABLED", List.of(), List.of(mcpServerId)));
+                        "ALWAYS_ALLOW", null,null,null,null, "ENABLED", List.of(), List.of(mcpServerId)));
 
         assertThat(updated.skillIds()).isEmpty();
         assertThat(updated.mcpServerIds()).containsExactly(mcpServerId);
@@ -120,7 +120,7 @@ class AgentConfigServiceTest {
 
         assertThatThrownBy(() -> agentConfigService.create(
                         new AgentRequest("另一个名字", agentId, null, modelId, null, null,
-                                "ALWAYS_ALLOW", null, "ENABLED", null, null)))
+                                "ALWAYS_ALLOW", null,null,null,null, "ENABLED", null, null)))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("agent_id 已存在");
     }
@@ -129,7 +129,7 @@ class AgentConfigServiceTest {
     void 非法permissionMode返回业务错误() {
         assertThatThrownBy(() -> agentConfigService.create(
                         new AgentRequest("名字", "agent-bad-" + System.nanoTime(), null, modelId, null, null,
-                                "NOT_A_MODE", null, "ENABLED", null, null)))
+                                "NOT_A_MODE", null,null,null,null, "ENABLED", null, null)))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("permissionMode");
     }
@@ -138,7 +138,7 @@ class AgentConfigServiceTest {
     void 引用不存在的模型返回业务错误() {
         assertThatThrownBy(() -> agentConfigService.create(
                         new AgentRequest("名字", "agent-nomodel-" + System.nanoTime(), null, 999_999_999L, null, null,
-                                "ALWAYS_ALLOW", null, "ENABLED", null, null)))
+                                "ALWAYS_ALLOW", null,null,null,null, "ENABLED", null, null)))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("模型不存在");
     }

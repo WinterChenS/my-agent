@@ -44,6 +44,10 @@ interface FormState {
   maxTokens: string;
   permissionMode: PermissionMode;
   maxIterations: string;
+  /** tier1-upgrades ④：Agent 级额度（空=不限） */
+  dailyQuota: string;
+  monthlyQuota: string;
+  quotaCurrency: string;
   status: "ENABLED" | "DISABLED";
   skillIds: number[];
   mcpServerIds: number[];
@@ -59,6 +63,9 @@ const EMPTY: FormState = {
   maxTokens: "",
   permissionMode: "ALWAYS_ALLOW",
   maxIterations: "10",
+  dailyQuota: "",
+  monthlyQuota: "",
+  quotaCurrency: "CNY",
   status: "ENABLED",
   skillIds: [],
   mcpServerIds: [],
@@ -125,6 +132,9 @@ export default function AgentsPage() {
       maxTokens: form.maxTokens.trim() ? Number(form.maxTokens) : null,
       permissionMode: form.permissionMode,
       maxIterations: form.maxIterations.trim() ? Number(form.maxIterations) : null,
+      dailyQuota: form.dailyQuota.trim() ? Number(form.dailyQuota) : null,
+      monthlyQuota: form.monthlyQuota.trim() ? Number(form.monthlyQuota) : null,
+      quotaCurrency: form.quotaCurrency || "CNY",
       status: form.status,
       skillIds: form.skillIds,
       mcpServerIds: form.mcpServerIds,
@@ -225,6 +235,9 @@ export default function AgentsPage() {
                             permissionMode: a.permissionMode,
                             maxIterations:
                               a.maxIterations != null ? String(a.maxIterations) : "",
+                            dailyQuota: a.dailyQuota != null ? String(a.dailyQuota) : "",
+                            monthlyQuota: a.monthlyQuota != null ? String(a.monthlyQuota) : "",
+                            quotaCurrency: a.quotaCurrency ?? "CNY",
                             status: a.status,
                             skillIds: a.skillIds ?? [],
                             mcpServerIds: a.mcpServerIds ?? [],
@@ -362,6 +375,39 @@ export default function AgentsPage() {
                 ⚠️ {maxTokensWarning(form.maxTokens)}
               </p>
             )}
+
+            <div className="grid grid-cols-3 gap-3">
+              <label className="space-y-1 text-sm">
+                日额度
+                <Input
+                  data-testid="agent-daily-quota"
+                  value={form.dailyQuota}
+                  onChange={(e) => setForm({ ...form, dailyQuota: e.target.value })}
+                  placeholder="留空=不限"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                月额度
+                <Input
+                  data-testid="agent-monthly-quota"
+                  value={form.monthlyQuota}
+                  onChange={(e) => setForm({ ...form, monthlyQuota: e.target.value })}
+                  placeholder="留空=不限"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                额度货币
+                <select
+                  className="border-input h-9 rounded-md border px-2 text-sm"
+                  data-testid="agent-quota-currency"
+                  value={form.quotaCurrency}
+                  onChange={(e) => setForm({ ...form, quotaCurrency: e.target.value })}
+                >
+                  <option value="CNY">CNY</option>
+                  <option value="USD">USD</option>
+                </select>
+              </label>
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1 text-sm">

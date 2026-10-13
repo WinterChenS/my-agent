@@ -71,7 +71,7 @@ class AgentBindingRollbackTest {
                             null,
                             null,
                             "ALWAYS_ALLOW",
-                            null,
+                            null,null,null,null,
                             "ENABLED",
                             List.of(finalSkillId, 999_999_999L),
                             null)))

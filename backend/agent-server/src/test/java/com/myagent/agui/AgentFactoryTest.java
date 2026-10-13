@@ -71,7 +71,7 @@ class AgentFactoryTest {
                 null,
                 null,
                 permissionMode,
-                7,
+                7,null,null,null,
                 "ENABLED",
                 List.of(),
                 List.of()));
@@ -102,7 +102,7 @@ class AgentFactoryTest {
                 config.id(),
                 new AgentRequest(
                         config.name(), config.agentId(), "第二版提示词", config.modelId(), null, null,
-                        "ALWAYS_ALLOW", 7, "ENABLED", List.of(), List.of()));
+                        "ALWAYS_ALLOW", 7,null,null,null, "ENABLED", List.of(), List.of()));
 
         HarnessAgent second = agentFactory.build(config.id());
         assertThat(second).isNotSameAs(first);
@@ -140,7 +140,7 @@ class AgentFactoryTest {
                 config.id(),
                 new AgentRequest(
                         config.name(), config.agentId(), "提示词", config.modelId(), null, null,
-                        "ALWAYS_ALLOW", 7, "DISABLED", List.of(), List.of()));
+                        "ALWAYS_ALLOW", 7,null,null,null, "DISABLED", List.of(), List.of()));
 
         assertThatThrownBy(() -> agentFactory.build(config.id()))
                 .isInstanceOf(BizException.class)

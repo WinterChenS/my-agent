@@ -82,4 +82,30 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
             ORDER BY total_tokens DESC
             """)
     List<Map<String, Object>> usersWithUsage();
+
+    /**
+     * 指定区间内的成本合计（tier1-upgrades ④ 配额用）。
+     *
+     * <p>口径与 {@link #byModel} 完全一致（每百万 token 单价 × 用量），只是这里不分模型、直接求和；
+     * {@code agentId} 为 null 时只按用户汇总，否则再叠加 Agent 维度。
+     */
+    @Select("""
+            <script>
+            SELECT coalesce(sum(
+                       t.prompt_tokens     / 1000000.0 * coalesce(m.price_input, 0)
+                     + t.completion_tokens / 1000000.0 * coalesce(m.price_output, 0)
+                   ), 0) AS cost_total
+            FROM token_usage t
+            LEFT JOIN llm_model m ON m.id = t.model_id
+            WHERE t.user_id = #{userId}
+              AND t.created_at &gt;= #{from}
+              AND t.created_at &lt;= #{to}
+              <if test="agentId != null"> AND t.agent_id = #{agentId} </if>
+            </script>
+            """)
+    java.math.BigDecimal costInRange(
+            @Param("userId") Long userId,
+            @Param("from") OffsetDateTime from,
+            @Param("to") OffsetDateTime to,
+            @Param("agentId") Long agentId);
 }

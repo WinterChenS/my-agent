@@ -12,6 +12,7 @@ import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ContextBar } from "@/components/chat/ContextBar";
 import type { ContextUsage, RunHistoryItem } from "@/api/sessions";
 import { lastRunHint } from "@/lib/chat/runStatus";
+import { getMyQuota, type QuotaStatus } from "@/api/quota";
 import { SubagentCard } from "@/components/chat/SubagentCard";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
 import { JsonCard } from "@/components/cards/JsonCard";
@@ -95,6 +96,8 @@ export default function ChatPage() {
   const [lastRun, setLastRun] = useState<RunHistoryItem | null>(null);
   /** 后台跑完的站内提示。 */
   const [runNotice, setRunNotice] = useState<string | null>(null);
+  /** 支出额度状态（tier1-upgrades ④）。 */
+  const [quota, setQuota] = useState<QuotaStatus | null>(null);
   /** 正在后台跑、需要盯着结束的会话（id → 标题）。 */
   const watchingRuns = useRef<Map<number, string>>(new Map());
   // Phase 10：`/` 选技能（D21）、上传中状态、右侧栏刷新信号
@@ -275,6 +278,7 @@ export default function ChatPage() {
     }
     void refreshContext(target);
     void refreshLastRun(target);
+    void refreshQuota(target.agentId ?? null);
   }
 
   /** 后台 run 完成检测：用户切到别的会话时，原会话跑完给一条站内提示（tier1-upgrades ③）。 */
@@ -300,6 +304,15 @@ export default function ChatPage() {
     }, 3000);
     return () => window.clearInterval(timer);
   }, []);
+
+  /** 刷新额度（≥80% 提示，超限说明）。 */
+  async function refreshQuota(agentDbId: number | null) {
+    try {
+      setQuota(await getMyQuota(agentDbId));
+    } catch {
+      setQuota(null);
+    }
+  }
 
   /** 拉该会话最近一轮状态（后端重启后据此显示「上一轮：已完成/已中断」）。 */
   async function refreshLastRun(target: ChatSession | null) {
@@ -853,6 +866,20 @@ export default function ChatPage() {
 
         <div className="border-t p-3">
           <div className="relative mx-auto w-full max-w-3xl">
+            {quota && (quota.exceeded || quota.nearLimit) && (
+              <div
+                className={`mb-2 rounded-md border px-3 py-1.5 text-xs ${
+                  quota.exceeded ? "border-destructive/40 bg-destructive/10" : "border-amber-300 bg-amber-50"
+                }`}
+                data-testid="quota-warning"
+              >
+                {quota.exceeded
+                  ? `已超出支出额度：${quota.message ?? ""}${
+                      quota.mode === "BLOCK" ? "（发起将被拒绝）" : "（仅告警，仍可发起）"
+                    }`
+                  : `支出额度接近上限：今日已用 ${quota.usedToday} / ${quota.dailyQuota ?? "不限"} ${quota.currency}`}
+              </div>
+            )}
             {lastRunHint(lastRun) && (
               <div
                 className="mb-2 text-xs text-muted-foreground"

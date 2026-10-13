@@ -191,6 +191,10 @@ public class AgentConfigService {
         agent.setStatus(StringUtils.hasText(request.status())
                 ? request.status().trim().toUpperCase()
                 : "ENABLED");
+        // tier1-upgrades ④：Agent 级额度（空=不限）
+        agent.setDailyQuota(request.dailyQuota());
+        agent.setMonthlyQuota(request.monthlyQuota());
+        agent.setQuotaCurrency(request.quotaCurrency());
     }
 
     private static String normalize(String value) {
@@ -208,6 +212,9 @@ public class AgentConfigService {
                 agent.getMaxTokens(),
                 agent.getPermissionMode(),
                 agent.getMaxIterations(),
+                agent.getDailyQuota(),
+                agent.getMonthlyQuota(),
+                agent.getQuotaCurrency(),
                 agent.getStatus(),
                 agentSkillMapper.findSkillIds(agent.getId()),
                 agentMcpServerMapper.findMcpServerIds(agent.getId()),
