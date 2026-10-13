@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
@@ -65,22 +73,48 @@ const CODE_LANGUAGES: Record<string, string> = {
  * —— 早先的做法是先把 `/query` 打进文档、选中时再删掉，但 Lexical 有自己的编辑器模型，
  *    直接删 DOM 会被它还原，结果正文里留下 `/read`（实测）。
  */
-export function SkillMdxEditor({
-  value,
-  onChange,
-  tools,
-  placeholder,
-}: {
-  value: string;
-  onChange: (next: string) => void;
-  tools: ToolOption[];
-  placeholder?: string;
-}) {
+export interface SkillMdxEditorHandle {
+  /** 用代码把正文整段替换掉（例如 AI 生成后回填）。 */
+  setMarkdown: (markdown: string) => void;
+  getMarkdown: () => string;
+}
+
+/**
+ * 注意：MDXEditor 的 `markdown` 属性**只当初始值**，父组件改 state 它不会跟着变
+ * （官方要求程序化更新走 ref 的 setMarkdown）。
+ * 实测后果：AI 生成把 content 写进 state 后，编辑器里还是空的。
+ * 所以这里用 forwardRef 暴露 setMarkdown 给父组件调用。
+ */
+export const SkillMdxEditor = forwardRef<
+  SkillMdxEditorHandle,
+  {
+    value: string;
+    onChange: (next: string) => void;
+    tools: ToolOption[];
+    placeholder?: string;
+  }
+>(function SkillMdxEditor({ value, onChange, tools, placeholder }, ref) {
   const editorRef = useRef<MDXEditorMethods>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   /** null = 菜单关闭；字符串 = 当前过滤词。 */
   const [query, setQuery] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
+  /**
+   * 菜单是弹在鼠标底下的，浏览器会立刻给鼠标所在行触发 mouseenter，
+   * 于是「回车插哪一条」会**取决于鼠标恰好停在哪**（实测：同一用例时对时错）。
+   * 所以菜单刚出现时不响应悬停，等用户**真的移动过鼠标**才启用。
+   */
+  const hoverArmed = useRef(false);
+
+  // MDXEditor 的 markdown 只当初始值，程序化更新（AI 生成后回填）必须走 setMarkdown
+  useImperativeHandle(
+    ref,
+    () => ({
+      setMarkdown: (markdown: string) => editorRef.current?.setMarkdown(markdown),
+      getMarkdown: () => editorRef.current?.getMarkdown() ?? "",
+    }),
+    [],
+  );
 
   /**
    * 候选按来源分组，**本地工具优先**，且每个 MCP 服务器限量。
@@ -193,6 +227,18 @@ export function SkillMdxEditor({
 
   const menuVisible = query !== null && flat.length > 0;
 
+  useEffect(() => {
+    if (!menuVisible) {
+      hoverArmed.current = false;
+      return;
+    }
+    const arm = () => {
+      hoverArmed.current = true;
+    };
+    window.addEventListener("mousemove", arm, { once: true });
+    return () => window.removeEventListener("mousemove", arm);
+  }, [menuVisible]);
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 text-sm">
       <div className="flex items-center justify-between">
@@ -288,7 +334,11 @@ export function SkillMdxEditor({
                         "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs",
                         index === highlight ? "bg-accent" : "hover:bg-accent/60",
                       )}
-                      onMouseEnter={() => setHighlight(index)}
+                      onMouseEnter={() => {
+                        if (hoverArmed.current) {
+                          setHighlight(index);
+                        }
+                      }}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         insertTool(option.name);
@@ -316,4 +366,4 @@ export function SkillMdxEditor({
       </div>
     </div>
   );
-}
+});

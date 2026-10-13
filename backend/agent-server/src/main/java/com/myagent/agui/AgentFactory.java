@@ -315,6 +315,20 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         if (model == null) {
             throw BizException.badRequest("Agent 未绑定有效模型: " + agent.getAgentId());
         }
+        return buildChatModel(model.getId());
+    }
+
+    /**
+     * 按**模型主键**直接构建 ChatModel（不经过 Agent）。
+     *
+     * <p>用途：平台自己发起的单次调用，比如会话标题生成、技能 AI 生成 —— 这类调用
+     * 不需要（也不应该）借某个 Agent 的配置，只要模型 + 供应商即可。
+     */
+    public ChatModelBase buildChatModel(Long modelId) {
+        LlmModel model = modelId == null ? null : llmModelMapper.selectById(modelId);
+        if (model == null) {
+            throw BizException.badRequest("模型不存在: " + modelId);
+        }
         LlmProvider provider = llmProviderMapper.selectById(model.getProviderId());
         if (provider == null) {
             throw BizException.badRequest("模型对应的供应商不存在: " + model.getProviderId());

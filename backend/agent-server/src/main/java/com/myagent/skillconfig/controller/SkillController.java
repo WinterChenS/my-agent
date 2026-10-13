@@ -22,9 +22,26 @@ import org.springframework.web.bind.annotation.RestController;
 public class SkillController {
 
     private final SkillConfigService service;
+    private final com.myagent.agui.SkillGeneratorService skillGeneratorService;
 
-    public SkillController(SkillConfigService service) {
+    public SkillController(
+            SkillConfigService service, com.myagent.agui.SkillGeneratorService skillGeneratorService) {
         this.service = service;
+        this.skillGeneratorService = skillGeneratorService;
+    }
+
+    /** AI 生成技能的请求体。 */
+    public record GenerateSkillRequest(String requirement, Long modelId) {}
+
+    /**
+     * 用 AI 根据自然语言需求生成技能草稿（不落库，只返回内容供编辑）。
+     *
+     * <p>POST /api/skills/** 需要 ADMIN（见 SecurityConfig）——生成要花模型 token，限定管理员合理。
+     */
+    @PostMapping("/generate")
+    public Result<com.myagent.agui.SkillGeneratorService.Draft> generate(
+            @RequestBody GenerateSkillRequest request) {
+        return Result.ok(skillGeneratorService.generate(request.requirement(), request.modelId()));
     }
 
     @GetMapping

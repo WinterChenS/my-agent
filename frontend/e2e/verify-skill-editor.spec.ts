@@ -87,7 +87,12 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   );
   console.log("[③-b /read 候选]", options.slice(0, 3).join(", "));
   expect(options).toContain("read_file");
-  await page.keyboard.press("Enter");
+  // 显式点中 read_file（走鼠标这条路径；键盘选中在 ③-a 已验过）
+  await page
+    .getByTestId("skill-tool-option")
+    .filter({ has: page.locator("code", { hasText: /^read_file$/ }) })
+    .first()
+    .click();
   await page.waitForTimeout(500);
   const afterInsert = await editable.innerText();
   console.log("[③-b] 含 read_file:", afterInsert.includes("read_file"), "| 残留 '/read':", afterInsert.includes("/read"));

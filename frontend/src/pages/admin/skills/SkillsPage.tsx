@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Trash2, Pencil } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Pencil, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,13 +23,15 @@ import {
 import {
   createSkill,
   deleteSkill,
+  generateSkill,
   listSkills,
   updateSkill,
   type SkillInfo,
 } from "@/api/skills";
 import { listTools, type ToolEntry } from "@/api/tools";
+import { listModels, type ModelInfo } from "@/api/models";
 import { cn } from "@/lib/utils";
-import { SkillMdxEditor } from "@/components/skills/SkillMdxEditor";
+import { SkillMdxEditor, type SkillMdxEditorHandle } from "@/components/skills/SkillMdxEditor";
 
 interface FormState {
   id: number | null;
@@ -61,6 +63,14 @@ export default function SkillsPage() {
 
   /** 可插入的工具（MCP + 本地）：编辑器里输入 `/` 用。加载一次就够。 */
   const [tools, setTools] = useState<ToolEntry[]>([]);
+  // 「用 AI 生成」面板的状态
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [aiModelId, setAiModelId] = useState<number | null>(null);
+  const [aiRequirement, setAiRequirement] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNotice, setAiNotice] = useState<string | null>(null);
+  /** 编辑器句柄：MDXEditor 的 markdown 只当初始值，AI 生成后要用 setMarkdown 回填。 */
+  const editorHandle = useRef<SkillMdxEditorHandle | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -69,8 +79,45 @@ export default function SkillsPage() {
       } catch {
         setTools([]);
       }
+      try {
+        const page = await listModels(1, 200);
+        const enabled = page.records.filter((m) => m.status === "ENABLED");
+        setModels(enabled);
+        setAiModelId((current) => current ?? enabled[0]?.id ?? null);
+      } catch {
+        setModels([]);
+      }
     })();
   }, []);
+
+  /** 调后端让 AI 按需求生成技能草稿，并填入表单。 */
+  async function runAiGenerate() {
+    if (!aiRequirement.trim()) {
+      toast.error("先用一句话说说你想要什么技能");
+      return;
+    }
+    setAiBusy(true);
+    setAiNotice(null);
+    try {
+      const draft = await generateSkill(aiRequirement.trim(), aiModelId);
+      setForm((prev) => ({
+        ...prev,
+        name: draft.name,
+        description: draft.description,
+        content: draft.content,
+      }));
+      // 关键：编辑器不会因为 state 变化而更新，必须显式把正文塞进去（实测过的坑）
+      editorHandle.current?.setMarkdown(draft.content);
+      toast.success("已生成，请检查后保存");
+      if (draft.notice) {
+        setAiNotice(draft.notice);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "生成失败");
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -291,6 +338,68 @@ export default function SkillsPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+            {/* 用 AI 生成：把自然语言需求 + 可用工具清单交给模型，产出草稿再人工确认 */}
+            <div
+              className="bg-muted/40 space-y-2 rounded-md border border-dashed p-3"
+              data-testid="skill-ai-panel"
+            >
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Sparkles className="size-4" />
+                用 AI 生成
+                <span className="text-muted-foreground text-xs font-normal">
+                  把可用的工具清单（本地 {tools.filter((t) => t.group.includes("本地")).length} 个 + MCP
+                  {tools.filter((t) => !t.group.includes("本地")).length} 个）与技能格式要求一并交给模型
+                </span>
+              </div>
+              <textarea
+                data-testid="skill-ai-requirement"
+                className="border-input min-h-[64px] w-full resize-y rounded-md border bg-transparent p-2 text-xs"
+                placeholder="用一句话描述你想要的技能，例如：当用户问订单物流时，先查订单再回复；查不到就让他确认订单号。"
+                value={aiRequirement}
+                onChange={(e) => setAiRequirement(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    void runAiGenerate();
+                  }
+                }}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-xs">
+                  使用模型
+                  <select
+                    className="border-input ml-1 h-8 rounded-md border bg-transparent px-2 text-xs"
+                    data-testid="skill-ai-model"
+                    value={aiModelId ?? ""}
+                    onChange={(e) => setAiModelId(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    {models.length === 0 && <option value="">（没有可用模型）</option>}
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.displayName || m.modelId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  size="sm"
+                  data-testid="skill-ai-generate"
+                  disabled={aiBusy || models.length === 0}
+                  onClick={() => void runAiGenerate()}
+                >
+                  <Sparkles className="size-3.5" />
+                  {aiBusy ? "生成中…" : "生成"}
+                </Button>
+                <span className="text-muted-foreground text-xs">
+                  生成后会自动填入下面的名称 / 说明 / 正文，可以再改（Ctrl+Enter 快捷生成）
+                </span>
+              </div>
+              {aiNotice && (
+                <p className="text-xs text-amber-600" data-testid="skill-ai-notice">
+                  {aiNotice}
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 text-sm">
                 名称 <span className="text-destructive">*</span>
@@ -328,6 +437,7 @@ export default function SkillsPage() {
             </label>
             <div className="flex min-h-0 flex-1 flex-col">
               <SkillMdxEditor
+                ref={editorHandle}
                 value={form.content}
                 onChange={(next) => setForm({ ...form, content: next })}
                 tools={tools}
