@@ -76,8 +76,12 @@ export function MessageBubble({
               "prose-p:my-1.5 prose-p:leading-relaxed",
               "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold",
               "prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5",
-              "prose-pre:my-2 prose-pre:rounded-lg prose-pre:bg-muted prose-pre:p-3 prose-pre:text-xs",
-              "prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:before:content-none prose-code:after:content-none",
+              // 代码块：背景改成浅色后，必须把**文字颜色**也显式改回来。
+              // 否则 prose 默认给 pre 配的是「深色底 + 浅色字」的那套颜色 → 浅底浅字，根本看不见。
+              "prose-pre:my-2 prose-pre:rounded-lg prose-pre:border prose-pre:bg-muted prose-pre:p-3 prose-pre:text-xs prose-pre:text-foreground",
+              "prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none",
+              // 代码块内部的 code 不要再叠一层内联样式（会双重背景、字号错乱），直接继承外层
+              "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-xs [&_pre_code]:text-inherit",
               "prose-blockquote:my-2 prose-blockquote:border-l-2 prose-blockquote:pl-3 prose-blockquote:not-italic",
               "prose-table:my-2 prose-th:px-2 prose-td:px-2",
               "prose-a:underline prose-a:underline-offset-2",
