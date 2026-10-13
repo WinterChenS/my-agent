@@ -32,8 +32,11 @@ public class McpServerController {
     @GetMapping
     public Result<PageResult<McpServerResponse>> list(
             @RequestParam(defaultValue = "1") long current,
-            @RequestParam(defaultValue = "20") long size) {
-        return Result.ok(service.list(current, size));
+            @RequestParam(defaultValue = "20") long size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String transport) {
+        return Result.ok(service.list(current, size, keyword, status, transport));
     }
 
     @GetMapping("/{id}")

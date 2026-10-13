@@ -38,8 +38,24 @@ export interface McpServerPayload {
 
 export const MCP_TRANSPORTS: McpTransport[] = ["STDIO", "SSE", "STREAMABLE_HTTP"];
 
-export function listMcpServers(current = 1, size = 100) {
-  return apiFetch<PageResult<McpServerInfo>>(`/api/mcp-servers?current=${current}&size=${size}`);
+/** 列表筛选条件（都可选）。 */
+export interface McpListQuery {
+  current?: number;
+  size?: number;
+  /** 名称模糊匹配 */
+  keyword?: string;
+  status?: "ENABLED" | "DISABLED" | "";
+  transport?: McpTransport | "";
+}
+
+export function listMcpServers(query: McpListQuery = {}) {
+  const params = new URLSearchParams();
+  params.set("current", String(query.current ?? 1));
+  params.set("size", String(query.size ?? 20));
+  if (query.keyword?.trim()) params.set("keyword", query.keyword.trim());
+  if (query.status) params.set("status", query.status);
+  if (query.transport) params.set("transport", query.transport);
+  return apiFetch<PageResult<McpServerInfo>>(`/api/mcp-servers?${params.toString()}`);
 }
 
 export function createMcpServer(payload: McpServerPayload) {

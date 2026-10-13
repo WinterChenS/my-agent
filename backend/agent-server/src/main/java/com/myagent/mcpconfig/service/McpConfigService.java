@@ -41,9 +41,25 @@ public class McpConfigService {
         this.agentCacheInvalidator = agentCacheInvalidator;
     }
 
-    public PageResult<McpServerResponse> list(long current, long size) {
-        Page<McpServer> page = mcpServerMapper.selectPage(
-                new Page<>(current, size), Wrappers.<McpServer>lambdaQuery().orderByAsc(McpServer::getId));
+    /**
+     * 列表（分页 + 筛选）。
+     *
+     * <p>筛选项都是可选的：{@code keyword} 按名称模糊匹配，{@code status}/{@code transport} 精确匹配。
+     * 之前只能一页刷到底，MCP 服务器一多就难找（用户反馈）。
+     */
+    public PageResult<McpServerResponse> list(
+            long current, long size, String keyword, String status, String transport) {
+        var query = Wrappers.<McpServer>lambdaQuery().orderByAsc(McpServer::getId);
+        if (StringUtils.hasText(keyword)) {
+            query.like(McpServer::getName, keyword.trim());
+        }
+        if (StringUtils.hasText(status)) {
+            query.eq(McpServer::getStatus, status.trim().toUpperCase());
+        }
+        if (StringUtils.hasText(transport)) {
+            query.eq(McpServer::getTransport, transport.trim().toUpperCase());
+        }
+        Page<McpServer> page = mcpServerMapper.selectPage(new Page<>(current, size), query);
         return PageResult.of(
                 page.getRecords().stream().map(McpConfigService::toResponse).toList(),
                 page.getTotal(),

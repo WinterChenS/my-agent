@@ -90,22 +90,43 @@ export default function McpPage() {
   const [tools, setTools] = useState<Record<number, McpToolCacheEntry[]>>({});
   /** 平台内置（框架注册）工具：只读展示。它们不属于任何 MCP 服务器，也不由平台管理。 */
   const [builtinTools, setBuiltinTools] = useState<ToolEntry[]>([]);
+  // 分页 + 筛选（MCP 服务器一多，一页刷到底根本找不到）
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [keyword, setKeyword] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | "ENABLED" | "DISABLED">("");
+  const [transportFilter, setTransportFilter] = useState<"" | McpTransport>("");
+  /** 已提交生效的筛选（输入框改动不立即请求，点「查询」才生效） */
+  const [applied, setApplied] = useState({ keyword: "", status: "" as "" | "ENABLED" | "DISABLED", transport: "" as "" | McpTransport });
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const page = await listMcpServers();
-      setServers(page.records);
+      const result = await listMcpServers({
+        current: page,
+        size: pageSize,
+        keyword: applied.keyword,
+        status: applied.status,
+        transport: applied.transport,
+      });
+      setServers(result.records);
+      setTotal(result.total);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载 MCP 列表失败");
     } finally {
       setLoading(false);
     }
-  }, []);
+    // 依赖必须带上 page/pageSize/applied：否则翻页与筛选变了但 refresh 身份不变，
+    // 下面的 effect 不会重跑 → 表格看着像卡住了（这类 bug lint 会直接提出来）。
+  }, [page, pageSize, applied]);
 
   useEffect(() => {
     void refresh();
-    // 内置工具清单（只读）：来自框架注册的 Toolkit，与 MCP 无关，所以单独拉一次
+  }, [refresh]);
+
+  // 内置工具清单（只读）：来自框架注册的 Toolkit，与 MCP 无关，整个页面生命周期只拉一次
+  useEffect(() => {
     void (async () => {
       try {
         const all = await listTools();
@@ -114,7 +135,7 @@ export default function McpPage() {
         setBuiltinTools([]);
       }
     })();
-  }, [refresh]);
+  }, []);
 
   function openCreate() {
     setForm(EMPTY_FORM);
@@ -212,9 +233,82 @@ export default function McpPage() {
 
       <Card>
         <CardHeader className="p-3">
-          <CardTitle className="text-sm">Server 列表（{servers.length}）</CardTitle>
+          <CardTitle className="text-sm">Server 列表（{total}）</CardTitle>
         </CardHeader>
-        <CardContent className="p-3 pt-0">
+        <CardContent className="p-3 pt-0 space-y-3">
+          {/* 筛选条 */}
+          <div className="flex flex-wrap items-end gap-2" data-testid="mcp-filters">
+            <label className="space-y-1 text-xs">
+              名称包含
+              <Input
+                className="h-8 w-48"
+                data-testid="mcp-filter-keyword"
+                placeholder="如 everything"
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setPage(1);
+                    setApplied({ keyword, status: statusFilter, transport: transportFilter });
+                  }
+                }}
+              />
+            </label>
+            <label className="space-y-1 text-xs">
+              状态
+              <select
+                className="border-input h-8 rounded-md border bg-transparent px-2 text-xs"
+                data-testid="mcp-filter-status"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as "" | "ENABLED" | "DISABLED")}
+              >
+                <option value="">全部</option>
+                <option value="ENABLED">ENABLED</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs">
+              传输
+              <select
+                className="border-input h-8 rounded-md border bg-transparent px-2 text-xs"
+                data-testid="mcp-filter-transport"
+                value={transportFilter}
+                onChange={(e) => setTransportFilter(e.target.value as "" | McpTransport)}
+              >
+                <option value="">全部</option>
+                {MCP_TRANSPORTS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              size="sm"
+              data-testid="mcp-filter-apply"
+              onClick={() => {
+                setPage(1);
+                setApplied({ keyword, status: statusFilter, transport: transportFilter });
+              }}
+            >
+              查询
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              data-testid="mcp-filter-reset"
+              onClick={() => {
+                setKeyword("");
+                setStatusFilter("");
+                setTransportFilter("");
+                setPage(1);
+                setApplied({ keyword: "", status: "", transport: "" });
+              }}
+            >
+              重置
+            </Button>
+          </div>
+
           <Table>
             <TableHeader>
               <TableRow>
@@ -293,6 +387,54 @@ export default function McpPage() {
               )}
             </TableBody>
           </Table>
+
+          {/* 分页 */}
+          <div
+            className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm"
+            data-testid="mcp-pagination"
+          >
+            <div className="text-muted-foreground text-xs">
+              共 {total} 条，第 {page} / {Math.max(1, Math.ceil(total / pageSize))} 页
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-muted-foreground text-xs">
+                每页
+                <select
+                  className="border-input ml-1 h-7 rounded-md border px-1 text-xs"
+                  data-testid="mcp-page-size"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                >
+                  {[10, 20, 50].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="mcp-prev"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                上一页
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="mcp-next"
+                disabled={page >= Math.ceil(total / pageSize) || loading}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                下一页
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
