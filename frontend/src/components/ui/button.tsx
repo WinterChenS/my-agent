@@ -37,20 +37,25 @@ const buttonVariants = cva(
   }
 )
 
-function Button({
-  className,
-  variant = "default",
-  size = "default",
-  asChild = false,
-  ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean
-  }) {
+/**
+ * 注意：这里必须 forwardRef。
+ *
+ * Radix 的 `asChild`（如 PopoverTrigger / AlertDialogTrigger）会把 ref 传给子元素；
+ * 普通函数组件拿不到 ref，React 会警告「Function components cannot be given refs」，
+ * 且**触发器的点击/定位会失效**（实测：圆环里的「压缩上下文」点了没反应）。
+ */
+const Button = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentProps<"button"> &
+    VariantProps<typeof buttonVariants> & {
+      asChild?: boolean
+    }
+>(function Button({ className, variant = "default", size = "default", asChild = false, ...props }, ref) {
   const Comp = asChild ? Slot.Root : "button"
 
   return (
     <Comp
+      ref={ref}
       data-slot="button"
       data-variant={variant}
       data-size={size}
@@ -58,6 +63,6 @@ function Button({
       {...props}
     />
   )
-}
+})
 
 export { Button, buttonVariants }

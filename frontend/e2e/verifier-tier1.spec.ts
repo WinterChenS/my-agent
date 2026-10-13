@@ -66,6 +66,8 @@ test("A9/A10 输入框上方显示上下文用量与触发阈值", async ({ page
   await login(page);
   await openFirstSession(page);
 
+  await expect(page.getByTestId("context-ring")).toBeVisible({ timeout: 20000 });
+  await page.getByTestId("context-ring").click();
   const usage = page.getByTestId("context-usage");
   await expect(usage).toBeVisible({ timeout: 20000 });
   const text = (await usage.innerText()).replace(/\s+/g, " ");
@@ -80,6 +82,9 @@ test("A11/A12/A13/A14/A16 压缩、清空、上一轮状态都有可见反馈", 
   await login(page);
   await openFirstSession(page);
 
+  await expect(page.getByTestId("context-ring")).toBeVisible({ timeout: 20000 });
+  await page.getByTestId("context-ring").click();
+
   // 压缩：点击后有反馈（无论是否真的精简，都必须给用户一句话）
   await page.getByTestId("context-compact").click();
   const notice = page.getByTestId("context-notice");
@@ -87,8 +92,12 @@ test("A11/A12/A13/A14/A16 压缩、清空、上一轮状态都有可见反馈", 
   console.log("[A11/A12] 压缩反馈:", await notice.innerText());
   await page.screenshot({ path: `${SHOT}/verifier-context-compact.png` });
 
-  // 清空：反馈 + 用量归零
+  // 清空：必须先二次确认，再反馈 + 用量归零
   await page.getByTestId("context-clear").click();
+  await expect(page.getByTestId("context-clear-confirm")).toBeVisible({ timeout: 10000 });
+  console.log("[A13] 已弹出「清空上下文」二次确认弹窗");
+  await page.getByTestId("context-clear-confirm").click();
+  await page.getByTestId("context-ring").click();
   await expect(notice).toContainText("已清空上下文", { timeout: 30000 });
   console.log("[A13] 清空反馈:", await notice.innerText());
   await expect(page.getByTestId("context-usage")).toContainText("上下文 0", { timeout: 20000 });

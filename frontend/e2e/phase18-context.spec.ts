@@ -12,9 +12,11 @@ test("会话里能看到上下文用量，并能压缩/清空", async ({ page })
   await page.waitForSelector("[data-testid='session-item']", { timeout: 30000 });
   await page.locator("[data-testid='session-item']").first().click();
 
-  // 用量条出现并显示 tokens 与阈值
-  const bar = page.getByTestId("context-bar");
-  await expect(bar).toBeVisible({ timeout: 15000 });
+  // 圆环常驻在发送键旁；点开才看细节
+  const ring = page.getByTestId("context-ring");
+  await expect(ring).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId("context-ring-percent")).toContainText("%");
+  await ring.click();
   await expect(page.getByTestId("context-usage")).toContainText("tokens");
   await expect(page.getByTestId("context-usage")).toContainText("触发阈值");
 
@@ -23,8 +25,11 @@ test("会话里能看到上下文用量，并能压缩/清空", async ({ page })
   await expect(page.getByTestId("context-notice")).toBeVisible({ timeout: 60000 });
   console.log("压缩反馈:", await page.getByTestId("context-notice").innerText());
 
-  // 清空上下文 → 有反馈且用量归零
+  // 清空上下文 → 先弹二次确认，确认后才有反馈且用量归零
   await page.getByTestId("context-clear").click();
+  await expect(page.getByTestId("context-clear-confirm")).toBeVisible({ timeout: 10000 });
+  await page.getByTestId("context-clear-confirm").click();
+  await ring.click();
   await expect(page.getByTestId("context-notice")).toContainText("已清空上下文", { timeout: 30000 });
   await expect(page.getByTestId("context-usage")).toContainText("上下文 0");
 });

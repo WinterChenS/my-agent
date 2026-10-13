@@ -9,7 +9,7 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
 import { SkillPicker } from "@/components/chat/SkillPicker";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
-import { ContextBar } from "@/components/chat/ContextBar";
+import { ContextRing } from "@/components/chat/ContextRing";
 import type { ContextUsage, RunHistoryItem } from "@/api/sessions";
 import { lastRunHint } from "@/lib/chat/runStatus";
 import { getMyQuota, type QuotaStatus } from "@/api/quota";
@@ -923,17 +923,6 @@ export default function ChatPage() {
                 </Button>
               </div>
             )}
-            <ContextBar
-              usage={contextUsage}
-              busy={contextBusy || busy}
-              onCompact={() => void handleCompact()}
-              onClear={() => void handleClearContext()}
-            />
-            {contextNotice && (
-              <div className="mb-2 text-xs text-muted-foreground" data-testid="context-notice">
-                {contextNotice}
-              </div>
-            )}
             <SkillPicker
               selected={selectedSkills}
               query={skillQuery}
@@ -1013,6 +1002,13 @@ export default function ChatPage() {
                   }
                 }}
                 disabled={busy}
+              />
+              <ContextRing
+                usage={contextUsage}
+                busy={contextBusy || busy}
+                notice={contextNotice}
+                onCompact={() => void handleCompact()}
+                onClear={() => void handleClearContext()}
               />
               {busy ? (
                 <Button
