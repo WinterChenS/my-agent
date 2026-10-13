@@ -32,6 +32,7 @@ import {
   type McpToolCacheEntry,
   type McpTransport,
 } from "@/api/mcp";
+import { listTools, type ToolEntry } from "@/api/tools";
 
 /** 每行一个 KEY=VALUE。 */
 function linesToMap(text: string): Record<string, string> {
@@ -87,6 +88,8 @@ export default function McpPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [tools, setTools] = useState<Record<number, McpToolCacheEntry[]>>({});
+  /** 平台内置（框架注册）工具：只读展示。它们不属于任何 MCP 服务器，也不由平台管理。 */
+  const [builtinTools, setBuiltinTools] = useState<ToolEntry[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -102,6 +105,15 @@ export default function McpPage() {
 
   useEffect(() => {
     void refresh();
+    // 内置工具清单（只读）：来自框架注册的 Toolkit，与 MCP 无关，所以单独拉一次
+    void (async () => {
+      try {
+        const all = await listTools();
+        setBuiltinTools(all.filter((t) => t.group.includes("本地")));
+      } catch {
+        setBuiltinTools([]);
+      }
+    })();
   }, [refresh]);
 
   function openCreate() {
@@ -276,6 +288,43 @@ export default function McpPage() {
                 <TableRow>
                   <TableCell colSpan={7} className="text-muted-foreground text-center text-sm">
                     还没有 MCP Server，点右上角「新建」。
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* 平台内置工具（只读）——它们不出现在任何 MCP 服务器里，但 Agent 本来就能调 */}
+      <Card data-testid="builtin-tools-card">
+        <CardHeader className="p-3">
+          <CardTitle className="text-sm">
+            本地工具（内置，共 {builtinTools.length}）
+            <span className="text-muted-foreground ml-2 text-xs font-normal">
+              由 AgentScope 框架 / 平台注册，不属于任何 MCP 服务器、无需配置即可被 Agent 调用（只读展示）
+            </span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-3 pt-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>工具名</TableHead>
+                <TableHead>说明</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {builtinTools.map((t) => (
+                <TableRow key={t.name} data-testid="builtin-tool-row">
+                  <TableCell className="font-mono text-xs">{t.name}</TableCell>
+                  <TableCell className="max-w-[520px] truncate text-xs">{t.hint ?? ""}</TableCell>
+                </TableRow>
+              ))}
+              {builtinTools.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={2} className="text-muted-foreground text-center text-sm">
+                    未获取到内置工具（后端未就绪时会为空）。
                   </TableCell>
                 </TableRow>
               )}

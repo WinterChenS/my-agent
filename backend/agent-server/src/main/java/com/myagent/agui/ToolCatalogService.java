@@ -112,7 +112,7 @@ public class ToolCatalogService {
                                 schema.getName(),
                                 new ToolEntry(
                                         schema.getName(),
-                                        "本地（框架内置）",
+                                        "本地工具",
                                         schema.getDescription() == null
                                                 ? null
                                                 : abbreviate(schema.getDescription())));
