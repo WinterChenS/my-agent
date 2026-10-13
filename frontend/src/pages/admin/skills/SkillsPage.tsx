@@ -27,6 +27,8 @@ import {
   updateSkill,
   type SkillInfo,
 } from "@/api/skills";
+import { listTools, type ToolEntry } from "@/api/tools";
+import { SkillMarkdownEditor } from "@/components/skills/SkillMarkdownEditor";
 
 interface FormState {
   id: number | null;
@@ -51,18 +53,36 @@ export default function SkillsPage() {
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
+  // 分页（技能多起来后一页铺完既卡又难找）
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+
+  /** 可插入的工具（MCP + 本地）：编辑器里输入 `/` 用。加载一次就够。 */
+  const [tools, setTools] = useState<ToolEntry[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setTools(await listTools());
+      } catch {
+        setTools([]);
+      }
+    })();
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const page = await listSkills();
-      setSkills(page.records);
+      const result = await listSkills(page, pageSize);
+      setSkills(result.records);
+      setTotal(result.total);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载 Skill 列表失败");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, pageSize]);
 
   useEffect(() => {
     void refresh();
@@ -119,7 +139,7 @@ export default function SkillsPage() {
 
       <Card>
         <CardHeader className="p-3">
-          <CardTitle className="text-sm">Skill 列表（{skills.length}）</CardTitle>
+          <CardTitle className="text-sm">Skill 列表（{total}）</CardTitle>
         </CardHeader>
         <CardContent className="p-3 pt-0">
           <Table>
@@ -197,11 +217,56 @@ export default function SkillsPage() {
               )}
             </TableBody>
           </Table>
+
+          {/* 分页 */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm" data-testid="skills-pagination">
+            <div className="text-muted-foreground text-xs">
+              共 {total} 条，第 {page} / {Math.max(1, Math.ceil(total / pageSize))} 页
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-muted-foreground text-xs">
+                每页
+                <select
+                  className="border-input ml-1 h-7 rounded-md border px-1 text-xs"
+                  data-testid="skills-page-size"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                >
+                  {[10, 20, 50].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="skills-prev"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                上一页
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="skills-next"
+                disabled={page >= Math.ceil(total / pageSize) || loading}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                下一页
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-5xl">
           <DialogHeader>
             <DialogTitle>
               {form.id == null ? "新建 Skill" : `编辑 Skill（当前 v${form.version}）`}
@@ -239,15 +304,11 @@ export default function SkillsPage() {
                 placeholder="一句话说明这个 Skill 做什么"
               />
             </label>
-            <label className="space-y-1 text-sm">
-              内容（Markdown）
-              <textarea
-                className="border-input min-h-[260px] w-full rounded-md border bg-transparent p-2 font-mono text-xs"
-                value={form.content}
-                onChange={(e) => setForm({ ...form, content: e.target.value })}
-                placeholder={"# 规则\n\n回答时在末尾加【OK】。"}
-              />
-            </label>
+            <SkillMarkdownEditor
+              value={form.content}
+              onChange={(next) => setForm({ ...form, content: next })}
+              tools={tools}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
