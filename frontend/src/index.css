@@ -104,3 +104,31 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Skill 所见即所得编辑器（@mdxeditor/editor）：让它撑满弹窗高度。
+   结构（实测）：
+     .mdxeditor > .mdxeditor-diff-source-wrapper > .mdxeditor-rich-text-editor
+                > .mdxeditor-root-contenteditable > .mdxeditor-contenteditable-wrapper > div[contenteditable]
+   MDXEditor 自带的 CSS 在这几层上写了 display/height（且它在包里比本文件后加载、优先级更高），
+   所以这里用 !important 压过去——这是「覆盖第三方主题」的少数合理场景。
+   否则编辑区只有一行高（48px），看着像坏了。 */
+.mdx-skill-editor .mdxeditor {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+}
+.mdx-skill-editor .mdxeditor-diff-source-wrapper,
+.mdx-skill-editor .mdxeditor-rich-text-editor,
+.mdx-skill-editor .mdxeditor-root-contenteditable,
+.mdx-skill-editor .mdxeditor-contenteditable-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
+.mdx-skill-editor .mdxeditor-contenteditable-wrapper > div[contenteditable] {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  min-height: 240px !important;
+  overflow: auto !important;
+}

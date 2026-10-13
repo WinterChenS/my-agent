@@ -115,6 +115,15 @@ public class SkillConfigService {
         if (request.status() != null && !STATUSES.contains(request.status().trim().toUpperCase())) {
             throw BizException.badRequest("status 非法: " + request.status());
         }
+        // 官方技能仓库（AgentScope AgentSkill）要求 name 与 description 都不能为空，
+        // 否则同步时会抛 IllegalArgumentException，前端只看到一个「未预期异常」500。
+        // 实测：只填名称不填说明 → 创建直接失败。所以在这里提前给出明确提示。
+        if (!StringUtils.hasText(request.name())) {
+            throw BizException.badRequest("名称不能为空");
+        }
+        if (!StringUtils.hasText(request.description())) {
+            throw BizException.badRequest("说明不能为空：AgentScope 技能必须有 name 与 description（说明还决定模型何时命中该技能）");
+        }
     }
 
     private void ensureNameUnique(String name, Long excludeId) {

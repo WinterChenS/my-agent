@@ -121,4 +121,21 @@ class SkillConfigServiceTest {
         assertThat(skillConfigService.list(1, 50, "DISABLED").records())
                 .allMatch(r -> "DISABLED".equals(r.status()));
     }
+
+    @Test
+    void 说明为空要报明确的业务错误_而不是同步到官方仓库时炸500() {
+        // 实测：只填名称不填说明 → 官方 AgentSkill 校验抛
+        // IllegalArgumentException("The skill must have `name` and `description` fields.")
+        // 前端只看到「未预期异常」500。现在提前拦成 400 的明确提示。
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> skillConfigService.create(
+                        new SkillRequest("skill-nodesc-" + System.nanoTime(), "   ", "正文", "ENABLED")))
+                .hasMessageContaining("说明不能为空");
+    }
+
+    @Test
+    void 名称为空要被拦住() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> skillConfigService.create(
+                        new SkillRequest("  ", "说明", "正文", "ENABLED")))
+                .hasMessageContaining("名称不能为空");
+    }
 }

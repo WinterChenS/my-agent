@@ -29,7 +29,7 @@ import {
 } from "@/api/skills";
 import { listTools, type ToolEntry } from "@/api/tools";
 import { cn } from "@/lib/utils";
-import { SkillMarkdownEditor } from "@/components/skills/SkillMarkdownEditor";
+import { SkillMdxEditor } from "@/components/skills/SkillMdxEditor";
 
 interface FormState {
   id: number | null;
@@ -92,6 +92,11 @@ export default function SkillsPage() {
   async function save() {
     if (!form.name.trim()) {
       toast.error("名称不能为空");
+      return;
+    }
+    // 官方技能仓库要求 description 非空（否则同步时报错），这里提前拦住
+    if (!form.description.trim()) {
+      toast.error("说明不能为空：它决定模型何时命中这个技能");
       return;
     }
     const payload = {
@@ -285,7 +290,7 @@ export default function SkillsPage() {
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 text-sm">
-                名称
+                名称 <span className="text-destructive">*</span>
                 <Input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -307,18 +312,23 @@ export default function SkillsPage() {
               </label>
             </div>
             <label className="space-y-1 text-sm">
-              说明
+              说明 <span className="text-destructive">*</span>
+              <span className="text-muted-foreground ml-1 text-xs">
+                必填：模型靠它判断什么时候用这个技能
+              </span>
               <Input
+                data-testid="skill-description"
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
-                placeholder="一句话说明这个 Skill 做什么"
+                placeholder="例如：需要用户确认危险操作时弹确认卡"
               />
             </label>
             <div className="flex min-h-0 flex-1 flex-col">
-              <SkillMarkdownEditor
+              <SkillMdxEditor
                 value={form.content}
                 onChange={(next) => setForm({ ...form, content: next })}
                 tools={tools}
+                placeholder="# 规则&#10;&#10;回答时在末尾加【OK】。"
               />
             </div>
           </div>
