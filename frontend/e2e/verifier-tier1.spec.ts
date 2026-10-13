@@ -104,12 +104,14 @@ test("A11/A12/A13/A14/A16 压缩、清空、上一轮状态都有可见反馈", 
   console.log("[A14] 清空后用量条显示「上下文 0」，说明模型上下文已清空");
   await page.screenshot({ path: `${SHOT}/verifier-context-cleared.png` });
 
-  // 上一轮状态（若该会话有落库记录）
+  // 上一轮状态：正常跑完的会话不该再挂「已完成」噪音（用户反馈后收紧）
   const hint = page.getByTestId("last-run-hint");
   if (await hint.count()) {
-    console.log("[A16] 上一轮提示:", await hint.innerText());
+    const text = await hint.innerText();
+    console.log("[A16] 上一轮提示:", text);
+    expect(text).not.toContain("上一轮：已完成 ·");
   } else {
-    console.log("[A16] 该会话暂无历史 run，跳过（其他会话可见，见 phase18 用例）");
+    console.log("[A16] 该会话上一轮答案已在聊天记录里 → 按设计不提示（无噪音）");
   }
 });
 

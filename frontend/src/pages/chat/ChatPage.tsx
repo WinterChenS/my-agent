@@ -11,7 +11,7 @@ import { SkillPicker } from "@/components/chat/SkillPicker";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ContextRing } from "@/components/chat/ContextRing";
 import type { ContextUsage, RunHistoryItem } from "@/api/sessions";
-import { lastRunHint } from "@/lib/chat/runStatus";
+import { isAnswerVisible, lastRunHint } from "@/lib/chat/runStatus";
 import { getMyQuota, type QuotaStatus } from "@/api/quota";
 import { SubagentCard } from "@/components/chat/SubagentCard";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
@@ -94,6 +94,8 @@ export default function ChatPage() {
   const [contextBusy, setContextBusy] = useState(false);
   /** 该会话上一轮的状态提示（tier1-upgrades ③）。 */
   const [lastRun, setLastRun] = useState<RunHistoryItem | null>(null);
+  /** 聊天记录里助手消息的时间戳（用来判断那一轮的答案是否已经看得见）。 */
+  const [assistantTimes, setAssistantTimes] = useState<string[]>([]);
   /** 后台跑完的站内提示。 */
   const [runNotice, setRunNotice] = useState<string | null>(null);
   /** 支出额度状态（tier1-upgrades ④）。 */
@@ -273,6 +275,9 @@ export default function ChatPage() {
       const messages = await listMessages(target.id);
       // aguiMeta 里带 stopped 标记，回放时据此标注「已停止」
       setChat(replayMessages(messages));
+      setAssistantTimes(
+        messages.filter((m) => m.role === "ASSISTANT" && m.createdAt).map((m) => m.createdAt),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载历史消息失败");
     }
@@ -882,12 +887,14 @@ export default function ChatPage() {
                   : `支出额度接近上限：今日已用 ${quota.usedToday} / ${quota.dailyQuota ?? "不限"} ${quota.currency}`}
               </div>
             )}
-            {lastRunHint(lastRun) && (
+            {lastRunHint(lastRun, {
+              answerVisible: isAnswerVisible(lastRun, assistantTimes),
+            }) && (
               <div
                 className="mb-2 text-xs text-muted-foreground"
                 data-testid="last-run-hint"
               >
-                {lastRunHint(lastRun)}
+                {lastRunHint(lastRun, { answerVisible: isAnswerVisible(lastRun, assistantTimes) })}
               </div>
             )}
             {runNotice && (
