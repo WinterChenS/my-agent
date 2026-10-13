@@ -155,7 +155,10 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="space-y-4 p-6">
+    // h-full + overflow-auto：外层 <main> 是 overflow-hidden，页面必须自己当滚动容器，
+    // 否则内容比视口高时会被直接裁掉、滑不到底（MCP 页加了筛选+分页+内置工具后暴露）。
+    // 与 AuditPage 保持一致。
+    <div className="h-full space-y-4 overflow-auto p-6">
       <div className="flex items-center gap-3">
         <div>
           <h1 className="text-xl font-semibold">Agent 配置</h1>
