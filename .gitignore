@@ -74,3 +74,7 @@ patch-*.py
 /.comet/*
 !/.comet/config.yaml
 # <<< Comet managed project state <<<
+
+# 验证用的桩请求体 dump（临时产物）
+.verify-dump.json
+.t1-*.json
