@@ -338,6 +338,13 @@ export default function ChatPage() {
     setChat(initialChatState);
     agentRef.current = createChatAgent();
     setError(null);
+    // 新会话必须把「上一轮状态 / 后台完成提示 / 上下文用量」一并清掉，
+    // 否则它们会残留到空白的新会话里（用户实测：新开对话仍看到上一轮的提示）。
+    setLastRun(null);
+    setAssistantTimes([]);
+    setRunNotice(null);
+    setContextUsage(null);
+    setContextNotice(null);
   }
 
   async function removeSession(target: ChatSession) {

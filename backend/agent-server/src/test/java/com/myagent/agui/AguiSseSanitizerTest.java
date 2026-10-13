@@ -31,4 +31,23 @@ class AguiSseSanitizerTest {
         assertThat(sanitizer.stripNulls("not-json")).isEqualTo("not-json");
         assertThat(sanitizer.stripNulls(null)).isNull();
     }
+
+    @org.junit.jupiter.api.Test
+    void 厂商拒收图片时翻成可操作的中文() {
+        // 实测：模型配置开了多模态但供应商根本不吃图，用户只看到一长串英文报错
+        String raw = "{\"type\":\"RUN_ERROR\",\"message\":\"HTTP transport error ... {\\\"error\\\":"
+                + "{\\\"message\\\":\\\"DeepSeek: .messages[1].image[0]: You have uploaded an unsupported image.\\\"}}\"}";
+        String out = sanitizer.stripNulls(raw);
+        org.junit.jupiter.api.Assertions.assertTrue(out.contains("这个模型不接受图片"), out);
+        org.junit.jupiter.api.Assertions.assertTrue(out.contains("支持多模态（图片输入）"), out);
+        org.junit.jupiter.api.Assertions.assertTrue(out.contains("IMAGE_NOT_SUPPORTED"), out);
+    }
+
+    @org.junit.jupiter.api.Test
+    void 上下文超长仍然翻成原来的建议() {
+        String raw = "{\"type\":\"RUN_ERROR\",\"message\":\"context_length_exceeded\"}";
+        String out = sanitizer.stripNulls(raw);
+        org.junit.jupiter.api.Assertions.assertTrue(out.contains("上下文超过模型窗口上限"), out);
+        org.junit.jupiter.api.Assertions.assertTrue(out.contains("CONTEXT_LENGTH_EXCEEDED"), out);
+    }
 }

@@ -72,6 +72,22 @@ public class AguiSseSanitizer {
                     + "建议：①新建一个会话继续（最有效）；②把该模型的 max_tokens（补全长度）调小，比如 8192，"
                     + "不要占满窗口；③少让 Agent 读超大文件。原始报错：" + text);
             obj.put("code", "CONTEXT_LENGTH_EXCEEDED");
+            return obj;
+        }
+        // 厂商拒收图片（模型其实不支持图片输入，或图片格式不对）
+        // 实测：模型配置里把「多模态」开了，但供应商根本不吃图，用户只看到一长串英文。
+        boolean imageRejected = text.contains("unsupported image")
+                || text.contains("image_url")
+                || text.contains("image is not supported")
+                || text.contains("does not support image")
+                || text.contains("invalid image");
+        if (imageRejected) {
+            obj.put("message",
+                    "这个模型不接受图片：供应商直接退回了本轮附带的图片。"
+                    + "图片没有被使用，本轮失败。"
+                    + "建议：①去「模型」页确认该模型的「支持多模态（图片输入）」开关是否与实际能力一致，"
+                    + "关掉后图片会被自动剥离、对话仍可继续；②或改用支持图片的模型。原始报错：" + text);
+            obj.put("code", "IMAGE_NOT_SUPPORTED");
         }
         return obj;
     }

@@ -81,9 +81,16 @@ public class MultimodalGuard {
         if (removed == 0) {
             return message;
         }
-        text.append("\n\n（提示：当前模型未开启多模态，本轮 ").append(removed).append(" 张图片未发送给模型。）");
+        // 关键：把「附件路径」也一起拿掉。
+        // 实测事故：只剥图片块、却把 `[已上传附件] uploads/陈思成.png` 留在文本里，
+        // 等于告诉模型「这儿有张图，去读它」——它照做并 read_file 出 184 万字符的二进制，
+        // 上下文直接涨到 127 万 tokens，被厂商以 context_length_exceeded 拒绝。
+        String stripped = dropImageAttachmentLines(text.toString())
+                + "\n\n（注意：用户上传了 " + removed + " 张图片，但当前模型不支持图片输入，"
+                + "图片内容没有发给模型，也请不要去读取这些图片文件——二进制内容会撑爆上下文。"
+                + "需要看图请在模型配置里开启多模态、或改用支持图片的模型。）";
         List<InputContent> replaced = new ArrayList<>();
-        replaced.add(new TextInputContent(text.toString()));
+        replaced.add(new TextInputContent(stripped));
         for (InputContent part : kept) {
             if (!(part instanceof TextInputContent)) {
                 replaced.add(part);
@@ -91,6 +98,35 @@ public class MultimodalGuard {
         }
         return AguiMessage.blocksMessage(
                 message.getId(), message.getRole(), replaced, message.getToolCalls(), message.getToolCallId());
+    }
+
+    /** 图片扩展名：用于把「附件路径」这种会诱导模型去读图的提示一起去掉。 */
+    private static final java.util.List<String> IMAGE_EXTENSIONS =
+            java.util.List.of(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp");
+
+    /**
+     * 去掉指向图片文件的附件提示行（形如 {@code [已上传附件] uploads/x.png}）。
+     *
+     * <p>留着它会让模型尝试 {@code read_file} 读二进制图片，把上下文撑爆（实测事故）。
+     */
+    static String dropImageAttachmentLines(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        StringBuilder kept = new StringBuilder();
+        for (String line : text.split("\\n", -1)) {
+            String lower = line.toLowerCase();
+            boolean isAttachment = lower.contains("[已上传附件]");
+            boolean isImage = IMAGE_EXTENSIONS.stream().anyMatch(lower::contains);
+            if (isAttachment && isImage) {
+                continue;
+            }
+            if (kept.length() > 0) {
+                kept.append('\n');
+            }
+            kept.append(line);
+        }
+        return kept.toString().strip();
     }
 
     /** 统计消息里的图片数量（用于单轮上限校验）。 */
