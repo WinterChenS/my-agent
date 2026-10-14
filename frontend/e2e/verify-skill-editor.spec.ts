@@ -1,4 +1,23 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+import { API, apiToken } from "./helpers/api";
+
+/** 本次用例建的技能名（收尾时按名字删掉，失败也不留）。 */
+let createdSkillName: string | null = null;
+
+test.afterEach(async ({ request }: { request: APIRequestContext }) => {
+  if (!createdSkillName) return;
+  const token = await apiToken(request);
+  const headers = { Authorization: `Bearer ${token}` };
+  const page = await (
+    await request.get(`${API}/api/skills?current=1&size=500`, { headers })
+  ).json();
+  for (const row of page.data.records as { id: number; name: string }[]) {
+    if (row.name === createdSkillName) {
+      await request.delete(`${API}/api/skills/${row.id}`, { headers });
+    }
+  }
+  createdSkillName = null;
+});
 
 /**
  * 技能页验收：
@@ -11,6 +30,7 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   await page.setViewportSize({ width: 1600, height: 900 });
   const stamp = Date.now();
   const skillName = `mdx-verify-${stamp}`;
+  createdSkillName = skillName;
 
   await page.goto("/login");
   await page.getByLabel("用户名").fill("admin");
@@ -64,8 +84,17 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   console.log("[③-a 候选前 8]", shown.slice(0, 8).join(", "));
   expect(groups[0]).toContain("本地");                 // 第一组必须是本地工具
   expect(shown).toContain("read_file");                // 本地工具真的能看到
+  // 本地工具全部排在 MCP 之前。
+  // 注意：**不假设一定有 MCP 工具** —— 清理过测试数据后 MCP 服务器可能为 0（实测踩过），
+  // 所以只在确实存在 MCP 候选时才比较顺序。
   const firstMcp = shown.findIndex((n) => n.includes("__"));
-  expect(firstMcp).toBeGreaterThan(shown.indexOf("write_file")); // 本地全部排在 MCP 之前
+  const lastLocal = shown.indexOf("write_file");
+  expect(lastLocal).toBeGreaterThanOrEqual(0);
+  if (firstMcp >= 0) {
+    expect(firstMcp).toBeGreaterThan(lastLocal);
+  } else {
+    console.log("[③-a] 当前没有 MCP 工具候选（MCP 服务器可能为空），跳过顺序比较");
+  }
   console.log("[③-a] 本地工具占据前", firstMcp, "项，第一个 MCP 候选在下标", firstMcp);
 
   // 键盘选中并插入（高亮可能被鼠标悬停改过，所以断言「插进的是本地工具之一」）
@@ -126,8 +155,11 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   expect(text.includes("``")).toBe(false);
 
   // 清理：删掉这个测试技能
+  // 注意：confirm 的处理必须在**点击删除之前**注册好 ——
+  // 原写法把 page.on("dialog") 放在点击之后，确认框没人接受 → 技能其实没删掉，
+  // 于是 `mdx-verify-*` 一直在库里堆积（实测）。
+  page.on("dialog", (d) => void d.accept());
   await page.getByRole("button", { name: "取消" }).click();
   await page.locator("tr", { hasText: skillName }).getByTitle("删除").click();
-  page.on("dialog", (d) => void d.accept());
   await page.waitForTimeout(1000);
 });

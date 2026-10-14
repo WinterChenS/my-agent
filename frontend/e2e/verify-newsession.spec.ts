@@ -1,20 +1,32 @@
 import { expect, test } from "@playwright/test";
+import {
+  createStubAgent,
+  deleteNewSessions,
+  deleteStubAgent,
+  loginAndSelectAgent,
+  snapshotSessionIds,
+} from "./helpers/api";
+
+/** 本次用例新建的会话（收尾时删掉，别把侧边栏塞满真实数据）。 */
+let sessionsBefore: Set<number> = new Set();
+test.beforeEach(async ({ request }) => {
+  sessionsBefore = await snapshotSessionIds(request);
+});
+test.afterEach(async ({ request }) => {
+  await deleteNewSessions(request, sessionsBefore);
+});
 
 /**
  * 用户反馈复现（两件事一起验）：
  *  1) 跑完一轮、答案就在聊天记录里 → 不该再挂「上一轮：已完成」噪音；
  *  2) 之后点「新建会话」→ 不该把上一个会话的提示带到空白新会话。
  */
-test("已完成且答案可见时不提示；新建会话不残留", async ({ page }) => {
-  await page.goto("/login");
-  await page.getByLabel("用户名").fill("admin");
-  await page.getByLabel("密码").fill("Admin@123");
-  await page.getByRole("button", { name: /登录/ }).click();
-  await page.waitForURL(/\/chat/);
-
-  // 新建会话 → 发一轮（桩会正常回答）
-  await page.getByTitle("新建会话").click();
-  const input = page.getByPlaceholder("输入消息，回车发送");
+test("已完成且答案可见时不提示；新建会话不残留", async ({ page, request }) => {
+  // 自给自足：造一个指向本地桩的 Agent（不依赖你维护的模型/网关是否可用）
+  const stamp = Date.now();
+  const { agentName, agentDbId, headers } = await createStubAgent(request, stamp);
+  try {
+    const input = await loginAndSelectAgent(page, agentName);
   await input.fill("验证提示噪音");
   await input.press("Enter");
   await expect(page.getByText("stub-ok", { exact: false }).first()).toBeVisible({ timeout: 60000 });
@@ -42,4 +54,8 @@ test("已完成且答案可见时不提示；新建会话不残留", async ({ pa
   expect(await page.getByTestId("last-run-hint").count()).toBe(0);
   expect(await page.getByTestId("run-notice").count()).toBe(0);
   await page.screenshot({ path: "../docs/acceptance/task-23-new-session-clean.png" });
+  } finally {
+    // 收尾：删掉自己造的 Agent/模型/供应商（会话由上面的 afterEach 按快照删除）
+    await deleteStubAgent(request, headers, agentDbId);
+  }
 });

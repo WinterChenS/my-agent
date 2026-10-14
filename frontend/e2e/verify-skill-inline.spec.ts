@@ -1,4 +1,20 @@
 import { expect, test } from "@playwright/test";
+import {
+  createStubAgent,
+  deleteNewSessions,
+  deleteStubAgent,
+  loginAndSelectAgent,
+  snapshotSessionIds,
+} from "./helpers/api";
+
+/** 本次用例新建的会话（收尾时删掉，别把侧边栏塞满真实数据）。 */
+let sessionsBefore: Set<number> = new Set();
+test.beforeEach(async ({ request }) => {
+  sessionsBefore = await snapshotSessionIds(request);
+});
+test.afterEach(async ({ request }) => {
+  await deleteNewSessions(request, sessionsBefore);
+});
 
 /**
  * 用户反馈三件事一起验：
@@ -6,17 +22,13 @@ import { expect, test } from "@playwright/test";
  *  ② 技能块要在**输入框里面**（不是挂在上面一排）
  *  ③ 技能要**按当时输入的位置**展示，且是不可编辑的块
  */
-test("技能块：行内、不可编辑、按位置进气泡", async ({ page }) => {
+test("技能块：行内、不可编辑、按位置进气泡", async ({ page, request }) => {
   await page.setViewportSize({ width: 1500, height: 900 });
-  await page.goto("/login");
-  await page.getByLabel("用户名").fill("admin");
-  await page.getByLabel("密码").fill("Admin@123");
-  await page.getByRole("button", { name: /登录/ }).click();
-  await page.waitForURL(/\/chat/);
-
-  // 新建会话
-  await page.getByTitle("新建会话").click();
-  const input = page.getByTestId("chat-input");
+  // 自给自足：造一个指向本地桩的 Agent（不依赖你维护的模型/网关是否可用）
+  const stamp = Date.now();
+  const { agentName, agentDbId, headers } = await createStubAgent(request, stamp);
+  try {
+  const input = await loginAndSelectAgent(page, agentName);
   await expect(input).toBeVisible({ timeout: 20000 });
 
   // ① 输入框就是 contentEditable（技能块要能行内放进去）
@@ -75,4 +87,8 @@ test("技能块：行内、不可编辑、按位置进气泡", async ({ page }) 
   expect((await input.innerText()).trim()).toBe("");
 
   await page.screenshot({ path: "../docs/acceptance/task-33-skill-in-bubble.png" });
+  } finally {
+    // 收尾：删掉自己造的 Agent/模型/供应商（会话由上面的 afterEach 按快照删除）
+    await deleteStubAgent(request, headers, agentDbId);
+  }
 });

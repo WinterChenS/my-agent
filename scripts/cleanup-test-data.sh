@@ -60,13 +60,28 @@ public class Clean {
     static final String[] TEST_PROVIDER_PREFIXES = {
         "P3-", "P5-", "P6-", "P7-", "P72-", "P8-", "P9-", "P10-", "P11", "P12-", "E2E-", "D1-", "DBG-", "RC-", "RC2-", "RC4-", "RV-", "K-Prov-",
         "FactoryTest-", "AgentTest-", "SkillTest-", "rollback-", "TestV2-", "ns-prov-", "A1-", "A5-", "V2-", "Verifier-", "示例",
-        "Test-", "TestI2-", "V-Prov-", "V-Bad-", "e2e-p10-prov-", "Manual-Provider-", "VContract-", "VDC-", "VDC2-", "vdc-", "vdc2-", "ns-", "A1-", "A5-"
+        "Test-", "TestI2-", "V-Prov-", "V-Bad-", "e2e-p10-prov-", "Manual-Provider-", "VContract-", "VDC-", "VDC2-", "vdc-", "vdc2-", "ns-", "A1-", "A5-",
+        "e2e-ai-prov-", "e2e-cb-prov-", "e2e-chat-prov-", "quota-prov-", "cat-server-", "cat-disabled-", "cat-empty-", "cat-mix-"
+    };
+
+    /** 测试建的 MCP 服务器（历次 e2e 遗留最多的一类：本机曾有 42 个）。 */
+    static final String[] TEST_MCP_PREFIXES = {
+        "e2e-", "p3-mcp-", "p5-mcp-", "p6-mcp-", "p7-mcp-", "p7b-mcp-", "p8-mcp-", "p9-mcp-", "p10-mcp-", "p11-mcp-", "p12-mcp-",
+        "ns-mcp-", "mcp-everything-", "mcp-bad-", "mcp-stdio-", "mcp-sse-", "mcp-http-", "MCP-", "cat-server-", "cat-disabled-", "cat-empty-", "cat-mix-"
+    };
+
+    /** 测试建的技能（本人用 AI/手建技能时也会造）。 */
+    static final String[] TEST_SKILL_PREFIXES = {
+        "e2e-", "P5-", "p5-", "p7-", "skill-a-", "skill-b-", "skill-test", "skill-nodesc-", "P8-", "P9-", "P10-", "P11-", "P12-",
+        "mp-skill-", "rr-skill-", "mdx-verify-", "ai-e2e-", "dbg-", "Manual-", "Test-", "Demo-",
+        "VContract-", "VDC-", "A9-", "confirm-card-flow", "p9-skill-", "p10-skill-", "p11-skill-", "p12-skill-"
     };
 
     static boolean hasPrefix(String value, String[] prefixes) {
         if (value == null) return false;
         for (String p : prefixes) if (value.startsWith(p)) return true;
-        return false;
+        // 通用测试命名：p3-/p5-/p9-/p10-/p15- 这类（历次阶段脚本都这么起名）
+        return value.matches("(?i)^[pav]\\d+[-_].*");
     }
 
     public static void main(String[] args) throws Exception {
@@ -91,11 +106,15 @@ public class Clean {
                     agents++;
                     killedAgents.append(agentId).append(' ');
                     if (apply) {
+                        // agent_state 的 session_id 就是会话的 thread_id，按它删才准。
+                        // （原来写的是 agent_id in (select user_id::text ...)，条件本身是错的，会留下垃圾行）
+                        try (PreparedStatement d = c.prepareStatement(
+                                "delete from agent_state where session_id in "
+                              + "(select thread_id from chat_session where agent_id = ?)")) {
+                            d.setLong(1, id); states += d.executeUpdate();
+                        }
                         try (PreparedStatement d = c.prepareStatement("delete from chat_session where agent_id = ?")) {
                             d.setLong(1, id); sessions += d.executeUpdate();
-                        }
-                        try (PreparedStatement d = c.prepareStatement("delete from agent_state where agent_id in (select user_id::text from chat_session where agent_id = ?)")) {
-                            d.setLong(1, id); states += d.executeUpdate();
                         }
                         try (PreparedStatement d = c.prepareStatement("delete from agent where id = ?")) {
                             d.setLong(1, id); d.executeUpdate();
@@ -132,7 +151,12 @@ public class Clean {
             }
 
             // 3) 残留的测试会话（标题前缀；不动「会话 xxxx」这类用户会话）
-            String[] titlePrefixes = {"p5-", "p6-", "p7-", "p8-", "p9-", "p10 ", "p11", "p12 ", "p72-", "verifier-", "e2e-"};
+            String[] titlePrefixes = {
+                "p5-", "p6-", "p7-", "p8-", "p9-", "p10 ", "p11", "p12 ", "p72-", "verifier-", "e2e-",
+                // 近几轮 e2e 造的会话标题（它们会把侧边栏塞满，也会把「扫会话」类用例挤红）
+                "验证提示噪音", "请用 ", "后台跑一轮", "带技能发一条", "run-persist-test", "quota-test",
+                "img-limit-test", "img-fix-verify", "card-proof", "verify-ctx", "probe-title", "mm-test", "mm-off",
+            };
             int straySessions = 0;
             try (Statement s = c.createStatement();
                  ResultSet r = s.executeQuery("select id, coalesce(title,'') from chat_session")) {
@@ -142,7 +166,56 @@ public class Clean {
                     if (!hasPrefix(title, titlePrefixes)) continue;
                     straySessions++;
                     if (apply) {
+                        // 会话删了，它的框架状态也得删（否则那些行会永远留在库里）
+                        try (PreparedStatement d = c.prepareStatement(
+                                "delete from agent_state where session_id in "
+                              + "(select thread_id from chat_session where id = ?)")) {
+                            d.setLong(1, id); states += d.executeUpdate();
+                        }
                         try (PreparedStatement d = c.prepareStatement("delete from chat_session where id = ?")) {
+                            d.setLong(1, id); d.executeUpdate();
+                        }
+                    }
+                }
+            }
+
+            // 4) 测试建的 MCP 服务器（历次 e2e 遗留最多的一类）
+            int mcpServers = 0;
+            try (Statement s = c.createStatement();
+                 ResultSet r = s.executeQuery("select id, name from mcp_server order by id")) {
+                while (r.next()) {
+                    long id = r.getLong(1);
+                    String name = r.getString(2);
+                    if (!hasPrefix(name, TEST_MCP_PREFIXES)) {
+                        System.out.println("  [跳过] 非测试前缀的 MCP 服务器: " + name);
+                        continue;
+                    }
+                    mcpServers++;
+                    if (apply) {
+                        try (PreparedStatement d = c.prepareStatement("delete from mcp_server where id = ?")) {
+                            d.setLong(1, id); d.executeUpdate();
+                        }
+                    }
+                }
+            }
+
+            // 5) 测试建的技能（先解绑，再删）
+            int skills = 0;
+            try (Statement s = c.createStatement();
+                 ResultSet r = s.executeQuery("select id, name from skill order by id")) {
+                while (r.next()) {
+                    long id = r.getLong(1);
+                    String name = r.getString(2);
+                    if (!hasPrefix(name, TEST_SKILL_PREFIXES)) {
+                        System.out.println("  [跳过] 非测试前缀的技能: " + name);
+                        continue;
+                    }
+                    skills++;
+                    if (apply) {
+                        try (PreparedStatement d = c.prepareStatement("delete from agent_skill where skill_id = ?")) {
+                            d.setLong(1, id); d.executeUpdate();
+                        }
+                        try (PreparedStatement d = c.prepareStatement("delete from skill where id = ?")) {
                             d.setLong(1, id); d.executeUpdate();
                         }
                     }
@@ -153,8 +226,9 @@ public class Clean {
             System.out.println("  测试 agent=" + agents + "，其会话=" + sessions + "，agent_state 清理=" + states);
             System.out.println("  测试 provider=" + providers + "（连带 model=" + models + "）");
             System.out.println("  残留测试会话=" + straySessions);
+            System.out.println("  测试 MCP 服务器=" + mcpServers + "，测试技能=" + skills);
             try (Statement s = c.createStatement()) {
-                for (String t : new String[]{"agent", "chat_session", "llm_provider", "llm_model", "artifact", "agent_state", "chat_message", "token_usage"}) {
+                for (String t : new String[]{"agent", "chat_session", "llm_provider", "llm_model", "artifact", "agent_state", "chat_message", "token_usage", "mcp_server", "skill"}) {
                     ResultSet x = s.executeQuery("select count(*) from " + t); x.next();
                     System.out.println("  剩余 " + t + "=" + x.getInt(1));
                 }

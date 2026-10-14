@@ -1,18 +1,31 @@
 import { expect, test } from "@playwright/test";
+import {
+  createStubAgent,
+  deleteNewSessions,
+  deleteStubAgent,
+  loginAndSelectAgent,
+  snapshotSessionIds,
+} from "./helpers/api";
+
+/** 本次用例新建的会话（收尾时删掉，别把侧边栏塞满真实数据）。 */
+let sessionsBefore: Set<number> = new Set();
+test.beforeEach(async ({ request }) => {
+  sessionsBefore = await snapshotSessionIds(request);
+});
+test.afterEach(async ({ request }) => {
+  await deleteNewSessions(request, sessionsBefore);
+});
 
 /**
  * tier1-upgrades ③ 的「长任务完成通知」：
  * 在当前会话发起一轮 → 立刻切到别的会话 → 原会话跑完后应出现站内提示且能跳回。
  */
-test("后台会话跑完会给站内提示", async ({ page }) => {
-  await page.goto("/login");
-  await page.getByLabel("用户名").fill("admin");
-  await page.getByLabel("密码").fill("Admin@123");
-  await page.getByRole("button", { name: /登录/ }).click();
-  await page.waitForURL(/\/chat/);
-
-  // 新建一个会话（直接输入即新建）
-  const input = page.getByPlaceholder("输入消息，回车发送");
+test("后台会话跑完会给站内提示", async ({ page, request }) => {
+  // 自给自足：造一个指向本地桩的 Agent（不依赖你维护的模型/网关是否可用）
+  const stamp = Date.now();
+  const { agentName, agentDbId, headers } = await createStubAgent(request, stamp);
+  try {
+  const input = await loginAndSelectAgent(page, agentName);
   await input.fill("后台跑一轮");
   await input.press("Enter");
 
@@ -33,4 +46,8 @@ test("后台会话跑完会给站内提示", async ({ page }) => {
   await expect(notice).toBeVisible({ timeout: 60000 });
   console.log("站内提示:", await notice.innerText());
   await expect(page.getByTestId("run-notice-jump")).toBeVisible();
+  } finally {
+    // 收尾：删掉自己造的 Agent/模型/供应商（会话由上面的 afterEach 按快照删除）
+    await deleteStubAgent(request, headers, agentDbId);
+  }
 });

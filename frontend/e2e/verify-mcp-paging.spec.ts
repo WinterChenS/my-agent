@@ -1,7 +1,46 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+import { API, apiToken } from "./helpers/api";
+
+/**
+ * 自给自足：本用例需要**若干个** MCP 服务器才能验证分页与筛选，
+ * 所以自己造 12 个（名字带 `e2e-page-` 前缀、传输分两种），跑完删掉。
+ * 之前直接断言"共 45 条 / 有 STDIO 服务器" —— 一旦清理测试数据就必然红（实测踩过）。
+ */
+const CREATED: number[] = [];
+
+async function seedServers(request: APIRequestContext, stamp: number, count: number) {
+  const token = await apiToken(request);
+  const headers = { Authorization: `Bearer ${token}` };
+  for (let i = 0; i < count; i += 1) {
+    const transport = i % 2 === 0 ? "STDIO" : "SSE";
+    const res = await request.post(`${API}/api/mcp-servers`, {
+      headers,
+      data: {
+        name: i < 3 ? `e2e-page-everything-${stamp}-${i}` : `e2e-page-${stamp}-${i}`,
+        transport,
+        command: transport === "STDIO" ? "cmd" : null,
+        endpointUrl: transport === "STDIO" ? null : "http://localhost:9/sse",
+        status: "ENABLED",
+      },
+    });
+    const body = await res.json();
+    if (body?.data?.id) CREATED.push(body.data.id as number);
+  }
+}
+
+test.afterEach(async ({ request }) => {
+  const token = await apiToken(request);
+  const headers = { Authorization: `Bearer ${token}` };
+  while (CREATED.length > 0) {
+    const id = CREATED.pop()!;
+    await request.delete(`${API}/api/mcp-servers/${id}`, { headers });
+  }
+});
 
 /** 用户需求：MCP 页加分页 + 筛选条件。 */
-test("MCP 页：分页可翻、筛选生效、可与内置工具共存", async ({ page }) => {
+test("MCP 页：分页可翻、筛选生效、可与内置工具共存", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await seedServers(request, Date.now(), 12);
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto("/login");
   await page.getByLabel("用户名").fill("admin");
