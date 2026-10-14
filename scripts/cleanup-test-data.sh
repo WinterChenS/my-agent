@@ -55,14 +55,14 @@ public class Clean {
     static final String[] TEST_AGENT_PREFIXES = {
         "p3-", "p5-", "p6-", "p7-", "p7b-", "p7c-", "p7d-", "p8-", "p9-", "p10-", "p11-", "p11b-", "p11c-", "p12-", "rc-", "rc2-", "rc4-", "rv-", "k-agent-", "p15-", "p15-agent-", "p12-", "rr-", "mp-model-", "rp-",
         "e2e-", "verifier-", "ns-agent-", "a1-", "a5-", "a9-", "v2-", "TestV2",
-        "skill-test-agent", "dbg-", "factory-", "rollback-", "demo-agent-", "Agent-", "E2E-", "Manual-", "vcontract-", "vdc-", "vdc2-", "mp-agent-", "rr-agent-", "c-agent-", "k-agent-", "rv-agent-", "rc-agent-", "rc2-agent-", "rc4-agent-", "P15-", "p15-agent-", "MP-", "RR-"
+        "skill-test-agent", "dbg-", "factory-", "rollback-", "demo-agent-", "Agent-", "E2E-", "Manual-", "vcontract-", "vdc-", "vdc2-", "mp-agent-", "rr-agent-", "c-agent-", "k-agent-", "rv-agent-", "rc-agent-", "rc2-agent-", "rc4-agent-", "P15-", "p15-agent-", "MP-", "RR-", "t1v-"
     };
     static final String[] TEST_PROVIDER_PREFIXES = {
         "P3-", "P5-", "P6-", "P7-", "P72-", "P8-", "P9-", "P10-", "P11", "P12-", "E2E-", "D1-", "DBG-", "RC-", "RC2-", "RC4-", "RV-", "K-Prov-",
         "FactoryTest-", "AgentTest-", "SkillTest-", "rollback-", "TestV2-", "ns-prov-", "A1-", "A5-", "V2-", "Verifier-", "示例",
         "Test-", "TestI2-", "V-Prov-", "V-Bad-", "e2e-p10-prov-", "Manual-Provider-", "VContract-", "VDC-", "VDC2-", "vdc-", "vdc2-", "ns-", "A1-", "A5-",
         "e2e-ai-prov-", "e2e-cb-prov-", "e2e-chat-prov-", "quota-prov-", "cat-server-", "cat-disabled-", "cat-empty-", "cat-mix-",
-        "MM-", "VContract-", "VDC-", "e2e-prov-", "e2e-codeblock-", "e2e-page-"
+        "MM-", "VContract-", "VDC-", "e2e-prov-", "e2e-codeblock-", "e2e-page-", "e2e-mm-prov-", "t1v-prov-", "t1v-"
     };
 
     /** 测试建的 MCP 服务器（历次 e2e 遗留最多的一类：本机曾有 42 个）。 */
@@ -74,7 +74,7 @@ public class Clean {
 
     /** 测试建的模型（App 直接清：否则 provider 因"还有 model 引用它"删不掉，孤儿模型会一直留在库里）。 */
     static final String[] TEST_MODEL_PREFIXES = {
-        "stub-model-", "mm-model-", "p17-model-", "uitest-", "mp-model-", "rr-model-", "e2e-p10-model-", "e2e-model-", "quota-model-", "stub-skill-json-", "stub-code-fence-"
+        "stub-model-", "mm-model-", "p17-model-", "uitest-", "mp-model-", "rr-model-", "e2e-p10-model-", "e2e-model-", "quota-model-", "stub-skill-json-", "stub-code-fence-", "e2e-mm-model-", "t1v-mm", "t1v-nomm"
     };
 
     /** 测试建的技能（本人用 AI/手建技能时也会造）。 */

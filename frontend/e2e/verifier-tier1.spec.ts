@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { apiToken } from "./helpers/api";
 
 /**
  * tier1-upgrades —— **独立浏览器验收**（不是构造阶段写的 e2e）。
@@ -29,23 +30,6 @@ test.afterEach(async ({ request }) => {
     headers,
     data: { dailyQuota: null, monthlyQuota: null, mode: "BLOCK" },
   });
-  await request.put(`${API}/api/models/34`, {
-    headers,
-    data: {
-      providerId: 35,
-      modelId: "deepseek/deepseek-flash",
-      displayName: "deepseek-flash",
-      temperature: 0.5,
-      topP: 0.9,
-      contextWindow: 1048576,
-      maxTokens: 8192,
-      priceInput: 2,
-      priceOutput: 8,
-      priceCurrency: "CNY",
-      multimodal: false,
-      status: "ENABLED",
-    },
-  });
 });
 
 async function login(page: Page) {
@@ -62,44 +46,78 @@ async function openFirstSession(page: Page) {
   await page.locator("[data-testid='session-item']").first().click();
 }
 
-test("A1/A2 模型页多模态开关：能打开、能保存、列表如实显示", async ({ page }) => {
-  await login(page);
-  await page.goto("/admin/models");
-  // 模型在「模型」页签里（默认是「供应商」页签）
-  await page.getByRole("tab", { name: "模型" }).click();
+test("A1/A2 模型页多模态开关：能打开、能保存、列表如实显示", async ({ page, request }) => {
+  // 自给自足：**自己造一个模型**来验证开关，不动用户的 deepseek 模型
+  // （原先直接改模型 34，全量跑时会与其他用例互相干扰，且依赖用户数据）
+  const token = await apiToken(request);
+  const headers = { Authorization: `Bearer ${token}` };
+  const stamp = Date.now();
+  const provider = await (
+    await request.post(`${API}/api/model-providers`, {
+      headers,
+      data: {
+        name: `e2e-mm-prov-${stamp}`,
+        providerType: "OPENAI_COMPATIBLE",
+        baseUrl: "http://localhost:8099/v1",
+        apiKey: "stub-key",
+        status: "ENABLED",
+      },
+    })
+  ).json();
+  const model = await (
+    await request.post(`${API}/api/models`, {
+      headers,
+      data: {
+        providerId: provider.data.id,
+        modelId: `e2e-mm-model-${stamp}`,
+        multimodal: false,
+        status: "ENABLED",
+      },
+    })
+  ).json();
+  const modelId = model.data.id as number;
+  const rowName = `e2e-mm-model-${stamp}`;
 
-  const row = page.locator("tr", { hasText: "deepseek/deepseek-flash" });
-  await expect(row).toBeVisible({ timeout: 20000 });
-  console.log("[A2] 列表初始显示:", (await row.innerText()).replace(/\s+/g, " ").slice(0, 120));
-  await page.screenshot({ path: `${SHOT}/verifier-model-list-before.png`, fullPage: true });
+  try {
+    await login(page);
+    await page.goto("/admin/models");
+    await page.getByRole("tab", { name: "模型" }).click();
 
-  // 打开编辑 → 勾上「支持多模态」→ 保存
-  await row.getByTitle("编辑").click();
-  const toggle = page.getByTestId("model-multimodal");
-  await expect(toggle).toBeVisible({ timeout: 10000 });
-  console.log("[A1] 编辑弹窗里「支持多模态」开关存在；当前勾选状态 =", await toggle.isChecked());
-  await toggle.check();
-  await page.screenshot({ path: `${SHOT}/verifier-model-multimodal-on.png` });
-  await page.getByRole("button", { name: "保存" }).click();
+    const row = page.locator("tr", { hasText: rowName });
+    await expect(row).toBeVisible({ timeout: 20000 });
+    console.log("[A2] 列表初始显示:", (await row.innerText()).replace(/\s+/g, " ").slice(0, 120));
+    await expect(row).toContainText("多模态 关");
 
-  // 列表应变成「多模态 开」
-  await expect(page.locator("tr", { hasText: "deepseek/deepseek-flash" })).toContainText("多模态 开", {
-    timeout: 20000,
-  });
-  console.log("[A1/A2] 保存后列表显示:「多模态 开」");
-  await page.screenshot({ path: `${SHOT}/verifier-model-multimodal-open.png`, fullPage: true });
+    // 打开编辑 → 勾上「支持多模态」→ 保存
+    await row.getByTitle("编辑").click();
+    const toggle = page.getByTestId("model-multimodal");
+    await expect(toggle).toBeVisible({ timeout: 10000 });
+    console.log("[A1] 编辑弹窗里「支持多模态」开关存在；当前勾选状态 =", await toggle.isChecked());
+    await toggle.check();
+    await page.screenshot({ path: `${SHOT}/verifier-model-multimodal-on.png` });
+    await page.getByRole("button", { name: "保存" }).click();
 
-  // 复原（关掉），保持用户环境原状
-  await page.locator("tr", { hasText: "deepseek/deepseek-flash" }).getByTitle("编辑").click();
-  await page.getByTestId("model-multimodal").uncheck();
-  await page.getByRole("button", { name: "保存" }).click();
-  await expect(page.locator("tr", { hasText: "deepseek/deepseek-flash" })).toContainText("多模态 关", {
-    timeout: 20000,
-  });
-  console.log("[A2] 复原成功，列表回到「多模态 关」");
+    // 列表应变成「多模态 开」
+    await expect(page.locator("tr", { hasText: rowName })).toContainText("多模态 开", { timeout: 20000 });
+    console.log("[A1/A2] 保存后列表显示:「多模态 开」");
+
+    // 复原（关掉）——同样只动自己造的模型
+    // 先等列表刷新稳定：刚保存完立刻点「编辑」，点击会落在重新渲染的间隙里（实测会点空、然后卡住）
+    await page.waitForTimeout(1200);
+    await expect(page.locator("tr", { hasText: rowName })).toContainText("多模态 开");
+    await page.locator("tr", { hasText: rowName }).getByTitle("编辑").click();
+    await expect(page.getByTestId("model-multimodal")).toBeVisible({ timeout: 10000 });
+    await page.getByTestId("model-multimodal").uncheck();
+    await page.getByRole("button", { name: "保存" }).click();
+    await expect(page.locator("tr", { hasText: rowName })).toContainText("多模态 关", { timeout: 20000 });
+    console.log("[A2] 复原成功，列表回到「多模态 关」");
+  } finally {
+    await request.delete(`${API}/api/models/${modelId}`, { headers });
+    await request.delete(`${API}/api/model-providers/${provider.data.id}`, { headers });
+  }
 });
 
-test("A9/A10 输入框上方显示上下文用量与触发阈值", async ({ page }) => {
+test("A9/A10 发送键旁的圆环显示上下文用量与触发阈值", async ({ page }) => {
   await login(page);
   await openFirstSession(page);
 
@@ -108,7 +126,7 @@ test("A9/A10 输入框上方显示上下文用量与触发阈值", async ({ page
   const usage = page.getByTestId("context-usage");
   await expect(usage).toBeVisible({ timeout: 20000 });
   const text = (await usage.innerText()).replace(/\s+/g, " ");
-  console.log("[A9/A10] 用量条文本:", text);
+  console.log("[A9/A10] 圆环浮层文本:", text);
   expect(text).toContain("上下文");
   expect(text).toContain("触发阈值");
   expect(text).toContain("tokens");
