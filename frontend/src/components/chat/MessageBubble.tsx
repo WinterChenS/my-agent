@@ -1,8 +1,9 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Paperclip } from "lucide-react";
+import { Paperclip, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { attachmentBaseName, parseAttachmentBlock } from "@/lib/attachments/message";
+import { textToParts } from "@/lib/skills/selection";
 
 /**
  * 聊天气泡。
@@ -31,6 +32,9 @@ export function MessageBubble({
   // 用户气泡里要把「本轮附件」显示出来（否则用户看不到自己发了什么文件）；
   // 附件块是随消息一起存库的，所以刷新回放同样能渲染。
   const parsed = isUser ? parseAttachmentBlock(content) : { text: content, attachments: [] };
+  // 用户消息里的技能是行内块：正文里存的是 `[[skill:名字]]` 标记，这里按**原位置**还原成块
+  // （用户要求：气泡里要看出「技能出现在当时输入的位置」）。
+  const mentionParts = isUser ? textToParts(parsed.text) : [];
 
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
@@ -62,9 +66,23 @@ export function MessageBubble({
             {parsed.text && (
               <p
                 data-testid="user-text"
-                className="leading-relaxed whitespace-pre-wrap break-words"
+                className="leading-relaxed break-words whitespace-pre-wrap"
               >
-                {parsed.text}
+                {mentionParts.map((part, index) =>
+                  part.type === "skill" ? (
+                    <span
+                      key={`skill-${index}-${part.name}`}
+                      data-testid="message-skill"
+                      title="本轮使用的技能"
+                      className="bg-primary-foreground/20 mx-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 align-middle text-xs font-medium"
+                    >
+                      <Sparkles className="size-3 shrink-0" />
+                      /{part.name}
+                    </span>
+                  ) : (
+                    <span key={`text-${index}`}>{part.text}</span>
+                  ),
+                )}
               </p>
             )}
           </div>

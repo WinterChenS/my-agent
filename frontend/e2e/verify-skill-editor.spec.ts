@@ -107,14 +107,11 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
 
   // ④ 重新打开 → 内容仍是 Markdown 且渲染正确
   const row = page.locator("tr", { hasText: skillName });
-  // 新技能可能不在第一页，翻页找
-  for (let i = 0; i < 6 && (await row.count()) === 0; i += 1) {
-    const next = page.getByTestId("skills-next");
-    if (await next.isDisabled()) break;
-    await next.click();
-    await page.waitForTimeout(600);
-  }
-  await expect(row).toBeVisible({ timeout: 15000 });
+  // 创建后列表会自动跳到新条目所在页（分页 + id 升序的必然结果），所以这里直接能找到
+  await expect(row).toBeVisible({ timeout: 20000 });
+  // 等列表刷新稳定再点编辑：刚创建完马上点，点击可能落在重新渲染的间隙里（实测会偶发点空）
+  await page.waitForTimeout(1200);
+  await expect(row).toBeVisible();
   await row.getByTitle("编辑").click();
   await page.getByTestId("skill-wysiwyg").waitFor({ timeout: 20000 });
   await page.waitForTimeout(1200);

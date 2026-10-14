@@ -248,7 +248,8 @@ test("附件：多选与追加、移除后库里不留记录、发送时只上�
   await expect(chips).toHaveCount(3);
   // 输入框仍可正常使用
   await input.fill("文字仍然可以输入");
-  await expect(input).toHaveValue("文字仍然可以输入");
+  // 输入框现在是 contentEditable（为了行内技能块），所以断言文本而不是 value
+  await expect(input).toHaveText("文字仍然可以输入");
 
   // 移除其中一条（A49）
   await page.getByLabel("移除附件 e2e-b.txt").click();
@@ -296,7 +297,7 @@ test("产物区：Agent 写出的文件在 run 结束后自动出现", async ({ 
   await page.screenshot({ path: "../docs/acceptance/task-10-artifact-area.png", fullPage: true });
 });
 
-test("`/` 选技能：变成不可编辑的块、可删除、不重复", async ({ page, request }) => {
+test("`/` 选技能：行内不可编辑的块、可删除、不重复、按位置进气泡", async ({ page, request }) => {
   const stamp = Date.now();
   const { agentId, headers } = await createStubAgent(request, stamp);
   const skillName = await createSkill(request, headers, stamp);
@@ -309,34 +310,45 @@ test("`/` 选技能：变成不可编辑的块、可删除、不重复", async (
   await expect(option).toBeVisible({ timeout: 20_000 });
   await option.click();
 
-  // 选中后：输入框清空，技能变成独立的块（Task 10.5）
-  await expect(input).toHaveValue("");
-  const block = page.locator('[data-testid="skill-block"]');
+  // 选中后：技能变成**输入框内部**的行内块（不是挂在上面的一排 chip）
+  const block = input.locator("[data-skill-name]");
   await expect(block).toHaveCount(1);
   await expect(block.first()).toContainText(skillName);
+  // 触发菜单的 `/关键字` 已被吃掉
+  expect(await input.innerText()).not.toContain(`/${skillName} ` + "x");
 
-  // 块是不可编辑的：不是输入框，也不可编辑
-  expect(await block.first().locator("input, textarea").count()).toBe(0);
-  expect(await block.first().evaluate((el) => el.isContentEditable)).toBe(false);
+  // 块是不可编辑的
+  expect(await block.first().getAttribute("contenteditable")).toBe("false");
 
   // 再输入 `/`：已选中的技能不再出现在候选里（去重）
-  await input.fill("/");
+  await input.press("End");
+  await page.keyboard.type("/");
   await expect(page.locator('[data-testid="skill-menu"]')).toBeVisible();
   await expect(page.locator('[data-testid="skill-option"]', { hasText: skillName })).toHaveCount(0);
   await input.press("Escape");
 
-  // 带着技能块发消息：run 正常完成，块仍在（会话级技能集，D21）
-  await input.fill("带技能发一条");
+  // 带着技能块发消息：块随消息进**气泡**，run 正常完成
+  await page.keyboard.type("带技能发一条");
   await input.press("Enter");
-  await expect(page.locator('[data-testid="user-text"]').last()).toHaveText("带技能发一条");
+  await expect(page.locator('[data-testid="user-text"]').last()).toContainText("带技能发一条");
+  await expect(page.locator('[data-testid="message-skill"]').last()).toContainText(skillName);
   await expect(page.locator('[data-testid="assistant-text"]').last()).toContainText("stub-ok", {
     timeout: 60_000,
   });
-  await expect(page.locator('[data-testid="skill-block"]')).toHaveCount(1);
+  // 发送后输入框清空（块也跟着走）
+  await expect(input).toHaveText("");
 
-  await page.screenshot({ path: "../docs/acceptance/task-10-skill-block.png", fullPage: true });
+await page.screenshot({ path: "../docs/acceptance/task-10-skill-block.png", fullPage: true });
 
-  // 删除块
-  await page.getByLabel(`删除技能 ${skillName}`).click();
-  await expect(page.locator('[data-testid="skill-block"]')).toHaveCount(0);
+  // 在新输入框里放一个块，再点 × 删除
+  // 先等这一轮跑完（跑的时候输入框是禁用态 contenteditable=false）
+  await expect(input).toHaveAttribute("contenteditable", "true", { timeout: 60_000 });
+  await input.fill("/");
+  await expect(page.locator('[data-testid="skill-menu"]')).toBeVisible({ timeout: 20_000 });
+  const again = page.locator('[data-testid="skill-option"]', { hasText: skillName });
+  await expect(again).toBeVisible({ timeout: 20_000 });
+  await again.click();
+  await expect(input.locator("[data-skill-name]")).toHaveCount(1);
+  await input.locator('[data-skill-remove]').click();
+  await expect(input.locator("[data-skill-name]")).toHaveCount(0);
 });

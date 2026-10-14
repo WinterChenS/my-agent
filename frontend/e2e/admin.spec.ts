@@ -103,7 +103,9 @@ test("MCP 管理页：列表 / 新建 STDIO / 同步工具 / 工具清单 / 删�
 
   const name = `e2e-mcp-${Date.now()}`;
   await page.getByRole("button", { name: "新建" }).click();
-  await page.getByLabel("名称").fill(name);
+  // 注意：页面上新增了筛选栏（含「名称包含」），所以要限定在弹窗里找「名称」
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("名称").fill(name);
   await page.getByLabel("命令").fill("cmd");
   await page
     .getByLabel("参数（每行一个）")
@@ -276,7 +278,10 @@ test("Skill 页：新建 / 版本显示 / 删除", async ({ page }) => {
   await page.getByRole("button", { name: "新建" }).click();
   await page.getByLabel("名称").fill(name);
   await page.getByLabel("说明").fill("E2E 创建");
-  await page.getByLabel("内容（Markdown）").fill("回答时在末尾加【OK】。");
+  // 内容编辑器现在是所见即所得的 MDXEditor（contentEditable），往里打字即可
+  const editor = page.getByTestId("skill-wysiwyg").locator('[contenteditable="true"]');
+  await editor.click();
+  await page.keyboard.type("回答时在末尾加【OK】。");
   await page.getByRole("button", { name: "保存" }).click();
 
   const row = page.getByRole("row", { name: new RegExp(name) });

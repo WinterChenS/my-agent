@@ -48,4 +48,24 @@ class SessionTitleServiceTest {
         org.junit.jupiter.api.Assertions.assertFalse(title.contains("已上传附件"), title);
         org.junit.jupiter.api.Assertions.assertTrue(title.startsWith("看一下这个"), title);
     }
+
+    @org.junit.jupiter.api.Test
+    void 标题里不能漏出技能标记() {
+        // 实测问题：会话标题出现过「请用 [[skill:P5-Skill]…」——标题是纯文本，得把标记换成人能读的
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "请用 /P5-Skill 帮我看看",
+                SessionTitleService.stripSkillMarkers("请用 [[skill:P5-Skill]] 帮我看看"));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "/订单查询",
+                SessionTitleService.stripSkillMarkers("[[skill:订单查询]]"));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "普通一句话", SessionTitleService.stripSkillMarkers("普通一句话"));
+    }
+
+    @org.junit.jupiter.api.Test
+    void 回退标题也不含技能标记() {
+        String title = SessionTitleService.fallbackTitle("请用 [[skill:订单查询]] 帮我看看");
+        org.junit.jupiter.api.Assertions.assertFalse(title.contains("[[skill:"), title);
+        org.junit.jupiter.api.Assertions.assertTrue(title.contains("/订单查询"), title);
+    }
 }

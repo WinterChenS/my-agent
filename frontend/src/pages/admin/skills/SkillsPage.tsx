@@ -156,6 +156,8 @@ export default function SkillsPage() {
       if (form.id == null) {
         await createSkill(payload);
         toast.success("已创建 Skill");
+        // 列表按 id 升序 + 分页，新建的条目在最后一页 —— 不跳过去用户会以为没建成功
+        setPage(Math.max(1, Math.ceil((total + 1) / pageSize)));
       } else {
         const saved = await updateSkill(form.id, payload);
         toast.success(`已保存（版本 v${saved.version}）`);

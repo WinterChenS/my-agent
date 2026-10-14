@@ -91,7 +91,7 @@ public class SessionTitleService {
 
     /** 调模型生成标题（失败时由调用方回退）。 */
     public String generate(Long agentDbId, String firstUserMessage) {
-        firstUserMessage = stripAttachmentBlock(firstUserMessage);
+        firstUserMessage = stripSkillMarkers(stripAttachmentBlock(firstUserMessage));
         ChatModelBase model = agentFactory.buildChatModelFor(agentDbId);
         Msg msg = Msg.builderForRole(MsgRole.USER).textContent(PROMPT + firstUserMessage).build();
         GenerateOptions options = GenerateOptions.builder()
@@ -130,6 +130,20 @@ public class SessionTitleService {
     }
 
     /**
+     * 把消息里的技能标记换成可读形式。
+     *
+     * <p>用户消息里的技能是行内块，落库时序列化成 {@code [[skill:名字]]}（气泡据此还原成块）。
+     * 但**标题是纯文本**，直接用会把标记漏给用户（实测标题出现过「请用 [[skill:P5-Skill]…」）。
+     * 所以标题这里把它换成 {@code /名字}。
+     */
+    public static String stripSkillMarkers(String content) {
+        if (content == null) {
+            return "";
+        }
+        return content.replaceAll("\\[\\[skill:([^\\]]+)\\]\\]", "/$1");
+    }
+
+    /**
      * 去掉我们自己加在用户消息末尾的「[已上传附件]」块。
      *
      * <p>那是给模型的路径提示，不应该出现在标题里（实测回填时标题被它污染）。
@@ -160,7 +174,7 @@ public class SessionTitleService {
 
     /** 回退标题：首条消息截断（保留可读性）。 */
     static String fallbackTitle(String firstUserMessage) {
-        String text = stripAttachmentBlock(firstUserMessage).replace("\n", " ");
+        String text = stripSkillMarkers(stripAttachmentBlock(firstUserMessage)).replace("\n", " ");
         if (text.length() <= FALLBACK_CHARS) {
             return text;
         }

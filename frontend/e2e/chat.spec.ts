@@ -179,6 +179,8 @@ test("多轮对话：发第二条不会清空之前的对话（回归）", async
   await expect(page.locator('[data-testid="assistant-text"]')).toHaveCount(1, { timeout: 60_000 });
 
   // 第二轮：第一轮的气泡必须还在
+  // 跑的时候输入框是禁用态（contenteditable=false），先等它恢复
+  await expect(input).toHaveAttribute("contenteditable", "true", { timeout: 60_000 });
   await input.fill("第二句");
   await input.press("Enter");
   await expect(page.locator('[data-testid="user-text"]')).toHaveCount(2, { timeout: 20_000 });
@@ -203,7 +205,9 @@ test("布局：会话区收窄并居中，输入框与消息区同宽同位置",
 
   const msgCol = page.locator('[data-testid="chat-column"]');
   const msgBox = (await msgCol.boundingBox())!;
-  const inputCol = page.getByPlaceholder("输入消息，回车发送").locator("xpath=..");
+  // 输入框现在是行内技能块的 contentEditable，外面多了一层 flex-1 包装，
+  // 所以量「整行」而不是「输入框的父节点」
+  const inputCol = page.getByTestId("composer-row");
   const inBox = (await inputCol.boundingBox())!;
 
   // 收窄：远小于可用宽度（max-w-3xl = 768）
@@ -238,7 +242,8 @@ test("后端不可用时显示错误态且不白屏", async ({ page }) => {
   await expect(page.getByText("my-agent", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "重试" })).toBeVisible({ timeout: 20_000 });
   // 失败时不能把用户输入弄丢
-  await expect(input).toHaveValue("这条应该失败");
+  // 输入框是 contentEditable：断言文本
+  await expect(input).toHaveText("这条应该失败");
 
   await page.screenshot({ path: "../docs/acceptance/task-4.3-chat-error-state.png", fullPage: true });
 });

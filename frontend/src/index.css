@@ -132,3 +132,14 @@
   min-height: 240px !important;
   overflow: auto !important;
 }
+
+/* 聊天输入框（contentEditable）的占位提示：:empty 时用 data-placeholder 显示 */
+.chat-input:empty:before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+/* 技能块里的 × 只作装饰文字，不参与排版 */
+.chat-input [data-skill-remove] {
+  line-height: 1;
+}

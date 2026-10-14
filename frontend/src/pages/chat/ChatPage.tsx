@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { HttpAgent } from "@ag-ui/client";
 import { Paperclip, Plus, Send, Square, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
-import { SkillPicker } from "@/components/chat/SkillPicker";
+import { SkillMentionInput } from "@/components/chat/SkillMentionInput";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ContextRing } from "@/components/chat/ContextRing";
 import type { ContextUsage, RunHistoryItem } from "@/api/sessions";
@@ -47,18 +46,10 @@ import {
   type StagedAttachment,
 } from "@/lib/attachments/staging";
 import { buildAttachmentBlock } from "@/lib/attachments/message";
-import { filesFromClipboard, filesFromDataTransfer, normalizeIncomingFiles } from "@/lib/attachments/sources";
+import { filesFromDataTransfer, normalizeIncomingFiles } from "@/lib/attachments/sources";
 import { groupSessionsByTime } from "@/lib/chat/sessionGroups";
 import { listSkills, type SkillInfo } from "@/api/skills";
-import {
-  addSkill,
-  filterSkills,
-  removeSkill,
-  skillsQuery,
-  stripQuery,
-  type SelectedSkill,
-  type SkillOption,
-} from "@/lib/skills/selection";
+import { partsAreEmpty, partsSkillIds, partsToText, type MentionPart } from "@/lib/skills/selection";
 
 /** 图片文件 → AG-UI 的 image 内容块（base64 内联；官方适配器会转成 ImageBlock）。 */
 async function fileToImagePart(file: File) {
@@ -86,7 +77,8 @@ export default function ChatPage() {
   const [agentId, setAgentId] = useState<number | null>(null);
   const [session, setSession] = useState<ChatSession | null>(null);
   const [chat, setChat] = useState<ChatState>(initialChatState);
-  const [input, setInput] = useState("");
+  /** 输入内容 = 文本段 + 技能块（技能是行内不可编辑的块，位置随用户输入保留）。 */
+  const [parts, setParts] = useState<MentionPart[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
@@ -104,8 +96,6 @@ export default function ChatPage() {
   const watchingRuns = useRef<Map<number, string>>(new Map());
   // Phase 10：`/` 选技能（D21）、上传中状态、右侧栏刷新信号
   const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const [selectedSkills, setSelectedSkills] = useState<SelectedSkill[]>([]);
-  const [skillHighlight, setSkillHighlight] = useState(0);
   const [artifactRefresh, setArtifactRefresh] = useState(0);
   const [uploading, setUploading] = useState(false);
   // Phase 13：拖拽进聊天区时高亮提示
@@ -117,13 +107,6 @@ export default function ChatPage() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const bootstrapped = useRef(false);
-
-  // `/` 后的候选技能：已选中的不再出现
-  const skillQuery = skillsQuery(input);
-  const skillOptions = useMemo(
-    () => filterSkills(skills, skillQuery ?? "", selectedSkills),
-    [skills, skillQuery, selectedSkills],
-  );
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -416,7 +399,11 @@ export default function ChatPage() {
     options: {
       text?: string;
       /** 图片内容块（多模态）；有值时消息 content 用「文本 + 图片」结构 */
-      parts?: unknown[];
+      imageParts?: unknown[];
+      /** 发送失败时把输入（含技能块）还回输入框，方便直接重试 */
+      restoreParts?: MentionPart[];
+      /** 本轮用到的技能 id（并入会话技能集，交给官方 SkillFilter 生效） */
+      skillIds?: number[];
       resume?: { interruptId: string; status: string; payload?: unknown }[];
     },
   ) {
@@ -428,8 +415,8 @@ export default function ChatPage() {
           id: crypto.randomUUID(),
           role: "user",
           // 有图片时按 AG-UI 内容块发送：{type:"image", source:{type:"data", value:base64, mimeType}}
-          content: options.parts?.length
-            ? [{ type: "text", text: options.text }, ...options.parts]
+          content: options.imageParts?.length
+            ? [{ type: "text", text: options.text }, ...options.imageParts]
             : options.text,
         },
       ] as typeof agent.messages;
@@ -447,7 +434,7 @@ export default function ChatPage() {
           forwardedProps: {
             agentId: active.agentId ?? agentId,
             // D21：本轮选中的技能并入该会话技能集，由后端走官方 SkillFilter
-            skillIds: selectedSkills.map((skill) => skill.id),
+            skillIds: options.skillIds ?? [],
           },
           resume: options.resume as never,
         },
@@ -472,8 +459,9 @@ export default function ChatPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "发送失败，可重试");
       setChat((prev) => ({ ...prev, status: "error" }));
-      if (options.text) {
-        setInput(options.text);
+      if (options.restoreParts) {
+        // 发送失败：把刚才那一条（含技能块）放回输入框，用户可以直接重试
+        setParts(options.restoreParts);
       }
     } finally {
       setBusy(false);
@@ -482,10 +470,12 @@ export default function ChatPage() {
   }
 
   async function send() {
-    const text = input.trim();
-    if (!text || busy) {
+    // 只有技能块、没文字也允许发送（用户可能就是想「用这个技能做…」，随手补一句也行）
+    if (partsAreEmpty(parts) || busy) {
       return;
     }
+    const sentParts = parts;
+    const text = partsToText(parts).trim();
     setError(null);
 
     let active = session;
@@ -536,7 +526,7 @@ export default function ChatPage() {
     const imageParts = imageFiles.length > 0 ? await Promise.all(imageFiles.map(fileToImagePart)) : [];
 
     setStaged([]);
-    setInput("");
+    setParts([]);
     setChat((prev) => ({
       items: [
         ...prev.items,
@@ -551,7 +541,13 @@ export default function ChatPage() {
       status: "running",
       runId: null,
     }));
-    await runTurn(active, { text: outgoing, parts: imageParts });
+    await runTurn(active, {
+      text: outgoing,
+      imageParts,
+      restoreParts: sentParts,
+      // 技能要真正生效：把 id 交给后端并入该会话的技能集（官方 SkillFilter 按它筛选可用技能）
+      skillIds: partsSkillIds(sentParts),
+    });
   }
 
   /** 审批决定 -> 记录结果 -> 用 resume 唤醒被拦截的执行。 */
@@ -599,12 +595,6 @@ export default function ChatPage() {
       runId: null,
     }));
     await runTurn(session, { text: value });
-  }
-
-  function pickSkill(skill: SkillOption) {
-    setSelectedSkills((prev) => addSkill(prev, skill));
-    setInput((prev) => stripQuery(prev));
-    setSkillHighlight(0);
   }
 
   /** 拖拽/粘贴进来的文件：补好名字后并入暂存区（与点选走同一条路）。 */
@@ -937,21 +927,12 @@ export default function ChatPage() {
                 </Button>
               </div>
             )}
-            <SkillPicker
-              selected={selectedSkills}
-              query={skillQuery}
-              options={skillOptions}
-              highlight={skillHighlight}
-              onSelect={pickSkill}
-              onRemove={(id) => setSelectedSkills((prev) => removeSkill(prev, id))}
-              onHighlight={setSkillHighlight}
-            />
             <AttachmentStaging
               items={staged}
               disabled={busy || uploading}
               onRemove={(key) => setStaged((prev) => removeAttachment(prev, key))}
             />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" data-testid="composer-row">
               <input
                 ref={fileRef}
                 type="file"
@@ -969,53 +950,14 @@ export default function ChatPage() {
               >
                 <Paperclip className="size-4" />
               </Button>
-              <Input
-                value={input}
-                placeholder="输入消息，回车发送"
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  setSkillHighlight(0);
-                }}
-                onPaste={(event) => {
-                  // Phase 13：粘贴截图/文件直接进暂存区；纯文本粘贴保持原行为
-                  const files = filesFromClipboard(event.clipboardData);
-                  if (files.length > 0) {
-                    event.preventDefault();
-                    stageIncoming(files);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  // 菜单打开时优先走菜单按键
-                  if (skillQuery !== null && skillOptions.length > 0) {
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      setSkillHighlight((prev) => (prev + 1) % skillOptions.length);
-                      return;
-                    }
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      setSkillHighlight(
-                        (prev) => (prev - 1 + skillOptions.length) % skillOptions.length,
-                      );
-                      return;
-                    }
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      pickSkill(skillOptions[Math.min(skillHighlight, skillOptions.length - 1)]);
-                      return;
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setInput((prev) => stripQuery(prev));
-                      return;
-                    }
-                  }
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
+              <SkillMentionInput
+                parts={parts}
+                onPartsChange={setParts}
+                skills={skills}
                 disabled={busy}
+                placeholder="输入消息，回车发送（输入 / 可选择技能）"
+                onSubmit={() => void send()}
+                onPasteFiles={stageIncoming}
               />
               <ContextRing
                 usage={contextUsage}
@@ -1035,7 +977,7 @@ export default function ChatPage() {
                   <span className="ml-1">停止</span>
                 </Button>
               ) : (
-                <Button onClick={() => void send()} disabled={!input.trim()}>
+                <Button onClick={() => void send()} disabled={partsAreEmpty(parts) || uploading}>
                   <Send className="size-4" />
                 </Button>
               )}

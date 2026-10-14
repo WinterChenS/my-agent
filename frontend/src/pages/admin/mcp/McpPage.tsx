@@ -178,6 +178,8 @@ export default function McpPage() {
       if (form.id == null) {
         await createMcpServer(payload);
         toast.success("已创建 MCP Server");
+        // 同上：新条目在最后一页，创建后跳过去
+        setPage(Math.max(1, Math.ceil((total + 1) / pageSize)));
       } else {
         await updateMcpServer(form.id, payload);
         toast.success("已保存");

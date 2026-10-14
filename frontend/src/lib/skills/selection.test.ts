@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   addSkill,
+  partsAreEmpty,
+  partsSkillIds,
+  partsToText,
+  textToParts,
   filterSkills,
   removeSkill,
   skillsQuery,
@@ -64,5 +68,58 @@ describe("stripQuery", () => {
     expect(stripQuery("/报")).toBe("");
     expect(stripQuery("帮我看看 /co")).toBe("帮我看看");
     expect(stripQuery("没有斜杠")).toBe("没有斜杠");
+  });
+});
+
+describe("parts ⇄ text（技能是行内块）", () => {
+  it("技能序列化成标记，位置保留在中间", () => {
+    const parts = [
+      { type: "text" as const, text: "请用 " },
+      { type: "skill" as const, id: 12, name: "订单查询" },
+      { type: "text" as const, text: " 帮我看看" },
+    ];
+    expect(partsToText(parts)).toBe("请用 [[skill:订单查询]] 帮我看看");
+  });
+
+  it("标记还原成技能块时位置不变（气泡按这个渲染）", () => {
+    const parts = textToParts("请用 [[skill:订单查询]] 帮我看看");
+    expect(parts).toEqual([
+      { type: "text", text: "请用 " },
+      { type: "skill", id: -1, name: "订单查询" },
+      { type: "text", text: " 帮我看看" },
+    ]);
+  });
+
+  it("没有标记时就是一段纯文本", () => {
+    expect(textToParts("普通一句话")).toEqual([{ type: "text", text: "普通一句话" }]);
+    expect(textToParts(null)).toEqual([]);
+  });
+
+  it("标记在开头/结尾也能正确切分", () => {
+    expect(textToParts("[[skill:a]]x")).toEqual([
+      { type: "skill", id: -1, name: "a" },
+      { type: "text", text: "x" },
+    ]);
+    expect(textToParts("x[[skill:a]]")).toEqual([
+      { type: "text", text: "x" },
+      { type: "skill", id: -1, name: "a" },
+    ]);
+  });
+
+  it("取技能 id（发送时交给后端让技能生效），历史消息的 -1 不算", () => {
+    expect(
+      partsSkillIds([
+        { type: "skill", id: 12, name: "a" },
+        { type: "text", text: "x" },
+        { type: "skill", id: -1, name: "b" },
+        { type: "skill", id: 34, name: "c" },
+      ]),
+    ).toEqual([12, 34]);
+  });
+
+  it("只有技能块没有文字也算「有内容」，纯空白算「空」", () => {
+    expect(partsAreEmpty([{ type: "skill", id: 1, name: "a" }])).toBe(false);
+    expect(partsAreEmpty([{ type: "text", text: "   " }])).toBe(true);
+    expect(partsAreEmpty([])).toBe(true);
   });
 });
