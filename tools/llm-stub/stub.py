@@ -57,6 +57,13 @@ STUB_SKILL_JSON = os.environ.get(
     '"content":"# 桩生成的技能\\n\\n## 什么时候用\\n- 端到端验证 AI 生成技能时。\\n\\n'
     '## 步骤\\n1. 调用 `read_file` 读取目标文件。\\n2. 用 `demo_confirm_card` 向用户确认。"}',
 )
+# 可选：模型名含该子串时，返回一段**带围栏代码块的 Markdown**（用于验证代码块样式/对比度）。
+# 同理按模型名分流，避免影响其它用例。
+STUB_CODE_FENCE_MODEL = os.environ.get("STUB_CODE_FENCE_MODEL", "code-fence")
+STUB_CODE_FENCE = os.environ.get(
+    "STUB_CODE_FENCE",
+    "这是示例：\n\n```json\n{\"action\": \"out_of_scope\", \"reason\": \"request unrelated\"}\n```\n\n完毕。",
+)
 STUB_MODEL_404 = os.environ.get("STUB_MODEL_404", "wrong-model")  # 默认开启：名字含它即回 404
 STUB_MODEL_404_HINT = os.environ.get("STUB_MODEL_404_HINT", "deepseek/deepseek-flash, tencent/GLM-5.2")
 
@@ -225,6 +232,9 @@ class Handler(BaseHTTPRequestHandler):
         # 「技能 JSON」分流优先：AI 生成技能的用例要求模型输出严格 JSON
         if STUB_SKILL_JSON_MODEL and STUB_SKILL_JSON_MODEL in str(body.get("model", "")):
             return STUB_SKILL_JSON
+        # 围栏代码块分流：验证代码块样式/对比度的用例用
+        if STUB_CODE_FENCE_MODEL and STUB_CODE_FENCE_MODEL in str(body.get("model", "")):
+            return STUB_CODE_FENCE
         # 标记优先：标记是「模型确实收到了这段内容」的强证据，
         # 不能被 STUB_REPLY_FROM_MODEL 的按模型名回复盖掉（曾经因此让 Skill 注入的端到端断言假红）。
         if STUB_MARKER:
@@ -242,6 +252,8 @@ class Handler(BaseHTTPRequestHandler):
         """若配置了 STUB_MARKER 且请求体包含它，就回一个可识别的标记，证明模型确实收到了该内容。"""
         if STUB_SKILL_JSON_MODEL and STUB_SKILL_JSON_MODEL in str(model):
             return STUB_SKILL_JSON
+        if STUB_CODE_FENCE_MODEL and STUB_CODE_FENCE_MODEL in str(model):
+            return STUB_CODE_FENCE
         if STUB_MARKER:
             try:
                 if STUB_MARKER.encode("utf-8") in raw:

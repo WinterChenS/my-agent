@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 import {
   Bot,
@@ -13,12 +14,21 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth";
 import LoginPage from "@/pages/login/LoginPage";
-import ChatPage from "@/pages/chat/ChatPage";
-import AuditPage from "@/pages/admin/audit/AuditPage";
-import ModelsPage from "@/pages/admin/models/ModelsPage";
-import AgentsPage from "@/pages/admin/agents/AgentsPage";
-import SkillsPage from "@/pages/admin/skills/SkillsPage";
-import McpPage from "@/pages/admin/mcp/McpPage";
+
+/**
+ * 管理台页面按需加载（bundle 拆分）。
+ *
+ * 原因：主 chunk 曾达 2.1MB —— 里面塞着 5 个管理台页面，其中技能页还带着整个 MDXEditor（Lexer 系一大票）。
+ * 但登录后首屏是聊天页，管理页对绝大多数会话都不需要，没必要让首屏等它们。
+ * 用 React.lazy 拆成独立 chunk，进入对应路由时才下载。
+ */
+// 聊天页也拆出去：未登录用户先看到的是登录页，没必要为它下载聊天页 + markdown 渲染器等一大票
+const ChatPage = lazy(() => import("@/pages/chat/ChatPage"));
+const AuditPage = lazy(() => import("@/pages/admin/audit/AuditPage"));
+const ModelsPage = lazy(() => import("@/pages/admin/models/ModelsPage"));
+const AgentsPage = lazy(() => import("@/pages/admin/agents/AgentsPage"));
+const SkillsPage = lazy(() => import("@/pages/admin/skills/SkillsPage"));
+const McpPage = lazy(() => import("@/pages/admin/mcp/McpPage"));
 
 interface NavItem {
   to: string;
@@ -94,7 +104,18 @@ function AppLayout() {
         </div>
       </aside>
       <main className="min-w-0 flex-1 overflow-hidden">
-        <Outlet />
+        {/* Suspense 放在**布局内部**、只包 Outlet：
+            页面 chunk 加载时侧边栏/顶栏保持可见，只让内容区显示占位。
+            如果把 Suspense 包在整个 <Routes> 外面，切换管理台时整屏都会被替换掉（含侧边栏）。 */}
+        <Suspense
+          fallback={
+            <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
+              加载中…
+            </div>
+          }
+        >
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );
@@ -103,23 +124,23 @@ function AppLayout() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        element={
-          <RequireAuth>
-            <AppLayout />
-          </RequireAuth>
-        }
-      >
-        <Route index element={<Navigate to="/chat" replace />} />
-        <Route path="chat" element={<ChatPage />} />
-        <Route path="admin/models" element={<ModelsPage />} />
-        <Route path="admin/agents" element={<AgentsPage />} />
-        <Route path="admin/skills" element={<SkillsPage />} />
-        <Route path="admin/mcp" element={<McpPage />} />
-        <Route path="admin/audit" element={<AuditPage />} />
-        <Route path="*" element={<Placeholder title="页面不存在" />} />
-      </Route>
-    </Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={
+            <RequireAuth>
+              <AppLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<Navigate to="/chat" replace />} />
+          <Route path="chat" element={<ChatPage />} />
+          <Route path="admin/models" element={<ModelsPage />} />
+          <Route path="admin/agents" element={<AgentsPage />} />
+          <Route path="admin/skills" element={<SkillsPage />} />
+          <Route path="admin/mcp" element={<McpPage />} />
+          <Route path="admin/audit" element={<AuditPage />} />
+          <Route path="*" element={<Placeholder title="页面不存在" />} />
+        </Route>
+      </Routes>
   );
 }

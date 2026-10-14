@@ -18,7 +18,7 @@ describe("App 路由与布局壳", () => {
     expect(screen.getByText("登录 my-agent")).toBeInTheDocument();
   });
 
-  it("已登录时渲染侧边栏与各管理入口", () => {
+  it("已登录时渲染侧边栏与各管理入口", async () => {
     useAuthStore.setState({
       token: "test-token",
       user: { id: 1, username: "admin", displayName: "平台管理员", role: "ADMIN" },
@@ -30,9 +30,11 @@ describe("App 路由与布局壳", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("my-agent")).toBeInTheDocument();
+    // 管理页/聊天页现在是按需加载（React.lazy），首帧会先渲染 Suspense 占位，
+    // 所以这里用 findBy* 等异步 chunk 解析完成
+    expect(await screen.findByText("my-agent")).toBeInTheDocument();
     for (const label of ["聊天", "模型", "Agent", "Skill", "MCP", "审计"]) {
-      expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
+      expect(await screen.findByRole("link", { name: label })).toBeInTheDocument();
     }
   });
 });

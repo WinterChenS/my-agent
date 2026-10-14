@@ -31,7 +31,16 @@ import {
 import { listTools, type ToolEntry } from "@/api/tools";
 import { listModels, type ModelInfo } from "@/api/models";
 import { cn } from "@/lib/utils";
-import { SkillMdxEditor, type SkillMdxEditorHandle } from "@/components/skills/SkillMdxEditor";
+import { Suspense, lazy } from "react";
+
+/**
+ * 所见即所得编辑器（内含整个 MDXEditor / Lexical，体积很大）**按需加载**：
+ * 只有打开「新建/编辑技能」弹窗时才下载，光看技能列表不必付这个代价（实测该 chunk 约 1.2MB）。
+ */
+const SkillMdxEditor = lazy(() =>
+  import("@/components/skills/SkillMdxEditor").then((m) => ({ default: m.SkillMdxEditor })),
+);
+type SkillMdxEditorHandle = import("@/components/skills/SkillMdxEditor").SkillMdxEditorHandle;
 
 interface FormState {
   id: number | null;
@@ -438,6 +447,13 @@ export default function SkillsPage() {
               />
             </label>
             <div className="flex min-h-0 flex-1 flex-col">
+              <Suspense
+                fallback={
+                  <div className="text-muted-foreground flex h-[320px] items-center justify-center rounded-md border text-xs">
+                    正在加载编辑器…
+                  </div>
+                }
+              >
               <SkillMdxEditor
                 ref={editorHandle}
                 value={form.content}
@@ -445,6 +461,7 @@ export default function SkillsPage() {
                 tools={tools}
                 placeholder="# 规则&#10;&#10;回答时在末尾加【OK】。"
               />
+              </Suspense>
             </div>
           </div>
           <DialogFooter>
