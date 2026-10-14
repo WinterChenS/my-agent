@@ -61,13 +61,20 @@ public class Clean {
         "P3-", "P5-", "P6-", "P7-", "P72-", "P8-", "P9-", "P10-", "P11", "P12-", "E2E-", "D1-", "DBG-", "RC-", "RC2-", "RC4-", "RV-", "K-Prov-",
         "FactoryTest-", "AgentTest-", "SkillTest-", "rollback-", "TestV2-", "ns-prov-", "A1-", "A5-", "V2-", "Verifier-", "示例",
         "Test-", "TestI2-", "V-Prov-", "V-Bad-", "e2e-p10-prov-", "Manual-Provider-", "VContract-", "VDC-", "VDC2-", "vdc-", "vdc2-", "ns-", "A1-", "A5-",
-        "e2e-ai-prov-", "e2e-cb-prov-", "e2e-chat-prov-", "quota-prov-", "cat-server-", "cat-disabled-", "cat-empty-", "cat-mix-"
+        "e2e-ai-prov-", "e2e-cb-prov-", "e2e-chat-prov-", "quota-prov-", "cat-server-", "cat-disabled-", "cat-empty-", "cat-mix-",
+        "MM-", "VContract-", "VDC-", "e2e-prov-", "e2e-codeblock-", "e2e-page-"
     };
 
     /** 测试建的 MCP 服务器（历次 e2e 遗留最多的一类：本机曾有 42 个）。 */
     static final String[] TEST_MCP_PREFIXES = {
         "e2e-", "p3-mcp-", "p5-mcp-", "p6-mcp-", "p7-mcp-", "p7b-mcp-", "p8-mcp-", "p9-mcp-", "p10-mcp-", "p11-mcp-", "p12-mcp-",
-        "ns-mcp-", "mcp-everything-", "mcp-bad-", "mcp-stdio-", "mcp-sse-", "mcp-http-", "MCP-", "cat-server-", "cat-disabled-", "cat-empty-", "cat-mix-"
+        "ns-mcp-", "mcp-everything-", "mcp-bad-", "mcp-stdio-", "mcp-sse-", "mcp-http-", "MCP-", "cat-server-", "cat-disabled-", "cat-empty-", "cat-mix-",
+        "VContract-", "e2e-page-"
+    };
+
+    /** 测试建的模型（App 直接清：否则 provider 因"还有 model 引用它"删不掉，孤儿模型会一直留在库里）。 */
+    static final String[] TEST_MODEL_PREFIXES = {
+        "stub-model-", "mm-model-", "p17-model-", "uitest-", "mp-model-", "rr-model-", "e2e-p10-model-", "e2e-model-", "quota-model-", "stub-skill-json-", "stub-code-fence-"
     };
 
     /** 测试建的技能（本人用 AI/手建技能时也会造）。 */
@@ -117,6 +124,26 @@ public class Clean {
                             d.setLong(1, id); sessions += d.executeUpdate();
                         }
                         try (PreparedStatement d = c.prepareStatement("delete from agent where id = ?")) {
+                            d.setLong(1, id); d.executeUpdate();
+                        }
+                    }
+                }
+            }
+
+            // 1.5) 测试模型：只删没有被任何 agent 引用的（有引用的留给 agent 清理后再处理）
+            try (Statement s = c.createStatement();
+                 ResultSet r = s.executeQuery("select id, model_id from llm_model order by id")) {
+                while (r.next()) {
+                    long id = r.getLong(1);
+                    String modelId = r.getString(2);
+                    if (!hasPrefix(modelId, TEST_MODEL_PREFIXES)) {
+                        continue;
+                    }
+                    models++;
+                    if (apply) {
+                        try (PreparedStatement d = c.prepareStatement(
+                                "delete from llm_model m where m.id = ? "
+                              + "and not exists (select 1 from agent a where a.model_id = m.id)")) {
                             d.setLong(1, id); d.executeUpdate();
                         }
                     }
