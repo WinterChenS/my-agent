@@ -230,11 +230,15 @@ test("后端不可用时显示错误态且不白屏", async ({ page }) => {
   await page.getByRole("button", { name: "登录" }).click();
   await expect(page).toHaveURL(/\/chat/, { timeout: 15_000 });
 
+  // 先等界面就绪（聊天页是按需加载的 chunk），**再**断网模拟后端不可用。
+  // 顺序反了会偶发：在全量跑时输入框可能还没渲染出来，而 fill 等不到就超时（实测）
+  const input = page.getByPlaceholder("输入消息，回车发送");
+  await expect(input).toBeVisible({ timeout: 30_000 });
+
   // 断掉所有 /api 与 /agui 请求，模拟后端不可用
   await page.route("**/api/**", (route) => route.abort());
   await page.route("**/agui/**", (route) => route.abort());
 
-  const input = page.getByPlaceholder("输入消息，回车发送");
   await input.fill("这条应该失败");
   await input.press("Enter");
 
