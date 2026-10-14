@@ -101,19 +101,3 @@ export function filterSkills(
     });
 }
 
-/** 添加一个技能：按 id 去重。 */
-export function addSkill(selected: SelectedSkill[], skill: SkillOption): SelectedSkill[] {
-  if (selected.some((item) => item.id === skill.id)) {
-    return selected;
-  }
-  return [...selected, { id: skill.id, name: skill.name }];
-}
-
-export function removeSkill(selected: SelectedSkill[], id: number): SelectedSkill[] {
-  return selected.filter((item) => item.id !== id);
-}
-
-/** 选中技能后把输入框里残留的 `/关键字` 去掉（保留其它文字）。 */
-export function stripQuery(value: string): string {
-  return value.replace(/(^|\s)\/[^\s/]*$/, "$1").replace(/\s+$/, "");
-}

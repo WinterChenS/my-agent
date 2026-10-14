@@ -48,13 +48,18 @@ public class QuotaService {
         Agent agent = agentDbId == null ? null : agentMapper.selectById(agentDbId);
 
         OffsetDateTime dayStart = startOfDay();
-        OffsetDateTime dayEnd = OffsetDateTime.now();
+        // 上界用「明天 00:00 / 下月 1 日 00:00」而不是"此刻"：
+        // created_at 是**数据库**的 now()，而此刻是**应用进程**的 now()，两台机器时钟会有偏差。
+        // 实测：DB 快 3 秒 → 刚记录的用量落在 [今日, 此刻] 之外、被静默漏计，
+        // 后果是刚花完一笔却仍判定未超限（额度形同虚设）。用整日/整月窗口就没有这个问题。
+        OffsetDateTime dayEnd = startOfNextDay();
         OffsetDateTime monthStart = startOfMonth();
+        OffsetDateTime monthEnd = startOfNextMonth();
 
         BigDecimal usedTodayUser = cost(userId, dayStart, dayEnd, null);
-        BigDecimal usedMonthUser = cost(userId, monthStart, dayEnd, null);
+        BigDecimal usedMonthUser = cost(userId, monthStart, monthEnd, null);
         BigDecimal usedTodayAgent = agentDbId == null ? BigDecimal.ZERO : cost(userId, dayStart, dayEnd, agentDbId);
-        BigDecimal usedMonthAgent = agentDbId == null ? BigDecimal.ZERO : cost(userId, monthStart, dayEnd, agentDbId);
+        BigDecimal usedMonthAgent = agentDbId == null ? BigDecimal.ZERO : cost(userId, monthStart, monthEnd, agentDbId);
 
         // 用户级
         if (exceeds(usedTodayUser, user == null ? null : user.getDailyQuota())
@@ -171,9 +176,26 @@ public class QuotaService {
         return LocalDate.now(ZoneId.systemDefault()).atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
     }
 
+    /** 明天 00:00（作为「今天」的**开区间上界**，不受时钟偏差影响）。 */
+    private static OffsetDateTime startOfNextDay() {
+        return LocalDate.now(ZoneId.systemDefault())
+                .plusDays(1)
+                .atStartOfDay(ZoneId.systemDefault())
+                .toOffsetDateTime();
+    }
+
     private static OffsetDateTime startOfMonth() {
         return LocalDate.now(ZoneId.systemDefault())
                 .withDayOfMonth(1)
+                .atStartOfDay(ZoneId.systemDefault())
+                .toOffsetDateTime();
+    }
+
+    /** 下月 1 日 00:00（作为「本月」的开区间上界）。 */
+    private static OffsetDateTime startOfNextMonth() {
+        return LocalDate.now(ZoneId.systemDefault())
+                .withDayOfMonth(1)
+                .plusMonths(1)
                 .atStartOfDay(ZoneId.systemDefault())
                 .toOffsetDateTime();
     }

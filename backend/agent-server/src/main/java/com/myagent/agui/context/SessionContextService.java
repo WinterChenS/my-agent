@@ -182,7 +182,8 @@ public class SessionContextService {
         }
     }
 
-    private static String preview(String summary) {
+    /** 摘要预览（包内可见，便于单测）。 */
+    static String preview(String summary) {
         if (summary == null || summary.isBlank()) {
             return null;
         }

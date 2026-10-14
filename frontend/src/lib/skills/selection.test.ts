@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  addSkill,
   partsAreEmpty,
   partsSkillIds,
   partsToText,
   textToParts,
   filterSkills,
-  removeSkill,
   skillsQuery,
-  stripQuery,
   type SkillOption,
 } from "./selection";
 
@@ -43,31 +40,6 @@ describe("filterSkills", () => {
   it("已选中的不再出现在候选里", () => {
     const selected = [{ id: 1, name: "报告生成" }];
     expect(filterSkills(skills, "", selected).map((s) => s.id)).toEqual([2]);
-  });
-});
-
-describe("addSkill / removeSkill", () => {
-  it("按 id 去重", () => {
-    const first = addSkill([], skills[0]);
-    expect(first).toEqual([{ id: 1, name: "报告生成" }]);
-    expect(addSkill(first, skills[0])).toHaveLength(1);
-  });
-
-  it("可以整块删除", () => {
-    const selected = [
-      { id: 1, name: "报告生成" },
-      { id: 2, name: "code-review" },
-    ];
-    expect(removeSkill(selected, 1)).toEqual([{ id: 2, name: "code-review" }]);
-    expect(removeSkill(selected, 99)).toHaveLength(2);
-  });
-});
-
-describe("stripQuery", () => {
-  it("选中技能后清掉输入框里的 /关键字，保留其它文字", () => {
-    expect(stripQuery("/报")).toBe("");
-    expect(stripQuery("帮我看看 /co")).toBe("帮我看看");
-    expect(stripQuery("没有斜杠")).toBe("没有斜杠");
   });
 });
 

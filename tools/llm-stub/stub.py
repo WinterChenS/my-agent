@@ -44,6 +44,19 @@ STUB_TOOL_ARGS = os.environ.get("STUB_TOOL_ARGS", "{}")
 STUB_TOOL_ROUNDS = int(os.environ.get("STUB_TOOL_ROUNDS", "1"))
 # 可选：模拟网关“没有这个模型”的 404（用于验证前端错误提示）。
 # 当请求的 model **包含** STUB_MODEL_404 子串时，返回 404 + 类似网关的错误体（便于用唯一名字测试）。
+# 可选：模型名含该子串时，返回一份**合法的技能草稿 JSON**。
+# 用途：「用 AI 生成技能」的端到端用例要自给自足（项目原则：不依赖用户维护的真实模型），
+# 而那条链路要求模型输出严格 JSON —— 靠 STUB_REPLY 全局改会破坏其它断言 stub-ok 的用例，
+# 所以这里按**模型名**分流，各用各的。
+STUB_SKILL_JSON_MODEL = os.environ.get("STUB_SKILL_JSON_MODEL", "skill-json")
+STUB_SKILL_JSON = os.environ.get(
+    "STUB_SKILL_JSON",
+    '{"name":"stub-generated-skill","description":"由桩生成的技能：用于验证 AI 生成链路",'
+    # 注意：这里必须写两个字符的反斜杠+n，让 JSON 文本里是**转义序列**；
+    # 如果写成单个反斜杠+n，Python 会先把它变成真换行 → 嵌在 JSON 字符串里就是非法 JSON（实测踩过）。
+    '"content":"# 桩生成的技能\\n\\n## 什么时候用\\n- 端到端验证 AI 生成技能时。\\n\\n'
+    '## 步骤\\n1. 调用 `read_file` 读取目标文件。\\n2. 用 `demo_confirm_card` 向用户确认。"}',
+)
 STUB_MODEL_404 = os.environ.get("STUB_MODEL_404", "wrong-model")  # 默认开启：名字含它即回 404
 STUB_MODEL_404_HINT = os.environ.get("STUB_MODEL_404_HINT", "deepseek/deepseek-flash, tencent/GLM-5.2")
 
@@ -121,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._stream(model, created, usage, self._reply_text(body, raw))
         else:
-            message = {"role": "assistant", "content": self._reply_for(raw)}
+            message = {"role": "assistant", "content": self._reply_for(raw, model)}
             finish = "stop"
             if tool_call:
                 message = {"role": "assistant", "content": None, "tool_calls": [tool_call]}
@@ -209,6 +222,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _reply_text(self, body, raw: bytes = b"") -> str:
+        # 「技能 JSON」分流优先：AI 生成技能的用例要求模型输出严格 JSON
+        if STUB_SKILL_JSON_MODEL and STUB_SKILL_JSON_MODEL in str(body.get("model", "")):
+            return STUB_SKILL_JSON
         # 标记优先：标记是「模型确实收到了这段内容」的强证据，
         # 不能被 STUB_REPLY_FROM_MODEL 的按模型名回复盖掉（曾经因此让 Skill 注入的端到端断言假红）。
         if STUB_MARKER:
@@ -222,8 +238,10 @@ class Handler(BaseHTTPRequestHandler):
         return REPLY
 
     @staticmethod
-    def _reply_for(raw: bytes) -> str:
+    def _reply_for(raw: bytes, model: str = "") -> str:
         """若配置了 STUB_MARKER 且请求体包含它，就回一个可识别的标记，证明模型确实收到了该内容。"""
+        if STUB_SKILL_JSON_MODEL and STUB_SKILL_JSON_MODEL in str(model):
+            return STUB_SKILL_JSON
         if STUB_MARKER:
             try:
                 if STUB_MARKER.encode("utf-8") in raw:

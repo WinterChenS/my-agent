@@ -76,6 +76,24 @@ export default function AuditPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  /** 拉该用户的额度状态（审计看板显示已用/额度）。 */
+  const loadQuota = useCallback(async (targetUserId: number | null) => {
+    if (targetUserId == null) {
+      setQuota(null);
+      return;
+    }
+    try {
+      const data = await getUserQuota(targetUserId);
+      setQuota(data);
+      setQuotaDaily(data.dailyQuota == null ? "" : String(data.dailyQuota));
+      setQuotaMonthly(data.monthlyQuota == null ? "" : String(data.monthlyQuota));
+      setQuotaMode(data.mode);
+    } catch {
+      setQuota(null);
+    }
+  }, []);
+
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -103,24 +121,8 @@ export default function AuditPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedUser, from, to]);
+  }, [selectedUser, from, to, loadQuota]);
 
-  /** 拉该用户的额度状态（审计看板显示已用/额度）。 */
-  const loadQuota = useCallback(async (targetUserId: number | null) => {
-    if (targetUserId == null) {
-      setQuota(null);
-      return;
-    }
-    try {
-      const data = await getUserQuota(targetUserId);
-      setQuota(data);
-      setQuotaDaily(data.dailyQuota == null ? "" : String(data.dailyQuota));
-      setQuotaMonthly(data.monthlyQuota == null ? "" : String(data.monthlyQuota));
-      setQuotaMode(data.mode);
-    } catch {
-      setQuota(null);
-    }
-  }, []);
 
   /** 保存额度（空 = 不限）。 */
   async function saveQuota() {

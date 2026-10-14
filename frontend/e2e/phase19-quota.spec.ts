@@ -1,4 +1,28 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
+
+const API = "http://localhost:8080";
+
+/**
+ * 把 admin 的额度复原为「不限」。
+ *
+ * 为什么必须放在 afterEach：本用例会改**全局状态**（额度），若中途断言失败、
+ * 复原代码在用例体末尾就执行不到 → 残留的极小额度会污染后续用例
+ * （实测全量跑时 verifier-tier1 的额度用例因此偶发红）。
+ */
+async function resetQuota(request: APIRequestContext) {
+  const login = await request.post(`${API}/api/auth/login`, {
+    data: { username: "admin", password: "Admin@123" },
+  });
+  const token = (await login.json()).data.token as string;
+  await request.put(`${API}/api/users/1/quota`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { dailyQuota: null, monthlyQuota: null, mode: "BLOCK" },
+  });
+}
+
+test.afterEach(async ({ request }) => {
+  await resetQuota(request);
+});
 
 /** tier1-upgrades ④：审计看板显示已用/额度，并可设置额度。 */
 test("审计看板显示支出额度并可设置", async ({ page }) => {

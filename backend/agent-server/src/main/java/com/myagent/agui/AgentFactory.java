@@ -370,15 +370,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         };
     }
 
-    /** demo-agent 的标识前缀；带该前缀的 Agent 额外获得 demo 卡片工具（Task 7.2）。 */
-    private static final String DEMO_AGENT_PREFIX = "demo";
-
     /** 长期记忆在（运行时数据根下的）目录名；路由到数据库的前缀。 */
     static final String MEMORY_ROUTE_PREFIX = "memory";
-
-    static boolean isDemoAgent(String agentId) {
-        return agentId != null && agentId.trim().toLowerCase().startsWith(DEMO_AGENT_PREFIX);
-    }
 
     /**
      * 构建权限上下文。

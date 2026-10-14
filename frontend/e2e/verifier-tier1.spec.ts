@@ -11,6 +11,43 @@ import { expect, test, type Page } from "@playwright/test";
 
 const SHOT = "../docs/acceptance";
 
+const API = "http://localhost:8080";
+
+/**
+ * 把 admin 额度与 deepseek 模型的多模态开关复原。
+ *
+ * 为什么放 afterEach：这两项都是**全局状态**，用例体末尾的复原在断言失败时执行不到，
+ * 残留状态会让后续用例偶发红（实测全量跑时出现过）。
+ */
+test.afterEach(async ({ request }) => {
+  const login = await request.post(`${API}/api/auth/login`, {
+    data: { username: "admin", password: "Admin@123" },
+  });
+  const token = (await login.json()).data.token as string;
+  const headers = { Authorization: `Bearer ${token}` };
+  await request.put(`${API}/api/users/1/quota`, {
+    headers,
+    data: { dailyQuota: null, monthlyQuota: null, mode: "BLOCK" },
+  });
+  await request.put(`${API}/api/models/34`, {
+    headers,
+    data: {
+      providerId: 35,
+      modelId: "deepseek/deepseek-flash",
+      displayName: "deepseek-flash",
+      temperature: 0.5,
+      topP: 0.9,
+      contextWindow: 1048576,
+      maxTokens: 8192,
+      priceInput: 2,
+      priceOutput: 8,
+      priceCurrency: "CNY",
+      multimodal: false,
+      status: "ENABLED",
+    },
+  });
+});
+
 async function login(page: Page) {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("admin");
@@ -145,7 +182,18 @@ test("A19/A20 审计看板显示已用/额度，设极小额度后提示超限",
   await page.screenshot({ path: `${SHOT}/verifier-quota-exceeded.png`, fullPage: true });
 });
 
-test("A20 额度超限时聊天页给出醒目告警", async ({ page }) => {
+test("A20 额度超限时聊天页给出醒目告警", async ({ page, request }) => {
+  // 自给自足：本用例自己把额度设成极小值（不再依赖上一条用例留下的状态 ——
+  // 之前两条是隐式耦合的，加了 afterEach 复位后就断了）
+  const loginRes = await request.post(`${API}/api/auth/login`, {
+    data: { username: "admin", password: "Admin@123" },
+  });
+  const token = (await loginRes.json()).data.token as string;
+  await request.put(`${API}/api/users/1/quota`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { dailyQuota: 0.000001, monthlyQuota: null, currency: "CNY", mode: "WARN" },
+  });
+
   await login(page);
   await openFirstSession(page);
 

@@ -10,7 +10,7 @@ import { SkillMentionInput } from "@/components/chat/SkillMentionInput";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ContextRing } from "@/components/chat/ContextRing";
 import type { ContextUsage, RunHistoryItem } from "@/api/sessions";
-import { isAnswerVisible, lastRunHint } from "@/lib/chat/runStatus";
+import { lastRunHint } from "@/lib/chat/runStatus";
 import { getMyQuota, type QuotaStatus } from "@/api/quota";
 import { SubagentCard } from "@/components/chat/SubagentCard";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
@@ -86,8 +86,6 @@ export default function ChatPage() {
   const [contextBusy, setContextBusy] = useState(false);
   /** 该会话上一轮的状态提示（tier1-upgrades ③）。 */
   const [lastRun, setLastRun] = useState<RunHistoryItem | null>(null);
-  /** 聊天记录里助手消息的时间戳（用来判断那一轮的答案是否已经看得见）。 */
-  const [assistantTimes, setAssistantTimes] = useState<string[]>([]);
   /** 后台跑完的站内提示。 */
   const [runNotice, setRunNotice] = useState<string | null>(null);
   /** 支出额度状态（tier1-upgrades ④）。 */
@@ -125,25 +123,6 @@ export default function ChatPage() {
       .catch(() => {
         /* 无 Agent 时由下方提示引导 */
       });
-  }, []);
-
-  // 首次加载：恢复最近一次会话，让刷新后历史仍在（Task 4.3 门禁）。
-  useEffect(() => {
-    if (bootstrapped.current) {
-      return;
-    }
-    bootstrapped.current = true;
-    void (async () => {
-      try {
-        const list = await listSessions();
-        setSessions(list);
-        if (list.length > 0) {
-          await openSession(list[0]);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "加载会话失败");
-      }
-    })();
   }, []);
 
   useEffect(() => {
@@ -250,24 +229,8 @@ export default function ChatPage() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [session, resumeRunningRun]);
 
-  async function openSession(target: ChatSession) {
-    setError(null);
-    setSession(target);
-    agentRef.current = createChatAgent();
-    try {
-      const messages = await listMessages(target.id);
-      // aguiMeta 里带 stopped 标记，回放时据此标注「已停止」
-      setChat(replayMessages(messages));
-      setAssistantTimes(
-        messages.filter((m) => m.role === "ASSISTANT" && m.createdAt).map((m) => m.createdAt),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "加载历史消息失败");
-    }
-    void refreshContext(target);
-    void refreshLastRun(target);
-    void refreshQuota(target.agentId ?? null);
-  }
+
+
 
   /** 后台 run 完成检测：用户切到别的会话时，原会话跑完给一条站内提示（tier1-upgrades ③）。 */
   useEffect(() => {
@@ -294,16 +257,16 @@ export default function ChatPage() {
   }, []);
 
   /** 刷新额度（≥80% 提示，超限说明）。 */
-  async function refreshQuota(agentDbId: number | null) {
+  const refreshQuota = useCallback(async (agentDbId: number | null) => {
     try {
       setQuota(await getMyQuota(agentDbId));
     } catch {
       setQuota(null);
     }
-  }
+  }, []);
 
   /** 拉该会话最近一轮状态（后端重启后据此显示「上一轮：已完成/已中断」）。 */
-  async function refreshLastRun(target: ChatSession | null) {
+  const refreshLastRun = useCallback(async (target: ChatSession | null) => {
     if (!target) {
       setLastRun(null);
       return;
@@ -314,7 +277,7 @@ export default function ChatPage() {
     } catch {
       setLastRun(null);
     }
-  }
+  }, []);
 
   function startNewSession() {
     setSession(null);
@@ -324,7 +287,6 @@ export default function ChatPage() {
     // 新会话必须把「上一轮状态 / 后台完成提示 / 上下文用量」一并清掉，
     // 否则它们会残留到空白的新会话里（用户实测：新开对话仍看到上一轮的提示）。
     setLastRun(null);
-    setAssistantTimes([]);
     setRunNotice(null);
     setContextUsage(null);
     setContextNotice(null);
@@ -344,7 +306,7 @@ export default function ChatPage() {
 
   /** 发起一轮 /agui/run；text 与 resume 二选一。 */
   /** 刷新上下文用量（打开会话、每轮结束后调用）。 */
-  async function refreshContext(active: ChatSession | null) {
+  const refreshContext = useCallback(async (active: ChatSession | null) => {
     if (!active) {
       setContextUsage(null);
       return;
@@ -354,7 +316,48 @@ export default function ChatPage() {
     } catch {
       setContextUsage(null);
     }
-  }
+  }, []);
+
+  const openSession = useCallback(
+    async (target: ChatSession) => {
+    setError(null);
+    setSession(target);
+    agentRef.current = createChatAgent();
+    try {
+      const messages = await listMessages(target.id);
+      // aguiMeta 里带 stopped 标记，回放时据此标注「已停止」
+      setChat(replayMessages(messages));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载历史消息失败");
+    }
+      void refreshContext(target);
+      void refreshLastRun(target);
+      void refreshQuota(target.agentId ?? null);
+    },
+    // 三个 refresh 已用 useCallback 稳定（依赖为空），所以 openSession 也是稳定的
+    [refreshContext, refreshLastRun, refreshQuota],
+  );
+
+  // 首次加载：恢复最近一次会话，让刷新后历史仍在（Task 4.3 门禁）。
+  useEffect(() => {
+    if (bootstrapped.current) {
+      return;
+    }
+    bootstrapped.current = true;
+    void (async () => {
+      try {
+        const list = await listSessions();
+        setSessions(list);
+        if (list.length > 0) {
+          await openSession(list[0]);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "加载会话失败");
+      }
+    })();
+    // openSession 已用 useCallback 稳定；列出来既消除 exhaustive-deps 警告，
+    // 也避免 effect 捕获旧闭包（bootstrapped 守卫保证只跑一次）
+  }, [openSession]);
 
   /** 压缩上下文：拿到压缩后的用量并反馈。 */
   async function handleCompact() {
@@ -884,14 +887,12 @@ export default function ChatPage() {
                   : `支出额度接近上限：今日已用 ${quota.usedToday} / ${quota.dailyQuota ?? "不限"} ${quota.currency}`}
               </div>
             )}
-            {lastRunHint(lastRun, {
-              answerVisible: isAnswerVisible(lastRun, assistantTimes),
-            }) && (
+            {lastRunHint(lastRun) && (
               <div
                 className="mb-2 text-xs text-muted-foreground"
                 data-testid="last-run-hint"
               >
-                {lastRunHint(lastRun, { answerVisible: isAnswerVisible(lastRun, assistantTimes) })}
+                {lastRunHint(lastRun)}
               </div>
             )}
             {runNotice && (
