@@ -36,6 +36,7 @@ import {
   interruptSession,
   listAgents,
   listMessages,
+  listRunningThreads,
   listSessions,
 } from "@/api/sessions";
 import { decideApproval } from "@/api/approvals";
@@ -88,6 +89,8 @@ export default function ChatPage() {
   const [lastRun, setLastRun] = useState<RunHistoryItem | null>(null);
   /** 后台跑完的站内提示。 */
   const [runNotice, setRunNotice] = useState<string | null>(null);
+  /** 正在跑的 threadId 集合（侧栏标记「正在跑」，本进程运行态）。 */
+  const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   /** 支出额度状态（tier1-upgrades ④）。 */
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   /** 正在后台跑、需要盯着结束的会话（id → 标题）。 */
@@ -231,6 +234,27 @@ export default function ChatPage() {
 
 
 
+
+  /** 轮询「正在跑」的会话：在侧栏给它们画一个转圈标记（C2）。 */
+  useEffect(() => {
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const ids = await listRunningThreads();
+        if (!stopped) {
+          setRunningThreads(new Set(ids));
+        }
+      } catch {
+        // 后端不可用时不打扰用户：保留上一次结果
+      }
+    };
+    void tick();
+    const timer = window.setInterval(tick, 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   /** 后台 run 完成检测：用户切到别的会话时，原会话跑完给一条站内提示（tier1-upgrades ③）。 */
   useEffect(() => {
@@ -782,11 +806,19 @@ export default function ChatPage() {
             >
               <button
                 data-testid="session-item"
-                className="flex-1 truncate text-left"
+                className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left"
                 onClick={() => void openSession(item)}
                 title={item.threadId ?? ""}
               >
-                {item.title ?? `会话 ${item.id}`}
+                {item.threadId && runningThreads.has(item.threadId) && (
+                  <span
+                    data-testid="session-running"
+                    title="这一轮正在后台跑"
+                    aria-label="正在跑"
+                    className="border-primary size-3 shrink-0 animate-spin rounded-full border-2 border-t-transparent"
+                  />
+                )}
+                <span className="truncate">{item.title ?? `会话 ${item.id}`}</span>
               </button>
               <Button
                 variant="ghost"

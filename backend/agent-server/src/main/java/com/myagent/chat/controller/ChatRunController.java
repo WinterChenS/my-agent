@@ -95,6 +95,22 @@ public class ChatRunController {
             String textSummary,
             String error) {}
 
+    /** 返回体：当前正在跑的 threadId 列表。 */
+    public record RunningResponse(java.util.List<String> threadIds) {}
+
+    /**
+     * 当前正在跑的会话（供侧栏标记「正在跑」）。
+     *
+     * <p>刻意做成**轻量**接口（只回 threadId 列表，不查库）：前端每几秒轮询一次，
+     * 用来在会话列表上画一个转圈标记 —— 否则用户切走之后就不知道哪条还在跑，
+     * 只能等它跑完收到站内提示（Phase 14 的断线不中断让后台跑成为常态，更需要这个标记）。
+     */
+    @GetMapping("/api/sessions/running")
+    public Result<RunningResponse> running(@AuthenticationPrincipal JwtPrincipal principal) {
+        requireUserId(principal);
+        return Result.ok(new RunningResponse(java.util.List.copyOf(runningRuns.runningThreadIds())));
+    }
+
     @PostMapping("/api/sessions/{id}/interrupt")
     public Result<InterruptResponse> interrupt(
             @AuthenticationPrincipal JwtPrincipal principal, @PathVariable Long id) {

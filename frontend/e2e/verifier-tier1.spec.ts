@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { apiToken } from "./helpers/api";
+import { apiToken, seedTodaysCost } from "./helpers/api";
 
 /**
  * tier1-upgrades —— **独立浏览器验收**（不是构造阶段写的 e2e）。
@@ -170,7 +170,10 @@ test("A11/A12/A13/A14/A16 压缩、清空、上一轮状态都有可见反馈", 
   }
 });
 
-test("A19/A20 审计看板显示已用/额度，设极小额度后提示超限", async ({ page }) => {
+test("A19/A20 审计看板显示已用/额度，设极小额度后提示超限", async ({ page, request }) => {
+  // 自给自足：先造一笔今日的、有价格的消费（否则今日已用为 0，任何极小额度都不会超限）
+  const seeded = await seedTodaysCost(request);
+  try {
   await login(page);
   await page.goto("/admin/audit");
 
@@ -198,11 +201,16 @@ test("A19/A20 审计看板显示已用/额度，设极小额度后提示超限",
   console.log("[A20] 超限提示:", exceededText);
   expect(exceededText).toContain("已超出额度");
   await page.screenshot({ path: `${SHOT}/verifier-quota-exceeded.png`, fullPage: true });
+  } finally {
+    await seeded.cleanup();
+  }
 });
 
 test("A20 额度超限时聊天页给出醒目告警", async ({ page, request }) => {
-  // 自给自足：本用例自己把额度设成极小值（不再依赖上一条用例留下的状态 ——
-  // 之前两条是隐式耦合的，加了 afterEach 复位后就断了）
+  // 自给自足：①自己造一笔今日有价格的消费（否则今日已用 0，不会超限）；
+  // ②自己把额度设成极小值（不再依赖上一条用例留下的状态）
+  const seeded = await seedTodaysCost(request);
+  try {
   const loginRes = await request.post(`${API}/api/auth/login`, {
     data: { username: "admin", password: "Admin@123" },
   });
@@ -221,6 +229,9 @@ test("A20 额度超限时聊天页给出醒目告警", async ({ page, request })
   console.log("[A20] 聊天页额度告警:", text);
   expect(text).toContain("额度");
   await page.screenshot({ path: `${SHOT}/verifier-chat-quota-warning.png` });
+  } finally {
+    await seeded.cleanup();
+  }
 });
 
 test("A17/A18 切走后原会话跑完会出现站内提示", async ({ page }) => {

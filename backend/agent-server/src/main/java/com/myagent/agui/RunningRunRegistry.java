@@ -257,6 +257,23 @@ public class RunningRunRegistry {
         return handle != null && handle.agent != null && !handle.finished;
     }
 
+    /**
+     * 当前**正在跑**的 threadId 集合（供侧栏标记「正在跑」的会话）。
+     *
+     * <p>判定与 {@link #isRunning} 一致：已登记 Agent 且尚未进入收尾。
+     * 注意这是**本进程**的运行态（不做跨进程/集群），与 run 持久化（agent_run 表）是两回事：
+     * 前者用于「此刻有没有在跑」，后者用于「重启后上一轮跑到哪」。
+     */
+    public java.util.Set<String> runningThreadIds() {
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        runs.forEach((threadId, handle) -> {
+            if (handle != null && handle.agent != null && !handle.finished) {
+                ids.add(threadId);
+            }
+        });
+        return ids;
+    }
+
     Optional<Agent> agentOf(String threadId) {
         RunHandle handle = runs.get(threadId);
         return handle == null ? Optional.empty() : Optional.ofNullable(handle.agent);

@@ -255,7 +255,7 @@ test.describe("管理台错误分支（页面级）", () => {
       return dialog;
     };
     // 1) 名称空 → 前端先拦
-    let dialog = await openSkillForm();
+    const dialog = await openSkillForm();
     await dialog.getByRole("button", { name: "保存" }).click();
     await expect(page.getByText("名称不能为空")).toBeVisible({ timeout: 10_000 });
     console.log("  [技能] 名称空提示已出现");
@@ -333,7 +333,7 @@ test.describe("管理台错误分支（页面级）", () => {
       return dialog;
     };
     // 1) STDIO 缺 command
-    let dialog = await openMcpForm();
+    const dialog = await openMcpForm();
     await dialog.getByLabel("名称").fill(mcpName);
     await dialog.getByRole("button", { name: "保存" }).click();
     await expect(page.getByText(/STDIO 传输必须提供 command/)).toBeVisible({ timeout: 15_000 });

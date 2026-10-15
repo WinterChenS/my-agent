@@ -80,3 +80,14 @@ export type RunHistoryItem = {
 export function getRunHistory(sessionId: number, limit = 5) {
   return apiFetch<RunHistoryItem[]>(`/api/sessions/${sessionId}/runs?limit=${limit}`);
 }
+
+/**
+ * 当前正在跑的会话（threadId 列表）。
+ *
+ * 轻量接口：前端每几秒轮询一次，在会话列表上标记「正在跑」。
+ * 为什么要它：Phase 14 之后「断开不中断」是常态 —— 用户切走之后会话还在后台跑，
+ * 之前只能等跑完收到站内提示，中间看不出哪条还在跑。
+ */
+export function listRunningThreads() {
+  return apiFetch<{ threadIds: string[] }>("/api/sessions/running").then((d) => d.threadIds);
+}

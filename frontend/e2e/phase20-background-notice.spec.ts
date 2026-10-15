@@ -23,7 +23,11 @@ test.afterEach(async ({ request }) => {
 test("后台会话跑完会给站内提示", async ({ page, request }) => {
   // 自给自足：造一个指向本地桩的 Agent（不依赖你维护的模型/网关是否可用）
   const stamp = Date.now();
-  const { agentName, agentDbId, headers } = await createStubAgent(request, stamp);
+  // 模型名带 slow- ：桩会按模型名给慢速分片（约 2.5s/片），长任务才可观测。
+  // 早先靠改全局 STUB_CHUNK_DELAY_MS，跑完忘恢复会让整轮 e2e 变慢并超时（实测踩过两次）。
+  const { agentName, agentDbId, headers } = await createStubAgent(request, stamp, {
+    modelId: `stub-slow-${stamp}`,
+  });
   try {
   const input = await loginAndSelectAgent(page, agentName);
   await input.fill("后台跑一轮");

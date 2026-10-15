@@ -60,6 +60,11 @@ STUB_SKILL_JSON = os.environ.get(
 # 可选：模型名含该子串时，返回一段**带围栏代码块的 Markdown**（用于验证代码块样式/对比度）。
 # 同理按模型名分流，避免影响其它用例。
 STUB_CODE_FENCE_MODEL = os.environ.get("STUB_CODE_FENCE_MODEL", "code-fence")
+# 可选：模型名含该子串时，用「慢速分片」模拟长任务（用于验证后台通知/侧栏 running 标记这类用例）。
+# 为什么要按模型名而不是全局：早先用「改全局 STUB_CHUNK_DELAY_MS」的办法，跑完经常忘了恢复，
+# 导致后面整轮 e2e 都变慢并大量超时（实测踩过两次）。按模型名分流后，全局延迟永远是快的。
+STUB_SLOW_MODEL = os.environ.get("STUB_SLOW_MODEL", "slow-")
+STUB_SLOW_DELAY_MS = int(os.environ.get("STUB_SLOW_DELAY_MS", "2500"))
 STUB_CODE_FENCE = os.environ.get(
     "STUB_CODE_FENCE",
     "这是示例：\n\n```json\n{\"action\": \"out_of_scope\", \"reason\": \"request unrelated\"}\n```\n\n完毕。",
@@ -136,10 +141,16 @@ class Handler(BaseHTTPRequestHandler):
         tool_call = self._tool_call_to_emit(body)
 
         if body.get("stream"):
+            # 分片延迟：默认用全局值；模型名含 STUB_SLOW_MODEL（默认 slow-）时用慢速值。
+            # 这样「需要慢响应」的用例只靠模型名就能拿到，不必改全局环境变量
+            # （早先靠改全局值，跑完忘恢复会让后面整轮 e2e 变慢并超时，实测踩过两次）。
+            delay = CHUNK_DELAY_MS
+            if STUB_SLOW_MODEL and STUB_SLOW_MODEL in str(model):
+                delay = STUB_SLOW_DELAY_MS
             if tool_call:
-                self._stream_tool_call(model, created, usage, tool_call)
+                self._stream_tool_call(model, created, usage, tool_call, delay)
             else:
-                self._stream(model, created, usage, self._reply_text(body, raw))
+                self._stream(model, created, usage, self._reply_text(body, raw), delay)
         else:
             message = {"role": "assistant", "content": self._reply_for(raw, model)}
             finish = "stop"
@@ -183,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
         return None
 
-    def _stream_tool_call(self, model, created, usage, tool_call):
+    def _stream_tool_call(self, model, created, usage, tool_call, chunk_delay_ms=None):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -211,8 +222,9 @@ class Handler(BaseHTTPRequestHandler):
             "function": {"name": name, "arguments": ""},
         }]})
         for piece in [args[i:i + 8] for i in range(0, len(args), 8)]:
-            if CHUNK_DELAY_MS > 0:
-                time.sleep(CHUNK_DELAY_MS / 1000.0)
+            delay = CHUNK_DELAY_MS if chunk_delay_ms is None else chunk_delay_ms
+            if delay > 0:
+                time.sleep(delay / 1000.0)
             chunk({"tool_calls": [{"index": 0, "function": {"arguments": piece}}]})
         chunk({}, finish="tool_calls")
 
@@ -262,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
         return REPLY
 
-    def _stream(self, model, created, usage, reply):
+    def _stream(self, model, created, usage, reply, chunk_delay_ms=None):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -282,8 +294,9 @@ class Handler(BaseHTTPRequestHandler):
 
         chunk({"role": "assistant", "content": ""})
         for piece in [reply[i:i + 3] for i in range(0, len(reply), 3)]:
-            if CHUNK_DELAY_MS > 0:
-                time.sleep(CHUNK_DELAY_MS / 1000.0)
+            delay = CHUNK_DELAY_MS if chunk_delay_ms is None else chunk_delay_ms
+            if delay > 0:
+                time.sleep(delay / 1000.0)
             chunk({"content": piece})
         chunk({}, finish="stop")
 

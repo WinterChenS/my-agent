@@ -133,3 +133,83 @@ export async function loginAndSelectAgent(
   await select.selectOption({ label: agentName });
   return page.getByTestId("chat-input");
 }
+
+/**
+ * 造一笔**今日的、有价格**的消费。
+ *
+ * 为什么要它：额度用例原先假设「今天已经花过钱」，而这取决于环境 ——
+ * 清过测试数据、或最近跑的都是**没配价格**的桩模型时，今日已用为 0，
+ * 那么无论额度设多小都不会超限（`exceeds(0, 0.000001)` 为假），用例就假红（实测踩过）。
+ * 所以这里自己造：带价格的模型 + 真跑一轮 → token_usage 里就有了成本 > 0 的今日记录。
+ */
+export async function seedTodaysCost(request: APIRequestContext): Promise<{ cleanup: () => Promise<void> }> {
+  const token = await apiToken(request);
+  const headers = { Authorization: `Bearer ${token}` };
+  const stamp = Date.now();
+  const provider = await (
+    await request.post(`${API}/api/model-providers`, {
+      headers,
+      data: {
+        name: `e2e-quota-prov-${stamp}`,
+        providerType: "OPENAI_COMPATIBLE",
+        baseUrl: "http://localhost:8099/v1",
+        apiKey: "stub-key",
+        status: "ENABLED",
+      },
+    })
+  ).json();
+  // 价格给 1 元/百万 token：任何一次调用的成本都 > 0，且远大于测试用的极小额度
+  const model = await (
+    await request.post(`${API}/api/models`, {
+      headers,
+      data: {
+        providerId: provider.data.id,
+        modelId: `e2e-quota-model-${stamp}`,
+        priceInput: 1,
+        priceOutput: 1,
+        priceCurrency: "CNY",
+        status: "ENABLED",
+      },
+    })
+  ).json();
+  const agentName = `e2e-quota-agent-${stamp}`;
+  const agent = await (
+    await request.post(`${API}/api/agents`, {
+      headers,
+      data: {
+        name: agentName,
+        agentId: agentName,
+        sysPrompt: "你是助手。",
+        modelId: model.data.id,
+        permissionMode: "ALWAYS_ALLOW",
+        maxIterations: 1,
+        status: "ENABLED",
+        skillIds: [],
+        mcpServerIds: [],
+      },
+    })
+  ).json();
+  const session = await (
+    await request.post(`${API}/api/sessions`, { headers, data: { agentId: agent.data.id, title: `e2e-quota-sess-${stamp}` } })
+  ).json();
+  const sessions = await (await request.get(`${API}/api/sessions`, { headers })).json();
+  const threadId = (sessions.data as { id: number; threadId: string }[]).find((x) => x.id === session.data.id)!.threadId;
+  // 真跑一轮（用桩），让 token_usage 落一条今日记录
+  await request.post(`${API}/agui/run`, {
+    headers,
+    data: {
+      threadId,
+      runId: `quota-seed-${stamp}`,
+      messages: [{ id: "m1", role: "user", content: "你好" }],
+      forwardedProps: { agentId: agentName },
+    },
+  });
+  return {
+    cleanup: async () => {
+      await request.delete(`${API}/api/sessions/${session.data.id}`, { headers });
+      await request.delete(`${API}/api/agents/${agent.data.id}`, { headers });
+      await request.delete(`${API}/api/models/${model.data.id}`, { headers });
+      await request.delete(`${API}/api/model-providers/${provider.data.id}`, { headers });
+    },
+  };
+}

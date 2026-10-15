@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { seedTodaysCost } from "./helpers/api";
 
 const API = "http://localhost:8080";
 
@@ -25,7 +26,11 @@ test.afterEach(async ({ request }) => {
 });
 
 /** tier1-upgrades ④：审计看板显示已用/额度，并可设置额度。 */
-test("审计看板显示支出额度并可设置", async ({ page }) => {
+test("审计看板显示支出额度并可设置", async ({ page, request }) => {
+  // 自给自足：先造一笔**今日的、有价格**的消费。
+  // 否则今日已用为 0，无论额度设多小都不会超限（exceeds(0, 0.000001) 为假），用例会假红（实测踩过）
+  const seeded = await seedTodaysCost(request);
+  try {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("admin");
   await page.getByLabel("密码").fill("Admin@123");
@@ -54,4 +59,7 @@ test("审计看板显示支出额度并可设置", async ({ page }) => {
   await page.getByTestId("quota-daily").fill("");
   await page.getByTestId("quota-save").click();
   await expect(page.getByTestId("quota-usage")).toContainText("/ 日额度 不限", { timeout: 15000 });
+  } finally {
+    await seeded.cleanup();
+  }
 });
