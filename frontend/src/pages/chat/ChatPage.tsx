@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
-import { SkillMentionInput } from "@/components/chat/SkillMentionInput";
+import {
+  SkillMentionInput,
+  type SkillMentionInputHandle,
+} from "@/components/chat/SkillMentionInput";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ContextRing } from "@/components/chat/ContextRing";
 import type { ContextUsage, RunHistoryItem } from "@/api/sessions";
@@ -89,6 +92,10 @@ export default function ChatPage() {
   const [lastRun, setLastRun] = useState<RunHistoryItem | null>(null);
   /** 后台跑完的站内提示。 */
   const [runNotice, setRunNotice] = useState<string | null>(null);
+  /** 编辑器里有没有内容（**以 DOM 为准**，见 SkillMentionInput.onContentChange）。 */
+  const [hasInput, setHasInput] = useState(false);
+  /** 输入框句柄：发送前 flush 一次，确保发出的是屏幕上看到的内容。 */
+  const inputRef = useRef<SkillMentionInputHandle | null>(null);
   /** 正在跑的 threadId 集合（侧栏标记「正在跑」，本进程运行态）。 */
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   /** 支出额度状态（tier1-upgrades ④）。 */
@@ -507,8 +514,11 @@ export default function ChatPage() {
     if (partsAreEmpty(parts) || busy) {
       return;
     }
-    const sentParts = parts;
-    const text = partsToText(parts).trim();
+    // 发送前把编辑器 DOM 的现状回灌一次：中文输入法组字期间 parts 会滞后，
+    // 不回灌就可能「明明屏幕上写着 导出excel，发出去只有 导出」（用户实测反馈）。
+    const fresh = inputRef.current?.flush() ?? parts;
+    const sentParts = fresh;
+    const text = partsToText(fresh).trim();
     setError(null);
 
     let active = session;
@@ -560,6 +570,7 @@ export default function ChatPage() {
 
     setStaged([]);
     setParts([]);
+    setHasInput(false);
     setChat((prev) => ({
       items: [
         ...prev.items,
@@ -990,6 +1001,7 @@ export default function ChatPage() {
                 <Paperclip className="size-4" />
               </Button>
               <SkillMentionInput
+                ref={inputRef}
                 parts={parts}
                 onPartsChange={setParts}
                 skills={skills}
@@ -997,6 +1009,7 @@ export default function ChatPage() {
                 placeholder="输入消息，回车发送（输入 / 可选择技能）"
                 onSubmit={() => void send()}
                 onPasteFiles={stageIncoming}
+                onContentChange={setHasInput}
               />
               <ContextRing
                 usage={contextUsage}
@@ -1016,7 +1029,7 @@ export default function ChatPage() {
                   <span className="ml-1">停止</span>
                 </Button>
               ) : (
-                <Button onClick={() => void send()} disabled={partsAreEmpty(parts) || uploading}>
+                <Button onClick={() => void send()} disabled={!hasInput || uploading}>
                   <Send className="size-4" />
                 </Button>
               )}

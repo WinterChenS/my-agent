@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "@/lib/utils";
 import {
   filterSkills,
@@ -20,26 +28,33 @@ import {
  * 对外只暴露 parts（文本段 + 技能块），序列化成 `[[skill:名字]]` 交给后端，
  * 这样后端/模型能看到「这一句里用了哪个技能」，气泡也能按原位置还原。
  */
-export function SkillMentionInput({
-  parts,
-  onPartsChange,
-  skills,
-  disabled,
-  placeholder,
-  onSubmit,
-  onPasteFiles,
-}: {
-  parts: MentionPart[];
-  onPartsChange: (next: MentionPart[]) => void;
-  skills: SkillOption[];
-  disabled?: boolean;
-  placeholder?: string;
-  /** 回车（不带 shift）时提交。 */
-  onSubmit: () => void;
-  /** 粘贴里的文件交给父组件去暂存。 */
-  onPasteFiles: (files: File[]) => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
+export interface SkillMentionInputHandle {
+  /**
+   * 把编辑器**当前 DOM** 的内容同步给父组件，并返回它。
+   *
+   * 用途：发送前调用一次，确保「发出去的就是屏幕上看到的」——
+   * 组字（中文输入法）期间 parts 会滞后，不 flush 就可能少发内容。
+   */
+  flush: () => MentionPart[];
+}
+
+export const SkillMentionInput = forwardRef<
+  SkillMentionInputHandle,
+  {
+    parts: MentionPart[];
+    onPartsChange: (next: MentionPart[]) => void;
+    skills: SkillOption[];
+    disabled?: boolean;
+    placeholder?: string;
+    onSubmit: () => void;
+    onPasteFiles: (files: File[]) => void;
+    onContentChange?: (hasContent: boolean) => void;
+  }
+>(function SkillMentionInput(
+  { parts, onPartsChange, skills, disabled, placeholder, onSubmit, onPasteFiles, onContentChange },
+  ref,
+) {
+  const domRef = useRef<HTMLDivElement>(null);
   const composingRef = useRef(false);
   const [query, setQuery] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
@@ -66,7 +81,7 @@ export function SkillMentionInput({
 
   /** 把 DOM 序列化成 parts。 */
   const serialize = useCallback((): MentionPart[] => {
-    const root = ref.current;
+    const root = domRef.current;
     if (!root) {
       return [];
     }
@@ -96,13 +111,32 @@ export function SkillMentionInput({
   const emit = useCallback(() => {
     const next = serialize();
     selfUpdate.current = true;
-    lastHtml.current = ref.current?.innerHTML ?? "";
+    lastHtml.current = domRef.current?.innerHTML ?? "";
     onPartsChange(next);
-  }, [onPartsChange, serialize]);
+    // 以 DOM 为准上报"有没有内容"：比 parts 更及时（组字期间的文本不在 parts 里）
+    const dom = domRef.current;
+    const hasContent = !!dom && (dom.textContent?.trim() !== "" || !!dom.querySelector("[data-skill-name]"));
+    onContentChange?.(hasContent);
+  }, [onPartsChange, onContentChange, serialize]);
+
+  // 发送前由父组件调用：把 DOM 现状回灌进 parts，保证「发出去 == 屏幕上看到的」
+  useImperativeHandle(
+    ref,
+    () => ({
+      flush: () => {
+        const next = serialize();
+        selfUpdate.current = true;
+        lastHtml.current = domRef.current?.innerHTML ?? "";
+        onPartsChange(next);
+        return next;
+      },
+    }),
+    [onPartsChange, serialize],
+  );
 
   /** parts → DOM（只在外部改动时同步，输入过程中不重写）。 */
   useEffect(() => {
-    const root = ref.current;
+    const root = domRef.current;
     if (!root) {
       return;
     }
@@ -138,7 +172,7 @@ export function SkillMentionInput({
   const insertSkill = useCallback(
     (skill: SkillOption) => {
       const sel = window.getSelection();
-      const root = ref.current;
+      const root = domRef.current;
       if (!sel || sel.rangeCount === 0 || !root) {
         return;
       }
@@ -209,7 +243,7 @@ export function SkillMentionInput({
   return (
     <div className="relative min-w-0 flex-1">
       <div
-        ref={ref}
+        ref={domRef}
         role="textbox"
         aria-multiline="true"
         aria-label={placeholder}
@@ -231,15 +265,33 @@ export function SkillMentionInput({
         }}
         onCompositionEnd={() => {
           composingRef.current = false;
+          // 上屏后必须同步一次：组字期间 onInput 是跳过的，不补这一下，
+          // parts 会停留在上屏前的状态（发送键据此判断可用性，就会显示成灰的）
+          setQuery(readQuery());
+          emit();
         }}
         onInput={() => {
           if (composingRef.current) {
+            // 组字中：不进 parts（避免半成品进状态），但**要**告诉父组件"有内容"，
+            // 否则发送键在组字期间一直是灰的
+            const dom = domRef.current;
+            onContentChange?.(
+              !!dom && (dom.textContent?.trim() !== "" || !!dom.querySelector("[data-skill-name]")),
+            );
             return;
           }
           setQuery(readQuery());
           emit();
         }}
         onKeyDown={(event) => {
+          // 关键：中文输入法组字期间（比如打「导出excel」时 excel 还没上屏），
+          // Enter/方向键/Tab 都是**输入法在用**（上屏、选词）。抢走它们会导致：
+          // ①组字内容没上屏就被当成"发送"，于是只发出已上屏的部分（实测：发「导出excel」只出去「导出」）；
+          // ②状态与界面不一致，发送键看起来还是灰的。
+          // isComposing 在合成事件的 keydown 上为 true；keyCode 229 是旧浏览器的等价信号。
+          if (event.nativeEvent.isComposing || composingRef.current || event.keyCode === 229) {
+            return;
+          }
           const menuOpen = query !== null && options.length > 0;
           if (menuOpen) {
             if (event.key === "ArrowDown") {
@@ -318,7 +370,7 @@ export function SkillMentionInput({
       )}
     </div>
   );
-}
+});
 
 /** parts → contentEditable 的 HTML。技能用 data-* 标记，删除按钮用 data-skill-remove。 */
 function partsToHtml(parts: MentionPart[]): string {
