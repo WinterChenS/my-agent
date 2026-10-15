@@ -32,7 +32,10 @@ public class SecurityConfig {
         "/api/models/**",
         "/api/agents/**",
         "/api/skills/**",
-        "/api/mcp-servers/**"
+        "/api/mcp-servers/**",
+        // 用户管理（C1）：读要登录、写要 ADMIN。注意配额接口 /api/users/{id}/quota 也在这条路径下，
+        // 它自身还额外判了 ADMIN（见 QuotaController）。
+        "/api/users/**"
     };
 
     private final JwtService jwtService;

@@ -7,6 +7,7 @@ import {
   Plug,
   Cpu,
   ScrollText,
+  Users,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
@@ -29,6 +30,7 @@ const ModelsPage = lazy(() => import("@/pages/admin/models/ModelsPage"));
 const AgentsPage = lazy(() => import("@/pages/admin/agents/AgentsPage"));
 const SkillsPage = lazy(() => import("@/pages/admin/skills/SkillsPage"));
 const McpPage = lazy(() => import("@/pages/admin/mcp/McpPage"));
+const UsersPage = lazy(() => import("@/pages/admin/users/UsersPage"));
 
 interface NavItem {
   to: string;
@@ -43,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/admin/skills", label: "Skill", icon: Blocks },
   { to: "/admin/mcp", label: "MCP", icon: Plug },
   { to: "/admin/audit", label: "审计", icon: ScrollText },
+  { to: "/admin/users", label: "用户", icon: Users },
 ];
 
 /** 占位页：各 Phase 会替换为真实页面。 */
@@ -139,6 +142,7 @@ export default function App() {
           <Route path="admin/skills" element={<SkillsPage />} />
           <Route path="admin/mcp" element={<McpPage />} />
           <Route path="admin/audit" element={<AuditPage />} />
+          <Route path="admin/users" element={<UsersPage />} />
           <Route path="*" element={<Placeholder title="页面不存在" />} />
         </Route>
       </Routes>

@@ -308,6 +308,9 @@ export default function ChatPage() {
     setChat(initialChatState);
     agentRef.current = createChatAgent();
     setError(null);
+    // 复位 busy：上一个会话的 run 可能还在后台跑，但“正在生成”不该绑住新会话的输入框
+    // （Phase 14 的设计就是“切走后台继续跑”，所以切过来必须能接着打字）
+    setBusy(false);
     // 新会话必须把「上一轮状态 / 后台完成提示 / 上下文用量」一并清掉，
     // 否则它们会残留到空白的新会话里（用户实测：新开对话仍看到上一轮的提示）。
     setLastRun(null);
@@ -345,6 +348,9 @@ export default function ChatPage() {
   const openSession = useCallback(
     async (target: ChatSession) => {
     setError(null);
+    // 先复位 busy：切过来时上个会话的 run 可能还在后台跑，它不该让当前会话的输入框也用不了。
+    // 如果**目标会话自己**确实在跑，下面的 resumeRunningRun 会再置回 true。
+    setBusy(false);
     setSession(target);
     agentRef.current = createChatAgent();
     try {
