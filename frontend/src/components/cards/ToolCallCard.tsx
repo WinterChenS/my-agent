@@ -28,7 +28,10 @@ export function ToolCallCard({ item }: { item: ToolItem }) {
   const summary = preview(item.args);
 
   return (
-    <div className="border-border/70 bg-muted/30 rounded-md border border-dashed">
+    <div
+      data-testid="tool-call"
+      className="border-border/70 bg-muted/30 rounded-md border border-dashed"
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

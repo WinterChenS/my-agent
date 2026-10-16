@@ -881,13 +881,20 @@ export default function ChatPage() {
   /**
    * 是否显示「正在思考」占位气泡。
    *
-   * <p>这一轮在跑、但**还没有任何助手正文**时显示：模型想很久（或先跑一堆工具）的那段时间里，
-   * 界面上本来只有用户气泡，看着像没反应。等第一个字的流式内容到达，它就被真气泡取代。
+   * <p>判据是「**本轮还什么都没显示**」：在最后一条用户消息之后，只要已经出现任何 item
+   * （助手正文、工具调用行、交互卡片、子 Agent 卡片……），就说明界面上已经有东西了，不再需要占位。
+   *
+   * <p>只有一种情况要占位：这一轮在跑，但用户消息后面**空空如也** —— 模型在首字之前想了很久
+   * （推理型模型尤其明显），界面看着像没反应。
+   *
+   * <p>（早先只看"有没有助手正文"，于是工具调用行已经显示出来了、占位气泡还挂在下面 —— 用户实测指出。）
    */
-  const lastItem = chat.items[chat.items.length - 1];
-  const hasAssistantText =
-    lastItem?.kind === "text" && lastItem.role === "assistant" && lastItem.content.length > 0;
-  const showPendingBubble = chat.status === "running" && !hasAssistantText;
+  const lastUserIndex = chat.items.reduce(
+    (found, item, index) => (item.kind === "text" && item.role === "user" ? index : found),
+    -1,
+  );
+  const turnHasContent = chat.items.length > lastUserIndex + 1;
+  const showPendingBubble = chat.status === "running" && !turnHasContent;
 
   return (
     <div className="flex h-screen">
