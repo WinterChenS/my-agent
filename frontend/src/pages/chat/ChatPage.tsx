@@ -571,15 +571,9 @@ export default function ChatPage() {
           label: text.length > 40 ? `${text.slice(0, 40)}…` : text,
         },
       ]);
+      inputRef.current?.clear();
       setParts([]);
       setHasInput(false);
-      if (inputRef.current) {
-        // 清空编辑器（与 parts 一起清，避免残留）
-        const dom = document.querySelector('[data-testid="chat-input"]') as HTMLElement | null;
-        if (dom) {
-          dom.innerHTML = "";
-        }
-      }
       return;
     }
     if (partsAreEmpty(flushed)) {
@@ -640,6 +634,8 @@ export default function ChatPage() {
     const imageParts = imageFiles.length > 0 ? await Promise.all(imageFiles.map(fileToImagePart)) : [];
 
     setStaged([]);
+    // 用显式 clear：同一轮里连续 setParts 会被批处理，靠 effect 回写会漏掉（实测残留文字）
+    inputRef.current?.clear();
     setParts([]);
     setHasInput(false);
     setChat((prev) => ({

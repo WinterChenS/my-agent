@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { createStubAgent, deleteStubAgent, loginAndSelectAgent } from "./helpers/api";
+import { API, createStubAgent, deleteStubAgent, loginAndSelectAgent } from "./helpers/api";
 
 /**
  * 执行中的三种操作（用户要求）：
@@ -59,7 +59,7 @@ test.describe("执行中的排队 / 撤回 / 引导", () => {
     } finally {
       const sessions = await (await request.get("http://localhost:8080/api/sessions", { headers })).json();
       for (const s of sessions.data as { id: number; agentId: number | null }[]) {
-        if (s.agentId === agentDbId) await request.delete(`http://localhost:8080/api/sessions/${s.id}`, { headers });
+        if (s.agentId === agentDbId) await request.delete(`${API}/api/sessions/${s.id}`, { headers });
       }
       await deleteStubAgent(request, headers, agentDbId);
     }
@@ -95,7 +95,45 @@ test.describe("执行中的排队 / 撤回 / 引导", () => {
     } finally {
       const sessions = await (await request.get("http://localhost:8080/api/sessions", { headers })).json();
       for (const s of sessions.data as { id: number; agentId: number | null }[]) {
-        if (s.agentId === agentDbId) await request.delete(`http://localhost:8080/api/sessions/${s.id}`, { headers });
+        if (s.agentId === agentDbId) await request.delete(`${API}/api/sessions/${s.id}`, { headers });
+      }
+      await deleteStubAgent(request, headers, agentDbId);
+    }
+  });
+
+  /**
+   * 回归（用户实测反馈）：**已有会话里连发两条**，每条发送后输入框都必须清空。
+   *
+   * 为什么单独立一条：之前只有"新建会话"路径的用例 —— 那条路上 send() 里有个 await（建会话），
+   * 把两次状态更新分开成两次渲染，清空侥幸生效；
+   * 而在**已有会话**里两次更新会被 React **批处理**，靠 effect 回写就会漏掉 → 输入框残留文字。
+   */
+  test("已有会话里连发两条：每条发送后输入框都清空", async ({ page, request }) => {
+    const stamp = Date.now();
+    const { agentName, agentDbId, headers } = await createStubAgent(request, stamp);
+    try {
+      const input = await loginAndSelectAgent(page, agentName);
+      // 第一条（这一步会建会话，走 await 路径）
+      await input.click();
+      await page.keyboard.type("第一条消息");
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("user-text")).toHaveCount(1, { timeout: 30_000 });
+      await expect(page.getByTestId("chat-input")).toHaveAttribute("contenteditable", "true", {
+        timeout: 60_000,
+      });
+
+      // 第二条：**会话已存在**，这里才是会出问题的路径
+      await input.click();
+      await page.keyboard.type("第二条消息");
+      await page.keyboard.press("Enter");
+      await expect(page.getByTestId("user-text")).toHaveCount(2, { timeout: 30_000 });
+      const leftover = (await page.getByTestId("chat-input").innerText()).trim();
+      console.log("[残留检查] 第二条发出后输入框内容 =", JSON.stringify(leftover));
+      expect(leftover).toBe("");
+    } finally {
+      const sessions = await (await request.get("http://localhost:8080/api/sessions", { headers })).json();
+      for (const s of sessions.data as { id: number; agentId: number | null }[]) {
+        if (s.agentId === agentDbId) await request.delete(`${API}/api/sessions/${s.id}`, { headers });
       }
       await deleteStubAgent(request, headers, agentDbId);
     }

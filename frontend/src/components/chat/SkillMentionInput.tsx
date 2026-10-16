@@ -36,6 +36,15 @@ export interface SkillMentionInputHandle {
    * 组字（中文输入法）期间 parts 会滞后，不 flush 就可能少发内容。
    */
   flush: () => MentionPart[];
+  /**
+   * 立刻清空编辑器（发送后调用）。
+   *
+   * 为什么不只依赖"父组件把 parts 置空、由 effect 回写"：
+   * 在同一轮事件里连续 setParts（flush 一次、清空一次）时 React 会**批处理**成一次渲染，
+   * 于是"自己输入不回写"的标记还没被消费掉 → effect 直接跳过，**输入框残留文字**（实测用户反馈）。
+   * 所以清空要显式、立即做，不看渲染时序。
+   */
+  clear: () => void;
 }
 
 export const SkillMentionInput = forwardRef<
@@ -132,13 +141,22 @@ export const SkillMentionInput = forwardRef<
     () => ({
       flush: () => {
         const next = serialize();
-        selfUpdate.current = true;
         lastHtml.current = domRef.current?.innerHTML ?? "";
         onPartsChange(next);
         return next;
       },
+      clear: () => {
+        // 立即清 DOM（不靠 effect 回写），并同步状态
+        if (domRef.current) {
+          domRef.current.innerHTML = "";
+        }
+        selfUpdate.current = false;
+        lastHtml.current = "";
+        onPartsChange([]);
+        onContentChange?.(false);
+      },
     }),
-    [onPartsChange, serialize],
+    [onPartsChange, onContentChange, serialize],
   );
 
   /** parts → DOM（只在外部改动时同步，输入过程中不重写）。 */
