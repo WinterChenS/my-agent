@@ -34,7 +34,6 @@ import {
   deleteSession,
   getContextUsage,
   getRunState,
-  guideSession,
   interruptSession,
   listAgents,
   listMessages,
@@ -93,7 +92,7 @@ export default function ChatPage() {
   const inputRef = useRef<SkillMentionInputHandle | null>(null);
   /**
    * 待发送队列：**执行中**用户也能输入并发送，消息先排在这里，当前任务跑完自动发出去。
-   * 每项都能「撤回」（内容回到输入框）或「引导」（见 guideQueued）。
+   * 每项都能「撤回」（内容回到输入框）。
    */
   const [queued, setQueued] = useState<
     { id: string; parts: MentionPart[]; text: string; label: string }[]
@@ -517,40 +516,6 @@ export default function ChatPage() {
     // 回到输入框：文本段 + 技能块一起还原（技能块也一并回来）
     setParts(item.parts);
     setHasInput(true);
-  }
-
-  /**
-   * 引导：把这条内容**立刻**作为补充信息交给正在执行的 Agent（官方 interrupt(Msg)）。
-   *
-   * 与「排队」的区别：排队是等这一轮跑完再发（新的一轮）；引导是插进**当前这一轮**，
-   * Agent 会中断当前步骤来处理这条消息 —— 适合"方向不对，赶紧纠偏"。
-   */
-  async function guideQueued(id: string) {
-    const item = queued.find((q) => q.id === id);
-    if (!item || !session) {
-      return;
-    }
-    try {
-      await guideSession(session.id, item.text);
-      setQueued((prev) => prev.filter((q) => q.id !== id));
-      setError(null);
-      setChat((prev) => ({
-        items: [
-          ...prev.items,
-          {
-            kind: "text",
-            id: `local-guide-${item.id}`,
-            role: "user",
-            content: `（引导）${item.text}`,
-            streaming: false,
-          },
-        ],
-        status: prev.status,
-        runId: prev.runId,
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "引导失败");
-    }
   }
 
   async function send() {
@@ -1049,16 +1014,6 @@ export default function ChatPage() {
                         onClick={() => withdrawQueued(item.id)}
                       >
                         撤回
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="queued-guide"
-                        title="引导：立刻作为补充信息交给正在执行的 Agent"
-                        className="text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-40"
-                        disabled={!busy}
-                        onClick={() => void guideQueued(item.id)}
-                      >
-                        引导
                       </button>
                       <span className="text-muted-foreground shrink-0">#{index + 1}</span>
                     </div>

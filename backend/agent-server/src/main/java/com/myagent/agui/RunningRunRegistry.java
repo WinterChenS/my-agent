@@ -93,9 +93,10 @@ public class RunningRunRegistry {
             return;
         }
         // 关键：**不能整体替换 handle**。官方 AgentResolver / RuntimeContextResolver 会在框架
-        // 自己决定的时机登记 agent / context（实测可能早于 beginRun），整体 put 一个新 handle
-        // 会把它们冲掉 —— 后果就是 `引导` 永远返回 guided=false（handle 在、handle.agent 为 null），
-        // 表现为"引导点了没反应"。这里改为合并：保留 agent/context 引用，只清上一轮的残留状态。
+        // 自己决定的时机登记 agent / context，整体 put 一个新 handle 会把它们冲掉；
+        // 而 handle.agent 正是「停止」（{@link #interrupt(String)}）要用的对象 —— 冲掉之后
+        // 停止会直接返回 false（表现为"点了停止没反应"），context 同理。
+        // 这里改为合并：保留 agent/context 引用，只清上一轮的残留状态。
         RunHandle handle = runs.computeIfAbsent(threadId, key -> new RunHandle());
         handle.runId = runId;
         handle.stopped.set(false);
@@ -194,39 +195,6 @@ public class RunningRunRegistry {
         RunHandle handle = threadId == null ? null : runs.get(threadId);
         if (handle != null && handle.error == null) {
             handle.error = message;
-        }
-    }
-
-    /**
-     * **引导**：把用户补充的一句话立刻交给正在跑的这一轮（官方 {@code interrupt(RuntimeContext, Msg)}）。
-     *
-     * <p>与 {@link #interrupt(String)}（停止）的区别：停止是"这一轮别跑了"，
-     * 引导是"方向不对，插一句话进去" —— Agent 会中断当前步骤来处理这条消息，然后继续。
-     * 框架侧靠 {@code InterruptContext.getUserMessage()} 把这条消息交给 Agent（官方语义）。
-     *
-     * @return true=确实交给了正在跑的这一轮；false=当前没有在跑的 run（调用方应提示用户改走排队）
-     */
-    public boolean guide(String threadId, String text) {
-        RunHandle handle = threadId == null ? null : runs.get(threadId);
-        if (handle == null || handle.agent == null || text == null || text.isBlank()) {
-            return false;
-        }
-        RuntimeContext context = handle.context;
-        try {
-            io.agentscope.core.message.Msg msg = io.agentscope.core.message.Msg
-                    .builderForRole(io.agentscope.core.message.MsgRole.USER)
-                    .textContent(text)
-                    .build();
-            if (context != null && handle.agent instanceof io.agentscope.core.ReActAgent reactAgent) {
-                reactAgent.interrupt(context, msg);
-            } else {
-                handle.agent.interrupt(msg);
-            }
-            log.info("已向正在跑的 run 注入引导消息 threadId={}（官方 interrupt(context, msg)）", threadId);
-            return true;
-        } catch (Exception ex) {
-            log.warn("引导失败 threadId={}: {}", threadId, ex.toString());
-            return false;
         }
     }
 

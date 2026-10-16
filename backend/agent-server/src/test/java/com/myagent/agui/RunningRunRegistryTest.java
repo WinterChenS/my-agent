@@ -168,20 +168,20 @@ class RunningRunRegistryTest {
     /**
      * 回归（实测 bug）：官方 AgentResolver 登记的 agent 不能被 beginRun 冲掉。
      *
-     * <p>现象：用户点「引导」没反应 —— 接口返回 guided=false。根因是 beginRun 用新 handle
-     * 整体覆盖，而框架的 resolver 可能**先于** beginRun 登记 agent，于是 handle.agent 变成
-     * null，guide() 直接返回 false。这条用例就是钉住这个时序。
+     * <p>`handle.agent` 正是「停止」要用的对象：beginRun 若整体替换 handle，agent 引用就没了，
+     * {@code interrupt(threadId)} 会直接返回 false（表现为"点了停止没反应"）。
+     * 这条用例就是钉住"resolver 先登记、beginRun 后执行"这个时序。
      */
     @Test
-    void guideStillWorksWhenAgentRegisteredBeforeBeginRun() {
+    void stopStillWorksWhenAgentRegisteredBeforeBeginRun() {
         RunningRunRegistry registry = new RunningRunRegistry(60_000);
         Agent agent = mock(Agent.class);
-        // 官方 resolver 先登记（顺序由框架决定，这里是实测到的顺序）
+        // 官方 resolver 先登记（顺序由框架决定）
         registry.registerAgent("t-order", agent);
         // 随后这一轮正式开始
         registry.beginRun("t-order", "run-1");
 
-        assertThat(registry.guide("t-order", "改个方向")).as("beginRun 之后引导必须仍然可用").isTrue();
-        assertThat(registry.runningThreadIds()).as("这一轮仍在跑").hasSize(1);
+        assertThat(registry.interrupt("t-order")).as("beginRun 之后停止必须仍然可用").isTrue();
+        verify(agent).interrupt();
     }
 }

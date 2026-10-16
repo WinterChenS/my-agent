@@ -112,29 +112,6 @@ public class ChatRunController {
         return Result.ok(new RunningResponse(java.util.List.copyOf(runningRuns.runningThreadIds())));
     }
 
-    /** 引导请求体。 */
-    public record GuideRequest(String text) {}
-
-    /** 返回体：是否确实注入到了正在跑的那一轮。 */
-    public record GuideResponse(boolean guided) {}
-
-    /**
-     * 引导（steering）：把用户补充的一句话立刻交给**正在跑的这一轮**（官方 interrupt(Msg)）。
-     *
-     * <p>与停止的区别：停止是结束这一轮；引导是插话纠偏。没有在跑的 run 时返回 guided=false，
-     * 前端据此提示用户改走「排队」（等这一轮跑完再发）。
-     */
-    @PostMapping("/api/sessions/{id}/guide")
-    public Result<GuideResponse> guide(
-            @AuthenticationPrincipal JwtPrincipal principal,
-            @PathVariable Long id,
-            @RequestBody GuideRequest request) {
-        Long userId = requireUserId(principal);
-        ChatSession session = chatSessionService.requireOwned(userId, id);
-        boolean guided = runningRuns.guide(session.getThreadId(), request.text());
-        return Result.ok(new GuideResponse(guided));
-    }
-
     @PostMapping("/api/sessions/{id}/interrupt")
     public Result<InterruptResponse> interrupt(
             @AuthenticationPrincipal JwtPrincipal principal, @PathVariable Long id) {

@@ -92,14 +92,3 @@ export function listRunningThreads() {
   return apiFetch<{ threadIds: string[] }>("/api/sessions/running").then((d) => d.threadIds);
 }
 
-/**
- * 引导（steering）：把一句补充说明立刻注入**正在跑的这一轮**。
- *
- * 返回 guided=false 表示当前没有在跑的 run（前端应改走「排队」）。
- */
-export function guideSession(sessionId: number, text: string) {
-  return apiFetch<{ guided: boolean }>(`/api/sessions/${sessionId}/guide`, {
-    method: "POST",
-    body: JSON.stringify({ text }),
-  });
-}

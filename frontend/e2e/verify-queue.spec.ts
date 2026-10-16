@@ -2,13 +2,16 @@ import { expect, test } from "@playwright/test";
 import { API, createStubAgent, deleteStubAgent, loginAndSelectAgent } from "./helpers/api";
 
 /**
- * 执行中的三种操作（用户要求）：
+ * 执行中的操作（用户要求）：
  *  · 排队：执行中发的消息先入队，这一轮跑完**自动发出去**
  *  · 撤回：入队后还没发出去，可以撤回，**内容回到输入框**
- *  · 引导：把补充信息**立刻**注入正在跑的这一轮（官方 interrupt(Msg)）
  * 按钮规则：不执行=发送；执行中空输入=停止；执行中有输入=停止+发送
+ *
+ * 注：原先还有「引导」（把补充信息立刻注入正在跑的这一轮）。实测查证后已摘掉：
+ * 官方 steering 只存在于 2.1.0-BETA1 的 AgentSession，我们钉的 2.0.3 没有该 API，
+ * 而 interrupt(msg) 的官方语义是"协作式停止"、其消息无任何消费方（详见 docs/backlog.md）。
  */
-test.describe("执行中的排队 / 撤回 / 引导", () => {
+test.describe("执行中的排队 / 撤回 / 按钮规则", () => {
   test.setTimeout(180_000);
 
   test("排队：执行中发的消息在跑完后自动发出；可撤回且内容回到输入框", async ({ page, request }) => {
