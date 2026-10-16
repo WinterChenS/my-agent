@@ -205,10 +205,11 @@ test("布局：会话区收窄并居中，输入框与消息区同宽同位置",
 
   const msgCol = page.locator('[data-testid="chat-column"]');
   const msgBox = (await msgCol.boundingBox())!;
-  // 输入框现在是行内技能块的 contentEditable，外面多了一层 flex-1 包装，
-  // 所以量「整行」而不是「输入框的父节点」
-  const inputCol = page.getByTestId("composer-row");
-  const inBox = (await inputCol.boundingBox())!;
+  // 量**输入框本体**（圆角外框）：它应与消息列里气泡的可用宽度一致。
+  // 消息列是 max-w-3xl + p-4（左右各 16），气泡可用宽度 = 768 - 32 = 736；
+  // 输入框外层同样 max-w-3xl + px-4，所以它的边框正好与气泡左右边缘对齐。
+  const inputBox = page.locator('[data-testid="composer"] > div > div').first();
+  const inBox = (await inputBox.boundingBox())!;
 
   // 收窄：远小于可用宽度（max-w-3xl = 768）
   expect(msgBox.width, "消息区应明显窄于可用宽度").toBeLessThan(sBox.width * 0.7);
@@ -218,8 +219,8 @@ test("布局：会话区收窄并居中，输入框与消息区同宽同位置",
   expect(Math.abs(sCenter - (msgBox.x + msgBox.width / 2))).toBeLessThanOrEqual(2);
   expect(Math.abs(sCenter - (inBox.x + inBox.width / 2))).toBeLessThanOrEqual(2);
 
-  // 输入框与消息区同宽
-  expect(Math.round(inBox.width)).toBe(Math.round(msgBox.width));
+  // 输入框宽度 = 消息列内容宽度（气泡可用宽度）
+  expect(Math.round(inBox.width)).toBe(Math.round(msgBox.width) - 32);
 
   await page.screenshot({ path: "../docs/acceptance/chat-layout-wide.png" });
 });

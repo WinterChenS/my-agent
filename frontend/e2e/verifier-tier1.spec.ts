@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { apiToken, seedTodaysCost } from "./helpers/api";
+import {
+  apiToken,
+  createStubAgent,
+  deleteStubAgent,
+  loginAndSelectAgent,
+  seedTodaysCost,
+} from "./helpers/api";
 
 /**
  * tier1-upgrades —— **独立浏览器验收**（不是构造阶段写的 e2e）。
@@ -234,30 +240,38 @@ test("A20 额度超限时聊天页给出醒目告警", async ({ page, request })
   }
 });
 
-test("A17/A18 切走后原会话跑完会出现站内提示", async ({ page }) => {
-  await login(page);
+test("A17/A18 跑完的站内提示已按用户要求移除；实时可见性改由侧栏「正在跑」标记承担", async ({
+  page,
+  request,
+}) => {
+  // 需求已修订（用户 2026-10 反馈）：**不要**每次任务完成后的提示与选项，界面保持干净。
+  // 原来"切走后跑完给站内提示"的那套 UI 已移除；当前会话是否在跑由侧栏的转圈标记回答
+  // （见 e2e/verify-running-marker.spec.ts 的独立覆盖）。
+  const stamp = Date.now();
+  const { agentName, agentDbId, headers } = await createStubAgent(request, stamp, {
+    modelId: `stub-slow-${stamp}`,
+  });
+  try {
+    const input = await loginAndSelectAgent(page, agentName);
+    await input.click();
+    await page.keyboard.type("后台跑一轮");
+    await page.keyboard.press("Enter");
 
-  // 在当前会话发一轮
-  const input = page.getByPlaceholder("输入消息，回车发送");
-  await input.fill("后台跑一轮");
-  await input.press("Enter");
+    // 跑起来后侧栏应有「正在跑」标记
+    await expect(page.getByTestId("session-running").first()).toBeVisible({ timeout: 30_000 });
+    console.log("[A17] 侧栏「正在跑」标记已出现");
 
-  // 马上切到另一个会话
-  await page.waitForSelector("[data-testid='session-item']", { timeout: 30000 });
-  const items = page.locator("[data-testid='session-item']");
-  const count = await items.count();
-  for (let i = 0; i < count; i += 1) {
-    if (!(await items.nth(i).innerText()).includes("后台跑一轮")) {
-      await items.nth(i).click();
-      break;
+    // 而"完成提示"这套 UI 不该再出现（用户要求移除）
+    await expect(page.getByTestId("run-notice")).toHaveCount(0);
+    await expect(page.getByTestId("last-run-hint")).toHaveCount(0);
+    console.log("[A18] 完成提示 / 上一轮提示均已移除（界面干净）");
+  } finally {
+    const sessions = await (await request.get("http://localhost:8080/api/sessions", { headers })).json();
+    for (const s of sessions.data as { id: number; agentId: number | null }[]) {
+      if (s.agentId === agentDbId) await request.delete(`http://localhost:8080/api/sessions/${s.id}`, { headers });
     }
+    await deleteStubAgent(request, headers, agentDbId);
   }
-
-  const notice = page.getByTestId("run-notice");
-  await expect(notice).toBeVisible({ timeout: 90000 });
-  console.log("[A17/A18] 站内提示:", await notice.innerText());
-  await expect(page.getByTestId("run-notice-jump")).toBeVisible();
-  await page.screenshot({ path: `${SHOT}/verifier-run-notice.png` });
 });
 
 test("收尾：把额度复原为「不限」，不留痕", async ({ page }) => {

@@ -10,6 +10,27 @@ import { API, apiToken } from "./helpers/api";
  *
  * 自给自足：自己建、自己删，不碰 admin 之外的用户数据。
  */
+/**
+ * 点某行的「编辑」并等到弹窗真的开出来。
+ *
+ * 为什么要重试：保存后弹窗有一段淡出动画，removing 期间的遮罩会**吞掉紧接着的点击**；
+ * 全量跑（机器更忙）时尤其明显 —— 实测偶发「点了没反应，等 user-status 超时」。
+ * Playwright 官方对这类「点击 + 断言」组合推荐用 expect(...).toPass() 重试。
+ */
+async function openUserDialog(page: Page, row: import("@playwright/test").Locator) {
+  await expect(async () => {
+    await row.getByTestId("user-edit").click();
+    await expect(page.getByTestId("user-status")).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(page.getByTestId("user-status")).toBeVisible();
+}
+
+/** 保存并等弹窗关闭（避免下一次点击被淡出遮罩吞掉）。 */
+async function saveAndWaitClosed(page: Page) {
+  await page.getByTestId("user-save").click();
+  await expect(page.getByTestId("user-save")).toHaveCount(0, { timeout: 20_000 });
+}
+
 async function login(page: Page) {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("admin");
@@ -71,9 +92,9 @@ test.describe("用户管理页", () => {
     expect(login1.status).toBe(200);
 
     // ② 页面上停用 → 登不上
-    await row.getByTestId("user-edit").click();
+    await openUserDialog(page, row);
     await page.getByTestId("user-status").selectOption("DISABLED");
-    await page.getByTestId("user-save").click();
+    await saveAndWaitClosed(page);
     await expect(page.locator("tr", { hasText: username })).toContainText("DISABLED", { timeout: 20_000 });
     const login2 = await loginAs(request, username, "Passw0rd!");
     console.log("[C1] 停用后登录 http =", login2.status, login2.body?.msg);
@@ -81,9 +102,9 @@ test.describe("用户管理页", () => {
     expect(login2.body.msg).toContain("禁用");
 
     // ③ 恢复启用 + 页面重置密码 → 新密码能登、旧密码不能
-    await page.locator("tr", { hasText: username }).getByTestId("user-edit").click();
+    await openUserDialog(page, page.locator("tr", { hasText: username }));
     await page.getByTestId("user-status").selectOption("ENABLED");
-    await page.getByTestId("user-save").click();
+    await saveAndWaitClosed(page);
     // 不靠 toast 文案（同时可能有多条）：直接等行状态回到 ENABLED
     await expect(page.locator("tr", { hasText: username })).toContainText("ENABLED", { timeout: 20_000 });
 
@@ -152,7 +173,7 @@ test.describe("用户管理页", () => {
     await expect(meRow).toBeVisible({ timeout: 20_000 });
 
     // 禁用自己被拦
-    await meRow.getByTestId("user-edit").click();
+    await openUserDialog(page, meRow);
     await page.getByTestId("user-status").selectOption("DISABLED");
     await page.getByTestId("user-save").click();
     await expect(page.getByText(/不能禁用当前登录的账号/)).toBeVisible({ timeout: 15_000 });

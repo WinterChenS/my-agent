@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { HttpAgent } from "@ag-ui/client";
-import { Paperclip, Plus, Send, Square, Trash2 } from "lucide-react";
+import { Bot, ChevronDown, Clock, Plus, Send, Square, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
+import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import {
   SkillMentionInput,
   type SkillMentionInputHandle,
 } from "@/components/chat/SkillMentionInput";
-import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ContextRing } from "@/components/chat/ContextRing";
-import type { ContextUsage, RunHistoryItem } from "@/api/sessions";
-import { lastRunHint } from "@/lib/chat/runStatus";
+import type { ContextUsage } from "@/api/sessions";
 import { getMyQuota, type QuotaStatus } from "@/api/quota";
 import { SubagentCard } from "@/components/chat/SubagentCard";
 import { ToolCallCard, ToolCallGroup } from "@/components/cards/ToolCallCard";
@@ -34,8 +33,8 @@ import {
   createSession,
   deleteSession,
   getContextUsage,
-  getRunHistory,
   getRunState,
+  guideSession,
   interruptSession,
   listAgents,
   listMessages,
@@ -88,14 +87,28 @@ export default function ChatPage() {
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [contextNotice, setContextNotice] = useState<string | null>(null);
   const [contextBusy, setContextBusy] = useState(false);
-  /** 该会话上一轮的状态提示（tier1-upgrades ③）。 */
-  const [lastRun, setLastRun] = useState<RunHistoryItem | null>(null);
-  /** 后台跑完的站内提示。 */
-  const [runNotice, setRunNotice] = useState<string | null>(null);
   /** 编辑器里有没有内容（**以 DOM 为准**，见 SkillMentionInput.onContentChange）。 */
   const [hasInput, setHasInput] = useState(false);
   /** 输入框句柄：发送前 flush 一次，确保发出的是屏幕上看到的内容。 */
   const inputRef = useRef<SkillMentionInputHandle | null>(null);
+  /**
+   * 待发送队列：**执行中**用户也能输入并发送，消息先排在这里，当前任务跑完自动发出去。
+   * 每项都能「撤回」（内容回到输入框）或「引导」（见 guideQueued）。
+   */
+  const [queued, setQueued] = useState<
+    { id: string; parts: MentionPart[]; text: string; label: string }[]
+  >([]);
+  /**
+   * 队列的 ref 镜像。
+   *
+   * 为什么需要：自动发送的判断发生在 `runTurn` 收尾时，而那次调用的闭包是它**启动时**建立的 ——
+   * 里面读到的 `queued` 永远是"这一轮开始时"的旧值（通常是空的），于是排队消息永远不会被发出。
+   * 实测踩过：队列里明明有一条，第一轮跑完后毫无动静。所以这里用 ref 读**当前**队列。
+   */
+  const queuedRef = useRef<typeof queued>([]);
+  useEffect(() => {
+    queuedRef.current = queued;
+  }, [queued]);
   /** 正在跑的 threadId 集合（侧栏标记「正在跑」，本进程运行态）。 */
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   /** 支出额度状态（tier1-upgrades ④）。 */
@@ -263,53 +276,6 @@ export default function ChatPage() {
     };
   }, []);
 
-  /** 后台 run 完成检测：用户切到别的会话时，原会话跑完给一条站内提示（tier1-upgrades ③）。 */
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const watching = Array.from(watchingRuns.current.entries());
-      if (watching.length === 0) {
-        return;
-      }
-      for (const [sessionId, title] of watching) {
-        void (async () => {
-          try {
-            const state = await getRunState(sessionId);
-            if (!state.running) {
-              watchingRuns.current.delete(sessionId);
-              setRunNotice(`会话「${title}」已完成`);
-            }
-          } catch {
-            watchingRuns.current.delete(sessionId);
-          }
-        })();
-      }
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  /** 刷新额度（≥80% 提示，超限说明）。 */
-  const refreshQuota = useCallback(async (agentDbId: number | null) => {
-    try {
-      setQuota(await getMyQuota(agentDbId));
-    } catch {
-      setQuota(null);
-    }
-  }, []);
-
-  /** 拉该会话最近一轮状态（后端重启后据此显示「上一轮：已完成/已中断」）。 */
-  const refreshLastRun = useCallback(async (target: ChatSession | null) => {
-    if (!target) {
-      setLastRun(null);
-      return;
-    }
-    try {
-      const runs = await getRunHistory(target.id, 5);
-      setLastRun(runs[0] ?? null);
-    } catch {
-      setLastRun(null);
-    }
-  }, []);
-
   function startNewSession() {
     setSession(null);
     setChat(initialChatState);
@@ -318,10 +284,7 @@ export default function ChatPage() {
     // 复位 busy：上一个会话的 run 可能还在后台跑，但“正在生成”不该绑住新会话的输入框
     // （Phase 14 的设计就是“切走后台继续跑”，所以切过来必须能接着打字）
     setBusy(false);
-    // 新会话必须把「上一轮状态 / 后台完成提示 / 上下文用量」一并清掉，
-    // 否则它们会残留到空白的新会话里（用户实测：新开对话仍看到上一轮的提示）。
-    setLastRun(null);
-    setRunNotice(null);
+    // 新会话把上下文用量也清掉，避免残留到空白新会话里
     setContextUsage(null);
     setContextNotice(null);
   }
@@ -352,6 +315,15 @@ export default function ChatPage() {
     }
   }, []);
 
+  /** 刷新额度（≥80% 提示、超限说明）。 */
+  const refreshQuota = useCallback(async (agentDbId: number | null) => {
+    try {
+      setQuota(await getMyQuota(agentDbId));
+    } catch {
+      setQuota(null);
+    }
+  }, []);
+
   const openSession = useCallback(
     async (target: ChatSession) => {
     setError(null);
@@ -368,11 +340,10 @@ export default function ChatPage() {
       setError(err instanceof Error ? err.message : "加载历史消息失败");
     }
       void refreshContext(target);
-      void refreshLastRun(target);
       void refreshQuota(target.agentId ?? null);
     },
     // 三个 refresh 已用 useCallback 稳定（依赖为空），所以 openSession 也是稳定的
-    [refreshContext, refreshLastRun, refreshQuota],
+    [refreshContext, refreshQuota],
   );
 
   // 首次加载：恢复最近一次会话，让刷新后历史仍在（Task 4.3 门禁）。
@@ -489,8 +460,33 @@ export default function ChatPage() {
         },
       );
       setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
+      // 排队：这一轮跑完，自动把队首那条接着发出去（一次发一条，避免连发把上下文打乱）
+      // 注意用 queuedRef（当前值），不能用闭包里的 queued（那是这一轮启动时的旧值）
+      if (queuedRef.current.length > 0) {
+        const next = queuedRef.current[0];
+        setQueued((prev) => prev.slice(1));
+        // 与手动发送一致：先补一条**本地回显气泡**，否则消息发到后端了、界面上却看不到
+        setChat((prev) => ({
+          items: [
+            ...prev.items,
+            {
+              kind: "text" as const,
+              id: `local-user-${Date.now()}`,
+              role: "user" as const,
+              content: next.text,
+              streaming: false,
+            },
+          ],
+          status: "running",
+          runId: prev.runId,
+        }));
+        void runTurn(active, {
+          text: next.text,
+          restoreParts: next.parts,
+          skillIds: partsSkillIds(next.parts),
+        });
+      }
       // tier1-upgrades ③：这一轮结束后刷新「上一轮」提示
-      void refreshLastRun(active);
       await refreshSessions();
       // Phase 17：会话标题是异步生成的（首条消息后），稍等一下再刷一次列表，标题就能显示出来
       window.setTimeout(() => void refreshSessions(), 1500);
@@ -509,14 +505,89 @@ export default function ChatPage() {
     }
   }
 
+  /**
+   * 撤回一条待发送消息：**内容原样回到输入框**（可以改完再发），从队列移除。
+   */
+  function withdrawQueued(id: string) {
+    const item = queued.find((q) => q.id === id);
+    if (!item) {
+      return;
+    }
+    setQueued((prev) => prev.filter((q) => q.id !== id));
+    // 回到输入框：文本段 + 技能块一起还原（技能块也一并回来）
+    setParts(item.parts);
+    setHasInput(true);
+  }
+
+  /**
+   * 引导：把这条内容**立刻**作为补充信息交给正在执行的 Agent（官方 interrupt(Msg)）。
+   *
+   * 与「排队」的区别：排队是等这一轮跑完再发（新的一轮）；引导是插进**当前这一轮**，
+   * Agent 会中断当前步骤来处理这条消息 —— 适合"方向不对，赶紧纠偏"。
+   */
+  async function guideQueued(id: string) {
+    const item = queued.find((q) => q.id === id);
+    if (!item || !session) {
+      return;
+    }
+    try {
+      await guideSession(session.id, item.text);
+      setQueued((prev) => prev.filter((q) => q.id !== id));
+      setError(null);
+      setChat((prev) => ({
+        items: [
+          ...prev.items,
+          {
+            kind: "text",
+            id: `local-guide-${item.id}`,
+            role: "user",
+            content: `（引导）${item.text}`,
+            streaming: false,
+          },
+        ],
+        status: prev.status,
+        runId: prev.runId,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "引导失败");
+    }
+  }
+
   async function send() {
     // 只有技能块、没文字也允许发送（用户可能就是想「用这个技能做…」，随手补一句也行）
-    if (partsAreEmpty(parts) || busy) {
+    // 执行中也能发：先把编辑器内容 flush 出来，然后**入队**，等这一轮跑完自动发出去
+    const flushed = inputRef.current?.flush() ?? parts;
+    if (busy) {
+      if (partsAreEmpty(flushed)) {
+        return;
+      }
+      const text = partsToText(flushed).trim();
+      setQueued((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          parts: flushed,
+          text,
+          label: text.length > 40 ? `${text.slice(0, 40)}…` : text,
+        },
+      ]);
+      setParts([]);
+      setHasInput(false);
+      if (inputRef.current) {
+        // 清空编辑器（与 parts 一起清，避免残留）
+        const dom = document.querySelector('[data-testid="chat-input"]') as HTMLElement | null;
+        if (dom) {
+          dom.innerHTML = "";
+        }
+      }
+      return;
+    }
+    if (partsAreEmpty(flushed)) {
       return;
     }
     // 发送前把编辑器 DOM 的现状回灌一次：中文输入法组字期间 parts 会滞后，
     // 不回灌就可能「明明屏幕上写着 导出excel，发出去只有 导出」（用户实测反馈）。
-    const fresh = inputRef.current?.flush() ?? parts;
+    const fresh = flushed;
     const sentParts = fresh;
     const text = partsToText(fresh).trim();
     setError(null);
@@ -880,20 +951,6 @@ export default function ChatPage() {
             <span className="text-sm font-medium">聊天</span>
             {chat.status === "running" && <Badge variant="secondary">生成中…</Badge>}
             {chat.status === "error" && <Badge variant="destructive">出错</Badge>}
-            <select
-              className="border-input ml-auto h-8 rounded-md border bg-transparent px-2 text-sm"
-              value={agentId ?? ""}
-              onChange={(e) => setAgentId(e.target.value ? Number(e.target.value) : null)}
-              disabled={!!session}
-              title={session ? "已有会话时不可切换 Agent" : "选择 Agent"}
-            >
-              {agents.length === 0 && <option value="">（暂无 Agent）</option>}
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
           </div>
         </header>
 
@@ -920,12 +977,16 @@ export default function ChatPage() {
           </div>
         )}
 
-        <div className="border-t p-3">
-          <div className="relative mx-auto w-full max-w-3xl">
+        {/* 与消息区同宽同位置：外层不加水平 padding，内层与 chat-column 用同一套
+            （max-w-3xl + px-4），这样输入框的边框正好对齐气泡列的盒子 */}
+        <div className="py-3" data-testid="composer">
+          <div className="mx-auto w-full max-w-3xl px-4">
             {quota && (quota.exceeded || quota.nearLimit) && (
               <div
                 className={`mb-2 rounded-md border px-3 py-1.5 text-xs ${
-                  quota.exceeded ? "border-destructive/40 bg-destructive/10" : "border-amber-300 bg-amber-50"
+                  quota.exceeded
+                    ? "border-destructive/40 bg-destructive/10"
+                    : "border-amber-300 bg-amber-50"
                 }`}
                 data-testid="quota-warning"
               >
@@ -936,103 +997,169 @@ export default function ChatPage() {
                   : `支出额度接近上限：今日已用 ${quota.usedToday} / ${quota.dailyQuota ?? "不限"} ${quota.currency}`}
               </div>
             )}
-            {lastRunHint(lastRun) && (
-              <div
-                className="mb-2 text-xs text-muted-foreground"
-                data-testid="last-run-hint"
-              >
-                {lastRunHint(lastRun)}
+
+            {/* 输入框：圆角外框 + 自动高度（内容多了自己长高，到上限内部滚动）；
+                底部控制行也放在**框内**（附件 / Agent / 上下文圆环 / 停止 / 发送）。 */}
+            <div className="focus-within:border-ring focus-within:ring-ring/30 rounded-2xl border bg-background shadow-sm transition focus-within:ring-[3px]">
+              <div className="px-2 pt-2 empty:hidden">
+                <AttachmentStaging
+                  items={staged}
+                  disabled={uploading}
+                  onRemove={(key) => setStaged((prev) => removeAttachment(prev, key))}
+                />
               </div>
-            )}
-            {runNotice && (
-              <div
-                className="mb-2 flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs"
-                data-testid="run-notice"
-              >
-                <span>{runNotice}</span>
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0"
-                  data-testid="run-notice-jump"
-                  onClick={() => {
-                    const target = sessions.find((item) =>
-                      runNotice.includes(item.title ?? `会话 ${item.id}`),
-                    );
-                    if (target) {
-                      void openSession(target);
-                    }
-                    setRunNotice(null);
-                  }}
-                >
-                  跳到该会话
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto p-0 text-muted-foreground"
-                  onClick={() => setRunNotice(null)}
-                >
-                  知道了
-                </Button>
-              </div>
-            )}
-            <AttachmentStaging
-              items={staged}
-              disabled={busy || uploading}
-              onRemove={(key) => setStaged((prev) => removeAttachment(prev, key))}
-            />
-            <div className="flex items-center gap-2" data-testid="composer-row">
-              <input
-                ref={fileRef}
-                type="file"
-                multiple
-                className="hidden"
-                data-testid="file-input"
-                onChange={(e) => stageSelectedFiles(e.target.files)}
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                title="上传文件"
-                disabled={busy || uploading}
-                onClick={() => fileRef.current?.click()}
-              >
-                <Paperclip className="size-4" />
-              </Button>
               <SkillMentionInput
                 ref={inputRef}
                 parts={parts}
                 onPartsChange={setParts}
                 skills={skills}
-                disabled={busy}
+                disabled={false}
                 placeholder="输入消息，回车发送（输入 / 可选择技能）"
                 onSubmit={() => void send()}
                 onPasteFiles={stageIncoming}
                 onContentChange={setHasInput}
               />
-              <ContextRing
-                usage={contextUsage}
-                busy={contextBusy || busy}
-                notice={contextNotice}
-                onCompact={() => void handleCompact()}
-                onClear={() => void handleClearContext()}
-              />
-              {busy ? (
-                <Button
-                  variant="secondary"
-                  onClick={() => void stopRun()}
-                  title="停止生成"
-                  data-testid="stop-button"
-                >
-                  <Square className="size-4" />
-                  <span className="ml-1">停止</span>
-                </Button>
-              ) : (
-                <Button onClick={() => void send()} disabled={!hasInput || uploading}>
-                  <Send className="size-4" />
-                </Button>
+
+              {/* 待发送队列（处理中时发的消息会排在这里，可撤回） */}
+              {queued.length > 0 && (
+                <div className="space-y-1 border-t px-2 py-1.5" data-testid="queued-list">
+                  {queued.map((item, index) => (
+                    <div
+                      key={item.id}
+                      data-testid="queued-item"
+                      className="bg-muted/50 flex items-center gap-2 rounded-md px-2 py-1 text-xs"
+                    >
+                      <Clock className="text-muted-foreground size-3 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {item.label}
+                      </span>
+                      <button
+                        type="button"
+                        data-testid="queued-withdraw"
+                        title="撤回（内容回到输入框）"
+                        className="text-muted-foreground hover:text-foreground shrink-0"
+                        onClick={() => withdrawQueued(item.id)}
+                      >
+                        撤回
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="queued-guide"
+                        title="引导：立刻作为补充信息交给正在执行的 Agent"
+                        className="text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-40"
+                        disabled={!busy}
+                        onClick={() => void guideQueued(item.id)}
+                      >
+                        引导
+                      </button>
+                      <span className="text-muted-foreground shrink-0">#{index + 1}</span>
+                    </div>
+                  ))}
+                </div>
               )}
+
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  data-testid="file-input"
+                  onChange={(e) => stageSelectedFiles(e.target.files)}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground shrink-0 rounded-full"
+                  title="上传文件"
+                  disabled={uploading}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Plus className="size-4" />
+                </Button>
+
+                <label
+                  className="text-muted-foreground hover:text-foreground flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs"
+                  title={session ? "已有会话时不可切换 Agent" : "选择 Agent"}
+                >
+                  <Bot className="size-3.5" />
+                  <select
+                    className="max-w-[9rem] cursor-pointer appearance-none bg-transparent pr-3 text-xs outline-none disabled:cursor-not-allowed"
+                    value={agentId ?? ""}
+                    onChange={(e) => setAgentId(e.target.value ? Number(e.target.value) : null)}
+                    disabled={!!session}
+                    data-testid="composer-agent"
+                  >
+                    {agents.length === 0 && <option value="">（暂无 Agent）</option>}
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="-ml-3 size-3.5 pointer-events-none" />
+                </label>
+
+                <ContextRing
+                  usage={contextUsage}
+                  busy={contextBusy || busy}
+                  notice={contextNotice}
+                  onCompact={() => void handleCompact()}
+                  onClear={() => void handleClearContext()}
+                />
+
+                <div className="ml-auto flex items-center gap-2">
+                  {/* 按钮规则（用户要求）：
+                      不执行 → 一个"发送"键；
+                      执行中且输入框为空 → 这个键变成"停止"；
+                      执行中且输入框有内容 → 变成"停止 + 发送"两个键（发送=排队）。 */}
+                  {busy && !hasInput && (
+                    <Button
+                      variant="secondary"
+                      size="icon-sm"
+                      onClick={() => void stopRun()}
+                      title="停止生成"
+                      data-testid="stop-button"
+                    >
+                      <Square className="size-4" />
+                    </Button>
+                  )}
+                  {busy && hasInput && (
+                    <>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void stopRun()}
+                        title="停止生成"
+                        data-testid="stop-button"
+                      >
+                        <Square className="size-3.5" />
+                        <span className="ml-1">停止</span>
+                      </Button>
+                      <Button
+                        size="icon-sm"
+                        onClick={() => void send()}
+                        disabled={uploading}
+                        title="当前任务执行完后自动发送（排队）"
+                        data-testid="send-button"
+                      >
+                        <Clock className="size-4" />
+                      </Button>
+                    </>
+                  )}
+                  {!busy && (
+                    <Button
+                      size="icon-sm"
+                      onClick={() => void send()}
+                      disabled={!hasInput || uploading}
+                      title="发送"
+                      data-testid="send-button"
+                    >
+                      <Send className="size-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

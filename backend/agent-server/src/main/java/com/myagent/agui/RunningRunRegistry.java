@@ -184,6 +184,39 @@ public class RunningRunRegistry {
         }
     }
 
+    /**
+     * **引导**：把用户补充的一句话立刻交给正在跑的这一轮（官方 {@code interrupt(RuntimeContext, Msg)}）。
+     *
+     * <p>与 {@link #interrupt(String)}（停止）的区别：停止是"这一轮别跑了"，
+     * 引导是"方向不对，插一句话进去" —— Agent 会中断当前步骤来处理这条消息，然后继续。
+     * 框架侧靠 {@code InterruptContext.getUserMessage()} 把这条消息交给 Agent（官方语义）。
+     *
+     * @return true=确实交给了正在跑的这一轮；false=当前没有在跑的 run（调用方应提示用户改走排队）
+     */
+    public boolean guide(String threadId, String text) {
+        RunHandle handle = threadId == null ? null : runs.get(threadId);
+        if (handle == null || handle.agent == null || text == null || text.isBlank()) {
+            return false;
+        }
+        RuntimeContext context = handle.context;
+        try {
+            io.agentscope.core.message.Msg msg = io.agentscope.core.message.Msg
+                    .builderForRole(io.agentscope.core.message.MsgRole.USER)
+                    .textContent(text)
+                    .build();
+            if (context != null && handle.agent instanceof io.agentscope.core.ReActAgent reactAgent) {
+                reactAgent.interrupt(context, msg);
+            } else {
+                handle.agent.interrupt(msg);
+            }
+            log.info("已向正在跑的 run 注入引导消息 threadId={}（官方 interrupt(context, msg)）", threadId);
+            return true;
+        } catch (Exception ex) {
+            log.warn("引导失败 threadId={}: {}", threadId, ex.toString());
+            return false;
+        }
+    }
+
     /** run 收尾完成（已落库）：清理登记。 */
     public void markFinished(String threadId) {
         RunHandle handle = threadId == null ? null : runs.get(threadId);

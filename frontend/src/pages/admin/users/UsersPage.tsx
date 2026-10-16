@@ -134,8 +134,9 @@ export default function UsersPage() {
           status: form.status,
         });
         toast.success("已创建用户");
-        setPage(1);
-        setApplied((prev) => ({ ...prev }));
+        // 列表按 id 升序 + 分页：新建的用户在**最后一页**，跳过去（否则用户会以为没建成功，
+        // 实测全量跑时用户一多就直接找不到新行）
+        setPage(Math.max(1, Math.ceil((total + 1) / pageSize)));
       } else {
         await updateUser(form.id, {
           displayName: form.displayName.trim() || null,
