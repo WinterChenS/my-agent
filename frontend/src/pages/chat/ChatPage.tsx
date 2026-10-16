@@ -147,6 +147,17 @@ export default function ChatPage() {
   const [staged, setStaged] = useState<StagedAttachment[]>([]);
 
   const agentRef = useRef<HttpAgent | null>(null);
+  /** 接续「正在跑的 run」的令牌：换会话/重复接续时让旧循环失效（见 resumeRunningRun） */
+  const resumeToken = useRef(0);
+  /**
+   * **当前显示的**会话 id（ref，供异步回调读取）。
+   *
+   * <p>为什么必须有：一轮 run 的流式回调（以及收尾逻辑）是绑在"发起它的那个会话"上的。
+   * 用户切到别的会话后，这些回调如果照旧写 state，就会把 **A 的内容写进正在看的 B** ——
+   * 这就是用户反馈的"切走再切回，对话错乱"（实测复现）。有了它，回调可以判断
+   * "我现在代表的会话还是屏幕上那个吗"，不是就闭嘴（服务端那一轮照跑，回来再接续）。
+   */
+  const activeSessionIdRef = useRef<number | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -168,6 +179,11 @@ export default function ChatPage() {
         /* 技能拉取失败不影响聊天 */
       });
   }, []);
+
+  // 兜底：会话状态一变就同步 ref（openSession/startNewSession 里还会同步设一次，避免时序空档）
+  useEffect(() => {
+    activeSessionIdRef.current = session?.id ?? null;
+  }, [session?.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView?.({ behavior: "smooth" });
@@ -208,19 +224,42 @@ export default function ChatPage() {
       if (!target.threadId) {
         return;
       }
+      /*
+       * 接续令牌：每次发起接续就换一个号，旧的接续循环据此**立刻停止**。
+       *
+       * 为什么必须有（实测的错乱来源）：用户在 A 会话来时起了一个轮询循环，随后切到 B 会话 ——
+       * 若旧循环不停，它会继续把 **A 的半截文本**写进正在显示的 B，收尾时还会用
+       * `replayMessages(A 的消息)` 整个替换界面 —— 对话就串了。
+       */
+      const token = (resumeToken.current += 1);
+      const active = () => token === resumeToken.current;
+
       const applyPartial = (text: string) => {
-        if (!text) {
+        if (!text || !active()) {
           return;
         }
         setChat((prev) => {
           const items = [...prev.items];
-          for (let i = items.length - 1; i >= 0; i -= 1) {
+          /*
+           * 只更新**本轮**（最后一条用户消息之后）的助手气泡。
+           *
+           * 不能盲目覆盖"最后一条助手文本"：本轮消息还没落库时，最后一条助手文本其实是
+           * **上一轮的答案**，覆盖它就把上一轮的回答改成了本轮的半截文本（实测的错乱来源之一）。
+           */
+          let lastUserIndex = -1;
+          items.forEach((item, index) => {
+            if (item.kind === "text" && item.role === "user") {
+              lastUserIndex = index;
+            }
+          });
+          for (let i = items.length - 1; i > lastUserIndex; i -= 1) {
             const item = items[i];
             if (item.kind === "text" && item.role === "assistant") {
-              items[i] = { ...item, content: text, streaming: true, stopped: false };
+              items[i] = { ...item, content: text, streaming: true, stopped: false, runId: item.runId ?? prev.runId };
               return { ...prev, items, status: "running" };
             }
           }
+          // 本轮还没有助手气泡 → **追加**一个（绝不能覆盖上一轮的答案）
           return {
             items: [
               ...items,
@@ -230,10 +269,11 @@ export default function ChatPage() {
                 role: "assistant",
                 content: text,
                 streaming: true,
+                runId: prev.runId,
               },
             ],
             status: "running",
-            runId: null,
+            runId: prev.runId,
           };
         });
         setBusy(true);
@@ -247,16 +287,31 @@ export default function ChatPage() {
 
       // 轮询到这一轮结束（结束/宽限期超时后服务端会落库）
       const deadline = Date.now() + 10 * 60 * 1000;
+      /** 连续失败次数：偶发失败（网络抖动、后端刚重启）不该让接续直接断掉 */
+      let failures = 0;
       while (Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 1200));
+        if (!active()) {
+          // 用户已经切走（或又发起了一次接续）：立即停手，不要再往界面写任何东西
+          return false;
+        }
         const next = await getRunState(target.id).catch(() => null);
         if (!next) {
-          break;
+          failures += 1;
+          // 只在连续失败多次后才放弃：一次失败就 break 会让"刷新后接续"静默失效（实测踩到）
+          if (failures >= 5) {
+            break;
+          }
+          continue;
         }
+        failures = 0;
         applyPartial(next.text);
         if (!next.running) {
           break;
         }
+      }
+      if (!active()) {
+        return false;
       }
       // 拉回落库后的最终内容（含「已停止」标记）
       try {
@@ -293,6 +348,7 @@ export default function ChatPage() {
 
   const startNewSession = useCallback(() => {
     setSession(null);
+    activeSessionIdRef.current = null;
     setChat(initialChatState);
     agentRef.current = createChatAgent();
     setError(null);
@@ -334,6 +390,8 @@ export default function ChatPage() {
     // 如果**目标会话自己**确实在跑，下面的 resumeRunningRun 会再置回 true。
     setBusy(false);
     setSession(target);
+    // 立刻标记"当前显示的是它"，别等 effect（否则切换瞬间旧会话的回调可能还写得进来）
+    activeSessionIdRef.current = target.id;
     agentRef.current = createChatAgent();
     try {
       const messages = await listMessages(target.id);
@@ -475,8 +533,12 @@ export default function ChatPage() {
       agent.messages = [] as typeof agent.messages;
     }
 
-    setChat((prev) => ({ ...prev, status: "running" }));
-    setBusy(true);
+    /** 这一轮的界面写入是否还有效（用户切走了就不要再写，否则串到别的会话上） */
+    const stillOnScreen = () => activeSessionIdRef.current === active.id;
+    if (stillOnScreen()) {
+      setChat((prev) => ({ ...prev, status: "running" }));
+      setBusy(true);
+    }
     // tier1-upgrades ③：登记为「后台盯梢」，用户切走后跑完会收到站内提示
     watchingRuns.current.set(active.id, active.title ?? `会话 ${active.id}`);
     try {
@@ -491,35 +553,45 @@ export default function ChatPage() {
         },
         {
           onEvent: ({ event }) => {
+            if (!stillOnScreen()) {
+              return;
+            }
             setChat((prev) => reduceEvent(prev, event as never));
           },
           onRunFailed: ({ error: runError }) => {
+            if (!stillOnScreen()) {
+              return;
+            }
             setError(runError.message);
             setChat((prev) => ({ ...prev, status: "error" }));
           },
         },
       );
-      setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
+      if (stillOnScreen()) {
+        setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
+      }
       // 排队：这一轮跑完，自动把队首那条接着发出去（一次发一条，避免连发把上下文打乱）
       // 注意用 queuedRef（当前值），不能用闭包里的 queued（那是这一轮启动时的旧值）
       if (queuedRef.current.length > 0) {
         const next = queuedRef.current[0];
         setQueued((prev) => prev.slice(1));
         // 与手动发送一致：先补一条**本地回显气泡**，否则消息发到后端了、界面上却看不到
-        setChat((prev) => ({
-          items: [
-            ...prev.items,
-            {
-              kind: "text" as const,
-              id: `local-user-${Date.now()}`,
-              role: "user" as const,
-              content: next.text,
-              streaming: false,
-            },
-          ],
-          status: "running",
-          runId: prev.runId,
-        }));
+        if (stillOnScreen()) {
+          setChat((prev) => ({
+            items: [
+              ...prev.items,
+              {
+                kind: "text" as const,
+                id: `local-user-${Date.now()}`,
+                role: "user" as const,
+                content: next.text,
+                streaming: false,
+              },
+            ],
+            status: "running",
+            runId: prev.runId,
+          }));
+        }
         void runTurn(active, {
           text: next.text,
           restoreParts: next.parts,
@@ -540,8 +612,10 @@ export default function ChatPage() {
         setParts(options.restoreParts);
       }
     } finally {
-      setBusy(false);
-      void refreshContext(session);
+      if (stillOnScreen()) {
+        setBusy(false);
+        void refreshContext(session);
+      }
     }
   }
 
