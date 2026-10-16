@@ -29,6 +29,9 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
 
     @Select("""
             SELECT t.model_id                          AS model_id,
+                   m.display_name                      AS model_name,
+                   m.model_id                          AS model_key,
+                   t.provider_type                     AS provider_type,
                    coalesce(sum(t.prompt_tokens), 0)     AS prompt_tokens,
                    coalesce(sum(t.completion_tokens), 0) AS completion_tokens,
                    coalesce(sum(t.total_tokens), 0)      AS total_tokens,
@@ -45,10 +48,67 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
             WHERE t.user_id = #{userId}
               AND t.created_at >= #{from}
               AND t.created_at <= #{to}
-            GROUP BY t.model_id, m.price_currency, m.price_input, m.price_output
+            GROUP BY t.model_id, m.display_name, m.model_id, t.provider_type,
+                     m.price_currency, m.price_input, m.price_output
             ORDER BY total_tokens DESC
             """)
     List<Map<String, Object>> byModel(
+            @Param("userId") Long userId,
+            @Param("from") OffsetDateTime from,
+            @Param("to") OffsetDateTime to);
+
+    /** 按 Agent 维度聚合（名字取自 agent 表，便于直接展示）。 */
+    @Select("""
+            SELECT t.agent_id                          AS agent_id,
+                   a.name                              AS agent_name,
+                   coalesce(sum(t.prompt_tokens), 0)     AS prompt_tokens,
+                   coalesce(sum(t.completion_tokens), 0) AS completion_tokens,
+                   coalesce(sum(t.total_tokens), 0)      AS total_tokens,
+                   count(*)                              AS records
+            FROM token_usage t
+            LEFT JOIN agent a ON a.id = t.agent_id
+            WHERE t.user_id = #{userId}
+              AND t.created_at >= #{from}
+              AND t.created_at <= #{to}
+            GROUP BY t.agent_id, a.name
+            ORDER BY total_tokens DESC
+            """)
+    List<Map<String, Object>> byAgent(
+            @Param("userId") Long userId,
+            @Param("from") OffsetDateTime from,
+            @Param("to") OffsetDateTime to);
+
+    /** 按供应商类型聚合（OPENAI_COMPATIBLE / DASHSCOPE …）。 */
+    @Select("""
+            SELECT coalesce(t.provider_type, '未知')     AS provider_type,
+                   coalesce(sum(t.prompt_tokens), 0)     AS prompt_tokens,
+                   coalesce(sum(t.completion_tokens), 0) AS completion_tokens,
+                   coalesce(sum(t.total_tokens), 0)      AS total_tokens,
+                   count(*)                              AS records
+            FROM token_usage t
+            WHERE t.user_id = #{userId}
+              AND t.created_at >= #{from}
+              AND t.created_at <= #{to}
+            GROUP BY t.provider_type
+            ORDER BY total_tokens DESC
+            """)
+    List<Map<String, Object>> byProvider(
+            @Param("userId") Long userId,
+            @Param("from") OffsetDateTime from,
+            @Param("to") OffsetDateTime to);
+
+    /** 总量计数：调用次数 / 会话数 / 用到的 Agent 数 / 模型数（给看板的 KPI 卡片）。 */
+    @Select("""
+            SELECT count(*)                        AS records,
+                   count(DISTINCT session_id)      AS sessions,
+                   count(DISTINCT agent_id)        AS agents,
+                   count(DISTINCT model_id)        AS models
+            FROM token_usage
+            WHERE user_id = #{userId}
+              AND created_at >= #{from}
+              AND created_at <= #{to}
+            """)
+    Map<String, Object> usageStats(
             @Param("userId") Long userId,
             @Param("from") OffsetDateTime from,
             @Param("to") OffsetDateTime to);

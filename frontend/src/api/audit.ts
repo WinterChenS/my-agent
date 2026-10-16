@@ -6,6 +6,14 @@ export interface TokenTotalsRow {
   total_tokens: number;
   model_id?: number | null;
   day?: string;
+  /** 可读名称（后端已 join 出来，避免界面只显示 id） */
+  model_name?: string | null;
+  model_key?: string | null;
+  provider_type?: string | null;
+  agent_id?: number | null;
+  agent_name?: string | null;
+  /** 该维度的调用次数 */
+  records?: number;
   /** Phase 15：按模型价格（每百万 token）算出的成本，货币见 currency */
   cost_total?: number | null;
   currency?: string | null;
@@ -23,11 +31,23 @@ export interface TokenSummary {
   costCurrency?: string | null;
   byModel: TokenTotalsRow[];
   byDay: TokenTotalsRow[];
+  /** 维度补充：按 Agent、按供应商（供应商类型来自 token_usage.provider_type） */
+  byAgent?: TokenTotalsRow[];
+  byProvider?: TokenTotalsRow[];
+  /** KPI 计数：调用次数 / 会话数 / 用到的 Agent 数 / 模型数 */
+  records?: number;
+  sessions?: number;
+  agentCount?: number;
+  modelCount?: number;
 }
 
 export interface TokenRecord {
   id: number;
   userId: number;
+  /** 名称（后端 join，界面不必再显示裸 id） */
+  userName?: string | null;
+  agentName?: string | null;
+  modelName?: string | null;
   sessionId: number | null;
   agentId: number | null;
   modelId: number | null;

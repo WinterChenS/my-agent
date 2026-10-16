@@ -22,9 +22,19 @@ import org.springframework.stereotype.Service;
 public class TokenStatsService {
 
     private final TokenUsageMapper tokenUsageMapper;
+    private final com.myagent.modelconfig.mapper.LlmModelMapper llmModelMapper;
+    private final com.myagent.agentconfig.mapper.AgentMapper agentMapper;
+    private final com.myagent.auth.mapper.SysUserMapper sysUserMapper;
 
-    public TokenStatsService(TokenUsageMapper tokenUsageMapper) {
+    public TokenStatsService(
+            TokenUsageMapper tokenUsageMapper,
+            com.myagent.modelconfig.mapper.LlmModelMapper llmModelMapper,
+            com.myagent.agentconfig.mapper.AgentMapper agentMapper,
+            com.myagent.auth.mapper.SysUserMapper sysUserMapper) {
         this.tokenUsageMapper = tokenUsageMapper;
+        this.llmModelMapper = llmModelMapper;
+        this.agentMapper = agentMapper;
+        this.sysUserMapper = sysUserMapper;
     }
 
     /** 解析实际查询目标用户：非管理员强制为自己。 */
@@ -47,6 +57,9 @@ public class TokenStatsService {
         Map<String, Object> totals = tokenUsageMapper.totals(userId, start, end);
         List<Map<String, Object>> byModel = tokenUsageMapper.byModel(userId, start, end);
         List<Map<String, Object>> byDay = tokenUsageMapper.byDay(userId, start, end);
+        List<Map<String, Object>> byAgent = tokenUsageMapper.byAgent(userId, start, end);
+        List<Map<String, Object>> byProvider = tokenUsageMapper.byProvider(userId, start, end);
+        Map<String, Object> stats = tokenUsageMapper.usageStats(userId, start, end);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("userId", userId);
@@ -76,6 +89,15 @@ public class TokenStatsService {
         result.put("costCurrency", mixed ? "MIXED" : currency);
         result.put("byModel", byModel);
         result.put("byDay", byDay);
+        // 更多维度：按 Agent、按供应商；以及调用/会话/Agent/模型 的计数（KPI 卡片用）
+        result.put("byAgent", byAgent);
+        result.put("byProvider", byProvider);
+        result.put("records", number(stats, "records"));
+        result.put("sessions", number(stats, "sessions"));
+        result.put("agentCount", number(stats, "agents"));
+        result.put("modelCount", number(stats, "models"));
+        result.put("rangeFrom", start.toString());
+        result.put("rangeTo", end.toString());
         return result;
     }
 
@@ -94,8 +116,46 @@ public class TokenStatsService {
                 .le(to != null, TokenUsage::getCreatedAt, to)
                 .orderByDesc(TokenUsage::getId);
         IPage<TokenUsage> page = tokenUsageMapper.selectPage(new Page<>(current, size), query);
+        List<TokenUsage> rows = page.getRecords();
+        // 名称映射：一次性按 id 批量取，避免每行查一次库
+        Map<Long, String> modelNames = names(
+                rows.stream().map(TokenUsage::getModelId).distinct().toList(),
+                ids -> llmModelMapper
+                        .selectList(Wrappers.<com.myagent.modelconfig.entity.LlmModel>lambdaQuery()
+                                .in(com.myagent.modelconfig.entity.LlmModel::getId, ids))
+                        .stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                com.myagent.modelconfig.entity.LlmModel::getId,
+                                m -> m.getDisplayName() == null ? m.getModelId() : m.getDisplayName(),
+                                (a, b) -> a)));
+        Map<Long, String> agentNames = names(
+                rows.stream().map(TokenUsage::getAgentId).distinct().toList(),
+                ids -> agentMapper
+                        .selectList(Wrappers.<com.myagent.agentconfig.entity.Agent>lambdaQuery()
+                                .in(com.myagent.agentconfig.entity.Agent::getId, ids))
+                        .stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                com.myagent.agentconfig.entity.Agent::getId,
+                                com.myagent.agentconfig.entity.Agent::getName,
+                                (a, b) -> a)));
+        Map<Long, String> userNames = names(
+                rows.stream().map(TokenUsage::getUserId).distinct().toList(),
+                ids -> sysUserMapper
+                        .selectList(Wrappers.<com.myagent.auth.entity.SysUser>lambdaQuery()
+                                .in(com.myagent.auth.entity.SysUser::getId, ids))
+                        .stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                com.myagent.auth.entity.SysUser::getId,
+                                u -> u.getDisplayName() == null ? u.getUsername() : u.getDisplayName(),
+                                (a, b) -> a)));
         return PageResult.of(
-                page.getRecords().stream().map(TokenStatsService::toRow).toList(),
+                rows.stream()
+                        .map(row -> toRow(
+                                row,
+                                modelNames.get(row.getModelId()),
+                                agentNames.get(row.getAgentId()),
+                                userNames.get(row.getUserId())))
+                        .toList(),
                 page.getTotal(),
                 page.getCurrent(),
                 page.getSize());
@@ -112,13 +172,27 @@ public class TokenStatsService {
                 .toList();
     }
 
-    private static Map<String, Object> toRow(TokenUsage usage) {
+    /** 只查非空 id，空集合直接返回空表（避免 IN () 语法错误）。 */
+    private static Map<Long, String> names(
+            List<Long> ids, java.util.function.Function<List<Long>, Map<Long, String>> loader) {
+        List<Long> nonNull = ids.stream().filter(java.util.Objects::nonNull).toList();
+        if (nonNull.isEmpty()) {
+            return Map.of();
+        }
+        return loader.apply(nonNull);
+    }
+
+    private static Map<String, Object> toRow(
+            TokenUsage usage, String modelName, String agentName, String userName) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", usage.getId());
         row.put("userId", usage.getUserId());
+        row.put("userName", userName);
         row.put("sessionId", usage.getSessionId());
         row.put("agentId", usage.getAgentId());
+        row.put("agentName", agentName);
         row.put("modelId", usage.getModelId());
+        row.put("modelName", modelName);
         row.put("providerType", usage.getProviderType());
         row.put("promptTokens", usage.getPromptTokens());
         row.put("completionTokens", usage.getCompletionTokens());

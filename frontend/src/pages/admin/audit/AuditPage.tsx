@@ -21,40 +21,12 @@ import {
   type TokenUser,
 } from "@/api/audit";
 import { useAuthStore } from "@/stores/auth";
-
-/** 按日趋势：用内联 SVG 条形绘制，不引入图表库（方案要求不超过 1 个）。 */
-function DailyTrend({ rows }: { rows: TokenSummary["byDay"] }) {
-  if (!rows || rows.length === 0) {
-    return <p className="text-muted-foreground text-sm">暂无数据</p>;
-  }
-  const max = Math.max(...rows.map((r) => Number(r.total_tokens) || 0), 1);
-  const barWidth = 28;
-  const gap = 10;
-  const height = 120;
-  const width = rows.length * (barWidth + gap) + gap;
-
-  return (
-    <div className="overflow-auto">
-      <svg width={width} height={height + 24} role="img" aria-label="按日 Token 趋势">
-        {rows.map((row, index) => {
-          const value = Number(row.total_tokens) || 0;
-          const barHeight = Math.max(2, Math.round((value / max) * height));
-          const x = gap + index * (barWidth + gap);
-          const y = height - barHeight;
-          return (
-            <g key={`${row.day}-${index}`}>
-              <rect x={x} y={y} width={barWidth} height={barHeight} className="fill-primary" rx={3} />
-              <text x={x + barWidth / 2} y={height + 14} textAnchor="middle" className="fill-muted-foreground text-[9px]">
-                {String(row.day ?? "").slice(5)}
-              </text>
-              <title>{`${row.day}: ${value} tokens`}</title>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
+import {
+  BreakdownBars,
+  Donut,
+  DailyTrendChart,
+  fmt,
+} from "@/components/admin/AuditCharts";
 
 export default function AuditPage() {
   const user = useAuthStore((s) => s.user);
@@ -206,7 +178,7 @@ export default function AuditPage() {
 
       {error && <div className="border-destructive/40 bg-destructive/10 rounded-md border p-2 text-sm">{error}</div>}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Card>
           <CardHeader className="p-3">
             <CardTitle className="text-xs font-normal">输入 Tokens</CardTitle>
@@ -228,9 +200,36 @@ export default function AuditPage() {
             <CardTitle className="text-xs font-normal">合计 Tokens</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 text-2xl font-semibold">
-            {summary?.totalTokens ?? 0}
-            <span className="text-muted-foreground ml-2 text-xs font-normal">
-              用户 #{summary?.userId ?? "-"}
+            {fmt(summary?.totalTokens ?? 0)}
+          </CardContent>
+        </Card>
+        <Card data-testid="kpi-cost">
+          <CardHeader className="p-3">
+            <CardTitle className="text-xs font-normal">成本</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 text-2xl font-semibold">
+            {summary?.costTotal == null ? "—" : Number(summary.costTotal).toFixed(2)}
+            <span className="text-muted-foreground ml-1 text-xs font-normal">
+              {summary?.costCurrency && summary.costCurrency !== "MIXED" ? summary.costCurrency : "（多币种）"}
+            </span>
+          </CardContent>
+        </Card>
+        <Card data-testid="kpi-records">
+          <CardHeader className="p-3">
+            <CardTitle className="text-xs font-normal">调用次数</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 text-2xl font-semibold">
+            {fmt(summary?.records ?? 0)}
+          </CardContent>
+        </Card>
+        <Card data-testid="kpi-scope">
+          <CardHeader className="p-3">
+            <CardTitle className="text-xs font-normal">会话 / Agent / 模型</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 text-2xl font-semibold">
+            {fmt(summary?.sessions ?? 0)}
+            <span className="text-muted-foreground ml-1 text-sm font-normal">
+              / {fmt(summary?.agentCount ?? 0)} / {fmt(summary?.modelCount ?? 0)}
             </span>
           </CardContent>
         </Card>
@@ -315,7 +314,7 @@ export default function AuditPage() {
           <CardTitle className="text-sm">按日趋势</CardTitle>
         </CardHeader>
         <CardContent className="p-3 pt-0">
-          <DailyTrend rows={summary?.byDay ?? []} />
+          <DailyTrendChart rows={summary?.byDay ?? []} />
         </CardContent>
       </Card>
 
@@ -327,7 +326,8 @@ export default function AuditPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>模型 ID</TableHead>
+                <TableHead>模型</TableHead>
+                <TableHead>占比</TableHead>
                 <TableHead>输入</TableHead>
                 <TableHead>输出</TableHead>
                 <TableHead>合计</TableHead>
@@ -336,10 +336,22 @@ export default function AuditPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(summary?.byModel ?? []).map((row, index) => (
+              {(summary?.byModel ?? []).slice(0, 10).map((row, index) => (
                 <TableRow key={`${row.model_id}-${index}`}>
-                  <TableCell>{row.model_id ?? "-"}</TableCell>
-                  <TableCell>{row.prompt_tokens}</TableCell>
+                  <TableCell className="max-w-[16rem] truncate" title={row.model_name ?? row.model_key ?? ""}>
+                    {row.model_name ?? row.model_key ?? `#${row.model_id ?? "-"}`}
+                  </TableCell>
+                  <TableCell className="text-xs tabular-nums">
+                    {(() => {
+                      const all = (summary?.byModel ?? []).reduce(
+                        (sum, r) => sum + (Number(r.total_tokens) || 0),
+                        0,
+                      );
+                      const ratio = all > 0 ? ((Number(row.total_tokens) || 0) / all) * 100 : 0;
+                      return `${ratio.toFixed(1)}%`;
+                    })()}
+                  </TableCell>
+                  <TableCell>{fmt(row.prompt_tokens)}</TableCell>
                   <TableCell>{row.completion_tokens}</TableCell>
                   <TableCell>{row.total_tokens}</TableCell>
                   <TableCell className="font-mono text-xs">
@@ -363,8 +375,41 @@ export default function AuditPage() {
               )}
             </TableBody>
           </Table>
+          {(summary?.byModel?.length ?? 0) > 10 && (
+            <p className="text-muted-foreground mt-2 text-[11px]">
+              仅列出用量前 10 的模型（共 {summary?.byModel?.length} 个）
+            </p>
+          )}
         </CardContent>
       </Card>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card data-testid="by-agent">
+          <CardHeader className="p-3">
+            <CardTitle className="text-sm">按 Agent 分布</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0">
+            <BreakdownBars
+              rows={summary?.byAgent ?? []}
+              labelOf={(row) => row.agent_name ?? `Agent #${row.agent_id ?? "-"}`}
+              testId="agent-bars"
+            />
+          </CardContent>
+        </Card>
+        <Card data-testid="by-provider">
+          <CardHeader className="p-3">
+            <CardTitle className="text-sm">按供应商占比</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0">
+            <Donut
+              rows={summary?.byProvider ?? []}
+              labelOf={(row) => String(row.provider_type ?? "未知")}
+              ariaLabel="按供应商 Token 占比"
+              testId="provider-donut"
+            />
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader className="flex-row items-center justify-between p-3">
@@ -376,8 +421,8 @@ export default function AuditPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>时间</TableHead>
-                <TableHead>请求</TableHead>
-                <TableHead>会话</TableHead>
+                <TableHead>用户</TableHead>
+                <TableHead>Agent</TableHead>
                 <TableHead>模型</TableHead>
                 <TableHead>输入</TableHead>
                 <TableHead>输出</TableHead>
@@ -390,17 +435,22 @@ export default function AuditPage() {
                   <TableCell className="text-xs">
                     {row.createdAt ? new Date(row.createdAt).toLocaleString() : "-"}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{row.requestId ?? "-"}</TableCell>
-                  <TableCell>{row.sessionId ?? "-"}</TableCell>
-                  <TableCell>{row.modelId ?? "-"}</TableCell>
-                  <TableCell>{row.promptTokens}</TableCell>
-                  <TableCell>{row.completionTokens}</TableCell>
-                  <TableCell>{row.totalTokens}</TableCell>
+                  <TableCell className="text-xs">{row.userName ?? `#${row.userId}`}</TableCell>
+                  <TableCell className="text-xs">{row.agentName ?? "-"}</TableCell>
+                  <TableCell
+                    className="max-w-[14rem] truncate text-xs"
+                    title={`${row.modelName ?? ""}${row.modelId ? ` (#${row.modelId})` : ""}`}
+                  >
+                    {row.modelName ?? (row.modelId ? `#${row.modelId}` : "-")}
+                  </TableCell>
+                  <TableCell className="tabular-nums">{fmt(row.promptTokens)}</TableCell>
+                  <TableCell className="tabular-nums">{fmt(row.completionTokens)}</TableCell>
+                  <TableCell className="tabular-nums font-medium">{fmt(row.totalTokens)}</TableCell>
                 </TableRow>
               ))}
               {records.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-muted-foreground text-center text-sm">
+                  <TableCell colSpan={9} className="text-muted-foreground text-center text-sm">
                     暂无数据
                   </TableCell>
                 </TableRow>
