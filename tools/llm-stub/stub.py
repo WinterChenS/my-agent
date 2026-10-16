@@ -64,6 +64,9 @@ STUB_CODE_FENCE_MODEL = os.environ.get("STUB_CODE_FENCE_MODEL", "code-fence")
 # 为什么要按模型名而不是全局：早先用「改全局 STUB_CHUNK_DELAY_MS」的办法，跑完经常忘了恢复，
 # 导致后面整轮 e2e 都变慢并大量超时（实测踩过两次）。按模型名分流后，全局延迟永远是快的。
 STUB_SLOW_MODEL = os.environ.get("STUB_SLOW_MODEL", "slow-")
+# 模型名含它（默认 card-）时，桩主动发一次 `demo_confirm_card` 工具调用。
+# 用于验证"交互卡片悬浮在输入框上方"，且不必改全局 STUB_TOOL_NAME 去污染别的用例。
+STUB_CARD_MODEL = os.environ.get("STUB_CARD_MODEL", "card-")
 STUB_SLOW_DELAY_MS = int(os.environ.get("STUB_SLOW_DELAY_MS", "2500"))
 STUB_CODE_FENCE = os.environ.get(
     "STUB_CODE_FENCE",
@@ -173,7 +176,9 @@ class Handler(BaseHTTPRequestHandler):
         规则：配置了 STUB_TOOL_NAME、请求里带了工具、且还没出现任何 tool 结果（避免无限循环）。
         命中时在 stdout 打印完整工具名（含命名空间），便于验收取证。
         """
-        if not STUB_TOOL_NAME:
+        model = str(body.get("model", ""))
+        card_mode = bool(STUB_CARD_MODEL) and STUB_CARD_MODEL.lower() in model.lower()
+        if not STUB_TOOL_NAME and not card_mode:
             return None
         tools = body.get("tools") or []
         if not tools:
@@ -181,7 +186,12 @@ class Handler(BaseHTTPRequestHandler):
         tool_done = sum(1 for m in (body.get("messages") or []) if m.get("role") == "tool")
         if tool_done >= STUB_TOOL_ROUNDS:
             return None  # 已达到设定轮数，该收尾了
-        wanted = STUB_TOOL_NAME.lower()
+        wanted = "demo_confirm_card" if card_mode else STUB_TOOL_NAME.lower()
+        args = (
+            json.dumps({"question": "将在生产环境删除订单历史分区（不可恢复），是否继续？"}, ensure_ascii=False)
+            if card_mode
+            else STUB_TOOL_ARGS
+        )
         for t in tools:
             fn = (t or {}).get("function") or {}
             name = fn.get("name") or ""
@@ -190,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
                 return {
                     "id": f"call_stub_{tool_done + 1}",
                     "type": "function",
-                    "function": {"name": name, "arguments": STUB_TOOL_ARGS},
+                    "function": {"name": name, "arguments": args},
                 }
         return None
 

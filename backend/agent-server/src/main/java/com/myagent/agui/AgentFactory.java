@@ -245,7 +245,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         HarnessAgent built = HarnessAgent.builder()
                 .name(agent.getName())
                 .agentId(agent.getAgentId())
-                .sysPrompt(agent.getSysPrompt())
+                // 追加平台级「交互卡片」指引：不依赖用户是否绑定了对应技能，
+                // 每个 Agent 都知道自己手上有卡片工具、以及什么时候该用（用户反馈"不会主动用卡片"）
+                .sysPrompt(withCardGuidance(agent.getSysPrompt()))
                 .model(chatModel)
                 .maxIters(agent.getMaxIterations() == null ? 20 : agent.getMaxIterations())
                 .workspace(java.nio.file.Path.of(aguiProperties.workspaceRoot()))
@@ -282,6 +284,25 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         return built;
     }
 
+
+    /**
+     * 在用户自己的系统提示词后面追加一段**交互卡片**使用指引。
+     *
+     * <p>为什么由平台注入而不是只靠技能：技能要用户手动绑定，且模型未必命中；
+     * 而"该弹卡片时弹卡片"是平台的交互约定，应该对每个 Agent 默认生效。
+     */
+    static String withCardGuidance(String sysPrompt) {
+        String base = sysPrompt == null ? "" : sysPrompt.trim();
+        String guidance = String.join("\n",
+                "## 交互卡片（本平台能力，请主动使用）",
+                "你手上有两个工具可以在界面上弹卡片，用户点按钮即可回答，比在正文里提问更清楚：",
+                "1. `demo_confirm_card` —— 需要用户确认或选择时**必须**用它，不要只在正文里问「是否继续」。",
+                "   典型场景：不可逆/有风险的操作（删除、覆盖、发布、扣费、改生产数据）、多方案二选一、",
+                "   缺少只有用户知道的信息且答案可枚举。question 要写清后果。",
+                "2. `demo_mapping_card` —— 要展示字段映射、多行对照清单等结构化数据时用它。",
+                "调用后用户会在界面上看到卡片；他的选择会作为后续消息回到你这里，**在收到之前不要假定他已同意**。");
+        return base.isEmpty() ? guidance : base + "\n\n" + guidance;
+    }
 
     /** 该会话模型的**有效**压缩触发阈值（与运行时一致：配置值与窗口 60% 取小）。 */
     public int effectiveCompactionTrigger(Long agentDbId) {

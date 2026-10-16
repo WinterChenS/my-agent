@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HttpAgent } from "@ag-ui/client";
 import { Bot, ChevronDown, Clock, Plus, Send, Square, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -782,6 +782,26 @@ export default function ChatPage() {
    * <p>连续的「工具调用」会合成一组（默认折叠）——一次任务可能产生十几个工具调用，
    * 逐个铺开会把聊天记录淹没，而且每个都单独成卡时又高又胖（用户反馈“太大”）。
    */
+  /**
+   * 待处理的交互卡片（确认卡 / 审批卡 / 映射卡……）。
+   *
+   * <p>判定规则不需要额外状态：**出现在最后一条用户消息之后**的卡片就是"还没被回答"的。
+   * 用户一旦作出选择，界面会追加一条用户消息，卡片就落到它前面、不再悬浮 —— 卡片随即淡出。
+   *
+   * <p>为什么放这里而不是气泡里：用户明确要求卡片以**悬浮弹窗**形式出现在输入框上方，
+   * 而不是夹在聊天记录中间（夹在中间会随滚动跑掉，且打断阅读）。
+   */
+  const pendingCards = useMemo(() => {
+    const items = chat.items;
+    let lastUserIndex = -1;
+    items.forEach((item, index) => {
+      if (item.kind === "text" && item.role === "user") {
+        lastUserIndex = index;
+      }
+    });
+    return items.slice(lastUserIndex + 1).filter((item) => item.kind === "card" || item.kind === "approval");
+  }, [chat.items]);
+
   function renderItemNodes() {
     const nodes: React.ReactNode[] = [];
     const items = chat.items;
@@ -817,35 +837,10 @@ export default function ChatPage() {
             stopped={item.stopped}
           />,
         );
-      } else if (item.kind === "approval") {
-        nodes.push(
-          <ApprovalCard
-            key={item.id}
-            toolName={item.toolName}
-            args={item.args}
-            message={item.message}
-            status={item.status}
-            busy={busy}
-            onDecide={(decision) => void decide(item.interruptId, decision)}
-          />,
-        );
-      } else if (item.kind === "card") {
-        if (item.card === "confirm") {
-          nodes.push(
-            <ConfirmCard
-              key={item.id}
-              data={item.data as ConfirmCardData}
-              busy={busy}
-              onChoose={(value) => void chooseOption(value)}
-            />,
-          );
-        } else if (item.card === "mapping") {
-          nodes.push(<MappingCard key={item.id} data={item.data as MappingCardData} />);
-        } else {
-          nodes.push(
-            <JsonCard key={item.id} name={`${item.name}（${item.card}）`} data={item.data} />,
-          );
-        }
+      } else if (item.kind === "approval" || item.kind === "card") {
+        // 交互卡片不再渲染在气泡流里：统一由输入框上方的悬浮层呈现（见 cardOverlay）
+        i += 1;
+        continue;
       } else {
         nodes.push(
           <Card key={item.id} className="border-destructive/50 p-3 text-sm">
@@ -976,7 +971,43 @@ export default function ChatPage() {
         {/* 与消息区同宽同位置：外层不加水平 padding，内层与 chat-column 用同一套
             （max-w-3xl + px-4），这样输入框的边框正好对齐气泡列的盒子 */}
         <div className="py-3" data-testid="composer">
-          <div className="mx-auto w-full max-w-3xl px-4">
+          <div className="relative mx-auto w-full max-w-3xl px-4">
+            {/* 交互卡片：悬浮在输入框**上方**（不占布局，覆盖在消息区之上） */}
+            {pendingCards.length > 0 && (
+              <div
+                className="absolute inset-x-4 bottom-full z-20 mb-3 space-y-2"
+                data-testid="card-overlay"
+              >
+                {pendingCards.map((item) =>
+                  item.kind === "approval" ? (
+                    <ApprovalCard
+                      key={item.id}
+                      toolName={item.toolName}
+                      args={item.args}
+                      message={item.message}
+                      status={item.status}
+                      busy={busy}
+                      onDecide={(decision) => void decide(item.interruptId, decision)}
+                    />
+                  ) : item.card === "confirm" ? (
+                    <ConfirmCard
+                      key={item.id}
+                      data={item.data as ConfirmCardData}
+                      busy={busy}
+                      onChoose={(value) => void chooseOption(value)}
+                    />
+                  ) : item.card === "mapping" ? (
+                    <MappingCard key={item.id} data={item.data as MappingCardData} />
+                  ) : (
+                    <JsonCard
+                      key={item.id}
+                      name={`${item.name}（${item.card}）`}
+                      data={item.data}
+                    />
+                  ),
+                )}
+              </div>
+            )}
             {quota && (quota.exceeded || quota.nearLimit) && (
               <div
                 className={`mb-2 rounded-md border px-3 py-1.5 text-xs ${

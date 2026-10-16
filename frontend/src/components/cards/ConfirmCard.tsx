@@ -18,7 +18,7 @@ export function ConfirmCard({
 }) {
   const options = Array.isArray(data?.options) ? data.options : [];
   return (
-    <Card className="border-sky-400/70">
+    <Card className="border-sky-400/70" data-testid="confirm-card">
       <CardHeader className="p-3">
         <CardTitle className="text-sm">{data?.title ?? "请确认"}</CardTitle>
       </CardHeader>
