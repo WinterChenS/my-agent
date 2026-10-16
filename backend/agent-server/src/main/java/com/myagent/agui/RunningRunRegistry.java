@@ -92,9 +92,22 @@ public class RunningRunRegistry {
         if (threadId == null) {
             return;
         }
-        RunHandle handle = new RunHandle();
+        // 关键：**不能整体替换 handle**。官方 AgentResolver / RuntimeContextResolver 会在框架
+        // 自己决定的时机登记 agent / context（实测可能早于 beginRun），整体 put 一个新 handle
+        // 会把它们冲掉 —— 后果就是 `引导` 永远返回 guided=false（handle 在、handle.agent 为 null），
+        // 表现为"引导点了没反应"。这里改为合并：保留 agent/context 引用，只清上一轮的残留状态。
+        RunHandle handle = runs.computeIfAbsent(threadId, key -> new RunHandle());
         handle.runId = runId;
-        runs.put(threadId, handle);
+        handle.stopped.set(false);
+        handle.text.setLength(0);
+        handle.finished = false;
+        handle.error = null;
+        handle.detachedAt = 0L;
+        ScheduledFuture<?> grace = handle.graceTask;
+        if (grace != null) {
+            grace.cancel(false);
+            handle.graceTask = null;
+        }
         // tier1-upgrades ③：把「开跑了」也落库，重启后仍能看到上一轮状态
         if (agentRunService != null) {
             agentRunService.start(threadId, runId);
