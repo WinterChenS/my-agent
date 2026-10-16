@@ -70,6 +70,10 @@ STUB_CARD_MODEL = os.environ.get("STUB_CARD_MODEL", "card-")
 # 模型名含它（默认 script-）时，桩走「两轮脚本」：先 write_file 写一个文件，再 deliver_artifact
 # 把它作为**产物**交付（官方产物交付链路）。用于验证"产物落到哪一轮"与气泡下方的展示。
 STUB_SCRIPT_MODEL = os.environ.get("STUB_SCRIPT_MODEL", "script-")
+# 模型名含它（默认 think-）时，桩在**首字之前**先静默等待 STUB_THINK_DELAY_MS。
+# 用来模拟"推理型模型想很久、界面上半天不出气泡"的场景（验证占位 loading 气泡）。
+STUB_THINK_MODEL = os.environ.get("STUB_THINK_MODEL", "think-")
+STUB_THINK_DELAY_MS = int(os.environ.get("STUB_THINK_DELAY_MS", "5000"))
 STUB_SLOW_DELAY_MS = int(os.environ.get("STUB_SLOW_DELAY_MS", "2500"))
 STUB_CODE_FENCE = os.environ.get(
     "STUB_CODE_FENCE",
@@ -153,10 +157,14 @@ class Handler(BaseHTTPRequestHandler):
             delay = CHUNK_DELAY_MS
             if STUB_SLOW_MODEL and STUB_SLOW_MODEL in str(model):
                 delay = STUB_SLOW_DELAY_MS
+            # 「想很久」：首字之前先静默等待（模拟推理型模型）
+            first_delay = 0
+            if STUB_THINK_MODEL and STUB_THINK_MODEL in str(model):
+                first_delay = STUB_THINK_DELAY_MS
             if tool_call:
                 self._stream_tool_call(model, created, usage, tool_call, delay)
             else:
-                self._stream(model, created, usage, self._reply_text(body, raw), delay)
+                self._stream(model, created, usage, self._reply_text(body, raw), delay, first_delay)
         else:
             message = {"role": "assistant", "content": self._reply_for(raw, model)}
             finish = "stop"
@@ -328,7 +336,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
         return REPLY
 
-    def _stream(self, model, created, usage, reply, chunk_delay_ms=None):
+    def _stream(self, model, created, usage, reply, chunk_delay_ms=None, first_delay_ms=0):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -346,6 +354,9 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8"))
             self.wfile.flush()
 
+        if first_delay_ms and first_delay_ms > 0:
+            # 首字之前保持静默：模型「在想」，还没有任何内容产出（用于验证占位 loading 气泡）
+            time.sleep(first_delay_ms / 1000.0)
         chunk({"role": "assistant", "content": ""})
         for piece in [reply[i:i + 3] for i in range(0, len(reply), 3)]:
             delay = CHUNK_DELAY_MS if chunk_delay_ms is None else chunk_delay_ms

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MessageBubble } from "@/components/chat/MessageBubble";
+import { PendingBubble } from "@/components/chat/PendingBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
 import { ArtifactBox, ArtifactPreviewDrawer } from "@/components/chat/ArtifactBox";
 import { listArtifacts, type ArtifactInfo } from "@/api/artifacts";
@@ -877,6 +878,17 @@ export default function ChatPage() {
   /** 欢迎页：还没有任何对话内容时，把输入框居中并给出引导文案（对齐 ChatGPT 的空白态） */
   const isEmptyState = booted && !session && chat.items.length === 0;
 
+  /**
+   * 是否显示「正在思考」占位气泡。
+   *
+   * <p>这一轮在跑、但**还没有任何助手正文**时显示：模型想很久（或先跑一堆工具）的那段时间里，
+   * 界面上本来只有用户气泡，看着像没反应。等第一个字的流式内容到达，它就被真气泡取代。
+   */
+  const lastItem = chat.items[chat.items.length - 1];
+  const hasAssistantText =
+    lastItem?.kind === "text" && lastItem.role === "assistant" && lastItem.content.length > 0;
+  const showPendingBubble = chat.status === "running" && !hasAssistantText;
+
   return (
     <div className="flex h-screen">
 
@@ -930,6 +942,7 @@ export default function ChatPage() {
         <div className={isEmptyState ? "hidden" : "flex-1 overflow-auto"}>
           <div data-testid="chat-column" className="mx-auto w-full max-w-3xl space-y-4 p-4">
             {renderItemNodes()}
+            {showPendingBubble && <PendingBubble />}
             <div ref={bottomRef} />
           </div>
         </div>
