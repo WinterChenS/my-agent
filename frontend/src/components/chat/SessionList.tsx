@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { deleteSession, listRunningThreads } from "@/api/sessions";
 import { Button } from "@/components/ui/button";
@@ -16,14 +16,14 @@ import type { ChatSession } from "@/api/types";
 export function SessionList() {
   const navigate = useNavigate();
   const sessions = useSessionStore((s) => s.sessions);
-  const selectedId = useSessionStore((s) => s.selectedId);
   const loading = useSessionStore((s) => s.loading);
   const error = useSessionStore((s) => s.error);
   const runningThreads = useSessionStore((s) => s.runningThreads);
   const refresh = useSessionStore((s) => s.refresh);
-  const requestOpen = useSessionStore((s) => s.requestOpen);
-  const requestNew = useSessionStore((s) => s.requestNew);
   const setRunningThreads = useSessionStore((s) => s.setRunningThreads);
+  // 当前打开的是哪条，直接从 URL 推导（URL 是唯一来源）
+  const [searchParams] = useSearchParams();
+  const selectedId = searchParams.get("session") ? Number(searchParams.get("session")) : null;
 
   // 首次挂载拉一次：侧边栏在任何页面都挂着，因此"任意页面都能看到历史"
   useEffect(() => {
@@ -51,18 +51,17 @@ export function SessionList() {
     };
   }, [setRunningThreads]);
 
-  /** 点历史会话：请求打开 + 跳到聊天页（已经在 /chat 时也会触发，因为 seq 递增） */
+  /** 点历史会话：把 id 带进 URL 并跳转 —— 链接即可复制粘贴分享/刷新还原 */
   function openSession(item: ChatSession) {
-    requestOpen(item.id);
-    void navigate("/chat");
+    void navigate(`/chat?session=${item.id}`);
   }
 
   async function remove(target: ChatSession) {
     try {
       await deleteSession(target.id);
-      // 删掉的正是当前打开的：让 ChatPage 回到欢迎页（空白新会话）
-      if (useSessionStore.getState().selectedId === target.id) {
-        useSessionStore.getState().requestNew();
+      // 删掉的正是当前打开的：回到欢迎页（URL 去掉参数）
+      if (selectedId === target.id) {
+        void navigate("/chat");
       }
       await refresh();
     } catch {
@@ -90,10 +89,7 @@ export function SessionList() {
             variant="ghost"
             size="icon"
             className="size-6"
-            onClick={() => {
-              requestNew();
-              void navigate("/chat");
-            }}
+            onClick={() => void navigate("/chat")}
             title="新建会话"
           >
             <Plus className="size-3.5" />

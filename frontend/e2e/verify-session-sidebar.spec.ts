@@ -45,7 +45,20 @@ test.describe("会话历史侧栏与欢迎页", () => {
       ).toHaveCount(1, { timeout: 20_000 });
       // 打开了会话 → 不再是欢迎页
       await expect(page.getByTestId("welcome")).toHaveCount(0);
-      console.log("[侧栏] 从管理页面点历史 → 已进入 /chat 且该行选中 ✓");
+      // ②-b 会话 id 进了 URL —— 链接可以复制粘贴/分享
+      await expect(page).toHaveURL(new RegExp(`session=${created.data.id}`));
+      const shareUrl = page.url();
+      console.log(`[侧栏] 从管理页面点历史 → 已打开并带参 URL：${shareUrl.slice(-40)}`);
+
+      // ②-c 复制这条链接**重新打开**（等价于粘贴给别人/刷新）—— 应当还原同一条会话
+      await page.goto(shareUrl);
+      await expect(
+        page.locator(
+          `[data-testid="session-item-row"][data-selected="true"] [data-testid="session-item"][title="${threadId}"]`,
+        ),
+      ).toHaveCount(1, { timeout: 20_000 });
+      await expect(page.getByTestId("welcome")).toHaveCount(0);
+      console.log("[侧栏] 直接打开带参链接 → 还原同一条会话 ✓");
     } finally {
       const sessions = await (await request.get(`${API}/api/sessions`, { headers })).json();
       for (const s of sessions.data as { id: number; agentId: number | null }[]) {
@@ -86,4 +99,41 @@ test.describe("会话历史侧栏与欢迎页", () => {
       await deleteStubAgent(request, headers, agentDbId);
     }
   });
-});
+  test("点菜单「聊天」→ 欢迎页（不自动打开最近会话）", async ({ page, request }) => {
+    const stamp = Date.now();
+    const { agentName, agentDbId, headers } = await createStubAgent(request, stamp);
+    try {
+      await loginAndSelectAgent(page, agentName);
+      const created = await (
+        await request.post(`${API}/api/sessions`, { headers, data: { agentId: agentDbId } })
+      ).json();
+      const threadId = created.data.threadId as string;
+
+      // 先打开这条会话（URL 带上 session）
+      await page.getByTestId("session-refresh").click();
+      const row = page.locator(`[data-testid="session-item"][title="${threadId}"]`);
+      await expect(row).toHaveCount(1, { timeout: 20_000 });
+      await row.click();
+      await expect(page).toHaveURL(new RegExp(`session=${created.data.id}`));
+      await expect(page.getByTestId("welcome")).toHaveCount(0);
+
+      // 点菜单「聊天」——应当回到欢迎页，且 URL 去掉 session 参数
+      await page.getByRole("link", { name: "聊天", exact: true }).click();
+      await expect(page.getByTestId("welcome")).toBeVisible({ timeout: 20_000 });
+      await expect(page).not.toHaveURL(/session=/);
+      console.log(`[聊天菜单] 点「聊天」→ 欢迎页 ✓ URL=${page.url()}`);
+
+      // 刷新后仍是欢迎页（不自动恢复最近会话）
+      await page.reload();
+      await expect(page.getByTestId("welcome")).toBeVisible({ timeout: 20_000 });
+      console.log("[聊天菜单] 刷新后仍是欢迎页 ✓");
+    } finally {
+      const sessions = await (await request.get(`${API}/api/sessions`, { headers })).json();
+      for (const s of sessions.data as { id: number; agentId: number | null }[]) {
+        if (s.agentId === agentDbId) await request.delete(`${API}/api/sessions/${s.id}`, { headers });
+      }
+      await deleteStubAgent(request, headers, agentDbId);
+    }
+  });
+}
+);

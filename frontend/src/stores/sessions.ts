@@ -16,46 +16,19 @@ interface SessionStore {
   sessions: ChatSession[];
   loading: boolean;
   error: string | null;
-  /** 当前打开的会话 id（侧栏高亮用） */
-  selectedId: number | null;
-  /**
-   * 跨页面的「打开这条会话」请求。
-   *
-   * <p>带自增序号而不是只存 id：用户可能连点同一条（或删除后重新点），
-   * 只有 id 的话状态不变、订阅方不会收到通知。
-   */
-  openRequest: { id: number; seq: number } | null;
-  /**
-   * 跨页面的「新建会话」请求。
-   *
-   * <p>用**一次性标记**而不是自增序号：ChatPage 每次进入 /chat 都会重新挂载，
-   * 序号留在 store 里会被下次挂载当成"又有新请求"而误清空刚打开的会话
-   * （实测踩到：从管理页点历史会话回来，会话被冲掉）。标记由 ChatPage 显式消费掉。
-   */
-  newRequest: boolean;
   /** 正在跑的 threadId 集合（侧栏转圈标记） */
   runningThreads: Set<string>;
 
   refresh: () => Promise<ChatSession[]>;
-  requestOpen: (id: number) => void;
-  consumeOpen: () => void;
-  requestNew: () => void;
-  consumeNew: () => void;
-  setSelectedId: (id: number | null) => void;
   setRunningThreads: (ids: Set<string>) => void;
   /** 退出登录时清空，避免下一个账号看到上一个账号的会话列表 */
   reset: () => void;
 }
 
-let seq = 0;
-
 export const useSessionStore = create<SessionStore>((set) => ({
   sessions: [],
   loading: false,
   error: null,
-  selectedId: null,
-  openRequest: null,
-  newRequest: false,
   runningThreads: new Set<string>(),
 
   refresh: async () => {
@@ -73,22 +46,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }
   },
 
-  requestOpen: (id) => {
-    seq += 1;
-    set({ selectedId: id, openRequest: { id, seq } });
-  },
-
-  consumeOpen: () => set({ openRequest: null }),
-
-  requestNew: () => {
-    seq += 1;
-    set({ selectedId: null, openRequest: null, newRequest: true });
-  },
-
-  consumeNew: () => set({ newRequest: false }),
-
-  setSelectedId: (id) => set({ selectedId: id }),
-
   setRunningThreads: (ids) => set({ runningThreads: ids }),
 
   reset: () =>
@@ -96,9 +53,6 @@ export const useSessionStore = create<SessionStore>((set) => ({
       sessions: [],
       loading: false,
       error: null,
-      selectedId: null,
-      openRequest: null,
-      newRequest: false,
       runningThreads: new Set<string>(),
     }),
 }));

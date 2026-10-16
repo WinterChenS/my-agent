@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import type { HttpAgent } from "@ag-ui/client";
 import { Bot, ChevronDown, Clock, Plus, Send, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -73,19 +74,20 @@ const MAX_IMAGES_PER_RUN = 5;
 export default function ChatPage() {
   // 会话列表已提到全局 store：它现在渲染在**菜单栏下半部分**（任意页面可见、可点开）
   const refreshSessions = useSessionStore((s) => s.refresh);
-  const setSelectedSessionId = useSessionStore((s) => s.setSelectedId);
-  const openRequest = useSessionStore((s) => s.openRequest);
-  const newSessionRequest = useSessionStore((s) => s.newRequest);
-  /** 首屏加载完成前不显示欢迎页，避免"空会话"闪一下 */
-  const [booted, setBooted] = useState(false);
   /**
-   * 用户是否已经主动操作过（点历史会话 / 点新建会话）。
+   * URL 里的会话 id —— 它是「当前打开哪个会话」的**唯一来源**。
    *
-   * <p>首屏会自动恢复"最近一次会话"，而这一过程是异步的：如果用户在它完成前就点了
-   * 「新建会话」，恢复流程结束时会把 session 又设回去 —— 表现为新建失效、Agent 下拉框
-   * 仍是禁用（实测：13 条 e2e 因此失败）。用一个标记让首屏恢复主动让位。
+   * <p>好处有三个：① 打开某条会话的链接可以复制粘贴/分享，刷新也能还原；
+   * ② 点菜单「聊天」得到的是 `/chat`（无参数）→ 干净的新会话欢迎页（用户要求）；
+   * ③ 不必再维护"跨页面打开请求"这类组件间暗号。
    */
-  const userActed = useRef(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sessionParam = searchParams.get("session");
+  const urlSessionId = sessionParam ? Number(sessionParam) : null;
+  /** 打开动作完成前不显示欢迎页，避免"空会话"闪一下 */
+  const [booted, setBooted] = useState(false);
+  /** 上一次的 session 参数：用来判断「有到无」的转变（见下面 effect 的说明） */
+  const prevSessionParam = useRef<string | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [agentId, setAgentId] = useState<number | null>(null);
   const [session, setSession] = useState<ChatSession | null>(null);
@@ -136,7 +138,6 @@ export default function ChatPage() {
   const agentRef = useRef<HttpAgent | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const bootstrapped = useRef(false);
 
   useEffect(() => {
     listAgents()
@@ -257,9 +258,7 @@ export default function ChatPage() {
 
 
   const startNewSession = useCallback(() => {
-    userActed.current = true;
     setSession(null);
-    setSelectedSessionId(null);
     setChat(initialChatState);
     agentRef.current = createChatAgent();
     setError(null);
@@ -269,7 +268,7 @@ export default function ChatPage() {
     // 新会话把上下文用量也清掉，避免残留到空白新会话里
     setContextUsage(null);
     setContextNotice(null);
-  }, [setSelectedSessionId]);
+  }, []);
 
   /** 发起一轮 /agui/run；text 与 resume 二选一。 */
   /** 刷新上下文用量（打开会话、每轮结束后调用）。 */
@@ -301,7 +300,6 @@ export default function ChatPage() {
     // 如果**目标会话自己**确实在跑，下面的 resumeRunningRun 会再置回 true。
     setBusy(false);
     setSession(target);
-    setSelectedSessionId(target.id);
     agentRef.current = createChatAgent();
     try {
       const messages = await listMessages(target.id);
@@ -314,64 +312,66 @@ export default function ChatPage() {
       void refreshQuota(target.agentId ?? null);
     },
     // 三个 refresh 已用 useCallback 稳定（依赖为空），所以 openSession 也是稳定的
-    [refreshContext, refreshQuota, setSelectedSessionId],
+    [refreshContext, refreshQuota],
   );
 
-  // 首次加载：恢复最近一次会话，让刷新后历史仍在（Task 4.3 门禁）。
-  useEffect(() => {
-    if (bootstrapped.current) {
-      return;
-    }
-    bootstrapped.current = true;
-    void (async () => {
-      try {
-        const list = await refreshSessions();
-        // 用户已经点过（历史会话 / 新建会话）就让位：交给对应的 effect 处理，别抢
-        if (list.length > 0 && !useSessionStore.getState().openRequest && !userActed.current) {
-          await openSession(list[0]);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "加载会话失败");
-      } finally {
-        setBooted(true);
-      }
-    })();
-    // openSession / refreshSessions 已用 useCallback 稳定；列出来既消除 exhaustive-deps 警告，
-    // 也避免 effect 捕获旧闭包（bootstrapped 守卫保证只跑一次）
-  }, [openSession, refreshSessions]);
-
   /**
-   * 跨页面「打开某条会话」：侧栏（菜单栏下半部分）点击后跳 /chat，
-   * 由这里真正打开 —— 拉历史消息、接续在跑的 run、刷新上下文用量。
+   * 以 URL 为准打开会话：`/chat?session=N` → 打开 N；`/chat`（无参数）→ 欢迎页。
    *
-   * <p>列表里找不到时先刷一次：可能是别的标签页/别处新建的会话。
+   * <p>为什么这么做：用户要求「点菜单『聊天』就是欢迎页」，同时「打开过的会话要能复制粘贴/
+   * 刷新还原」。把 URL 当唯一来源后，两件事都自然成立，也不再需要"跨页面打开请求"这种暗号。
+   *
+   * <p>找不到就刷一次列表再找：可能是别的标签页/别处新建、或列表还没加载。
    */
   useEffect(() => {
-    if (!openRequest) {
+    const prevParam = prevSessionParam.current;
+    prevSessionParam.current = sessionParam;
+    if (urlSessionId === null) {
+      /*
+       * 无参数 = 欢迎页。但**只有从有到无的转变**才回欢迎页（用户点了「聊天」/删了会话）。
+       *
+       * 不能写成「只要无参数就把现有会话清掉」：URL 参数与 session 状态并非同一次渲染生效 ——
+       * 第一轮发消息时会出现「session 已建好、URL 参数还没写进去」的中间帧，那样会把刚建的会话清掉，
+       * 于是第二轮发消息时上文全没了（实测：多轮对话/排队/侧栏标记等 5 条 e2e 因此失败）。
+       */
+      if (prevParam !== null) {
+        startNewSession();
+      }
+      setBooted(true);
       return;
     }
+    if (session?.id === urlSessionId) {
+      setBooted(true);
+      return;
+    }
+    let cancelled = false;
     void (async () => {
-      userActed.current = true;
-      let target = useSessionStore.getState().sessions.find((item) => item.id === openRequest.id);
-      if (!target) {
-        const list = await refreshSessions();
-        target = list.find((item) => item.id === openRequest.id);
+      try {
+        let target = useSessionStore
+          .getState()
+          .sessions.find((item) => item.id === urlSessionId);
+        if (!target) {
+          const list = await refreshSessions();
+          target = list.find((item) => item.id === urlSessionId);
+        }
+        if (cancelled) {
+          return;
+        }
+        if (target) {
+          await openSession(target);
+        } else {
+          setError("这条会话不存在或已被删除");
+        }
+      } finally {
+        if (!cancelled) {
+          setBooted(true);
+        }
       }
-      if (target) {
-        await openSession(target);
-      }
-      useSessionStore.getState().consumeOpen();
     })();
-  }, [openRequest, openSession, refreshSessions]);
-
-  /** 跨页面「新建会话」：侧栏的 + 在任何页面都能用（标记消费掉，避免重新挂载时误触发）。 */
-  useEffect(() => {
-    if (!newSessionRequest) {
-      return;
-    }
-    startNewSession();
-    useSessionStore.getState().consumeNew();
-  }, [newSessionRequest, startNewSession]);
+    return () => {
+      cancelled = true;
+    };
+  }, [urlSessionId, sessionParam, session, openSession, refreshSessions, startNewSession]);
 
   /** 压缩上下文：拿到压缩后的用量并反馈。 */
   async function handleCompact() {
@@ -567,6 +567,8 @@ export default function ChatPage() {
       try {
         active = await createSession(agentId);
         setSession(active);
+        // id 立刻进 URL：可复制粘贴分享，刷新也能重新打开这条会话
+        setSearchParams({ session: String(active.id) }, { replace: true });
         await refreshSessions();
         agentRef.current = createChatAgent();
       } catch (err) {
@@ -881,11 +883,6 @@ export default function ChatPage() {
 
         <div className={isEmptyState ? "hidden" : "flex-1 overflow-auto"}>
           <div data-testid="chat-column" className="mx-auto w-full max-w-3xl space-y-4 p-4">
-            {chat.items.length === 0 && !isEmptyState && (
-              <Card className="text-muted-foreground p-6 text-center text-sm">
-                输入一句话开始对话。回复会以流式气泡出现。
-              </Card>
-            )}
             {renderItemNodes()}
             <div ref={bottomRef} />
           </div>
