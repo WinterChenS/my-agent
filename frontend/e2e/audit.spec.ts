@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
 test("审计看板展示 Token 数据并可筛选", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("密码").fill("Admin@123");
-  await page.getByRole("button", { name: "登录" }).click();
+  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page).toHaveURL(/\/chat/, { timeout: 15_000 });
 
   await page.goto("/admin/audit");
@@ -31,7 +31,7 @@ test("审计看板展示 Token 数据并可筛选", async ({ page }) => {
 
   // 筛选：把起始日期设到未来，数据应为 0（证明筛选真的生效）
   await page.getByLabel("起始日期").fill("2099-01-01");
-  await page.getByRole("button", { name: "查询" }).click();
+  await page.getByRole("button", { name: "查询", exact: true }).click();
   await expect(page.getByText("暂无数据").first()).toBeVisible({ timeout: 15_000 });
 
   await page.screenshot({ path: "../docs/acceptance/task-8.2-audit-filtered.png", fullPage: true });

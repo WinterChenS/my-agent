@@ -63,7 +63,7 @@ test.afterEach(async ({ request }) => {
 async function login(page: import("@playwright/test").Page) {
   await page.goto("/login");
   await page.getByLabel("密码").fill("Admin@123");
-  await page.getByRole("button", { name: "登录" }).click();
+  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page).toHaveURL(/\/chat/, { timeout: 15_000 });
 }
 
@@ -75,22 +75,22 @@ async function createProviderAndModel(
   maxTokens?: string,
 ) {
   const providerName = `e2e-prov-${stamp}`;
-  await page.getByRole("button", { name: "新建供应商" }).click();
+  await page.getByRole("button", { name: "新建供应商", exact: true }).click();
   await page.getByLabel("名称").fill(providerName);
   await page.getByLabel("Base URL").fill("http://localhost:8099/v1");
   await page.getByLabel(/API Key/).fill("sk-e2e");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已创建供应商")).toBeVisible({ timeout: 20_000 });
 
   await page.getByRole("tab", { name: /模型/ }).click();
-  await page.getByRole("button", { name: "新建模型" }).click();
+  await page.getByRole("button", { name: "新建模型", exact: true }).click();
   await page.getByLabel("模型 ID").fill(modelId);
   await page.getByLabel("显示名").fill(modelId);
   if (maxTokens) {
     await page.getByLabel(/最大输出 tokens/).fill(maxTokens);
   }
   await page.getByRole("dialog").locator("select").first().selectOption({ label: providerName });
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已创建模型")).toBeVisible({ timeout: 20_000 });
 
   return { providerName, modelId };
@@ -102,7 +102,7 @@ test("MCP 管理页：列表 / 新建 STDIO / 同步工具 / 工具清单 / 删�
   await expect(page.getByRole("heading", { name: "MCP 配置" })).toBeVisible({ timeout: 15_000 });
 
   const name = `e2e-mcp-${Date.now()}`;
-  await page.getByRole("button", { name: "新建" }).click();
+  await page.getByRole("button", { name: "新建", exact: true }).click();
   // 注意：页面上新增了筛选栏（含「名称包含」），所以要限定在弹窗里找「名称」
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("名称").fill(name);
@@ -110,7 +110,7 @@ test("MCP 管理页：列表 / 新建 STDIO / 同步工具 / 工具清单 / 删�
   await page
     .getByLabel("参数（每行一个）")
     .fill("/c\nnpx\n-y\n@modelcontextprotocol/server-everything\nstdio");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
 
   const row = page.getByRole("row", { name: new RegExp(name) });
   await expect(row).toBeVisible({ timeout: 20_000 });
@@ -118,7 +118,7 @@ test("MCP 管理页：列表 / 新建 STDIO / 同步工具 / 工具清单 / 删�
   // 同步工具 -> 工具清单
   // 注意：这个用例依赖 `npx -y @modelcontextprotocol/server-everything`，首次需要联网拉包，
   // 偶发超出 60s（同一套件里第二次跑就遇到过）。同步是幂等的，失败就再点一次。
-  const syncButton = row.getByRole("button", { name: /同步工具/ });
+  const syncButton = row.getByRole("button", { name: "同步工具", exact: true });
   await syncButton.click();
   try {
     await expect(page.getByText(/同步成功：\d+ 个工具/)).toBeVisible({ timeout: 60_000 });
@@ -132,7 +132,7 @@ test("MCP 管理页：列表 / 新建 STDIO / 同步工具 / 工具清单 / 删�
   await page.screenshot({ path: "../docs/acceptance/task-repair-mcp-page.png", fullPage: true });
 
   page.on("dialog", (d) => d.accept());
-  await row.getByRole("button", { name: "删除" }).click();
+  await row.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.getByText("已删除")).toBeVisible({ timeout: 20_000 });
 });
 
@@ -185,9 +185,9 @@ test("模型页：模型 ID 填错时给出可操作的提示，改对后测通"
   });
 
   // 改成可用 ID -> 测通
-  await row.getByRole("button", { name: "编辑" }).click();
+  await row.getByRole("button", { name: "编辑", exact: true }).click();
   await page.getByLabel("模型 ID").fill(goodId);
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已保存")).toBeVisible({ timeout: 20_000 });
 
   const fixedRow = page.getByRole("row", { name: new RegExp(goodId) });
@@ -211,7 +211,7 @@ test("模型页：模型 ID 含斜杠（如 deepseek/xxx）能正确保存与测
     .first()
     .click();
   await page.getByLabel("模型 ID").fill(slashId);
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已保存")).toBeVisible({ timeout: 20_000 });
 
   const row = page.getByRole("row", { name: new RegExp(slashId.replace("/", "\\/")) });
@@ -234,21 +234,21 @@ test("模型页：max_tokens 超出厂商范围时，测试阶段就报错（用
   const modelId = `e2e-maxtok-${stamp}`;
 
   // 新建时填一个“像上下文长度”的值：界面应立刻给提醒
-  await page.getByRole("button", { name: "新建供应商" }).click();
+  await page.getByRole("button", { name: "新建供应商", exact: true }).click();
   await page.getByLabel("名称").fill(`e2e-prov-${stamp}`);
   await page.getByLabel("Base URL").fill("http://localhost:8099/v1");
   await page.getByLabel(/API Key/).fill("sk-e2e");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已创建供应商")).toBeVisible({ timeout: 20_000 });
 
   await page.getByRole("tab", { name: /模型/ }).click();
-  await page.getByRole("button", { name: "新建模型" }).click();
+  await page.getByRole("button", { name: "新建模型", exact: true }).click();
   await page.getByLabel("模型 ID").fill(modelId);
   await page.getByLabel(/最大输出 tokens/).fill("1000000");
   // 界面警示（不靠外部知识就知道填错了）
   await expect(page.getByText(/看起来像“上下文长度”/)).toBeVisible({ timeout: 10_000 });
   await page.getByRole("dialog").locator("select").first().selectOption({ label: `e2e-prov-${stamp}` });
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已创建模型")).toBeVisible({ timeout: 20_000 });
 
   // 测试：此时必须暴露真实的非法配置（v1 因探针硬写 max_tokens=8 而给了假绿灯）
@@ -261,9 +261,9 @@ test("模型页：max_tokens 超出厂商范围时，测试阶段就报错（用
   });
 
   // 改成合理值 -> 测通
-  await row.getByRole("button", { name: "编辑" }).click();
+  await row.getByRole("button", { name: "编辑", exact: true }).click();
   await page.getByLabel(/最大输出 tokens/).fill("8192");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("已保存")).toBeVisible({ timeout: 20_000 });
   await row.getByRole("button", { name: "测试", exact: true }).click();
   await expect(page.getByText(/连通成功/)).toBeVisible({ timeout: 40_000 });
@@ -275,14 +275,14 @@ test("Skill 页：新建 / 版本显示 / 删除", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Skill 配置" })).toBeVisible({ timeout: 15_000 });
 
   const name = `e2e-skill-${Date.now()}`;
-  await page.getByRole("button", { name: "新建" }).click();
+  await page.getByRole("button", { name: "新建", exact: true }).click();
   await page.getByLabel("名称").fill(name);
   await page.getByLabel("说明").fill("E2E 创建");
   // 内容编辑器现在是所见即所得的 MDXEditor（contentEditable），往里打字即可
   const editor = page.getByTestId("skill-wysiwyg").locator('[contenteditable="true"]');
   await editor.click();
   await page.keyboard.type("回答时在末尾加【OK】。");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
 
   const row = page.getByRole("row", { name: new RegExp(name) });
   await expect(row).toBeVisible({ timeout: 20_000 });
@@ -291,7 +291,7 @@ test("Skill 页：新建 / 版本显示 / 删除", async ({ page }) => {
   await page.screenshot({ path: "../docs/acceptance/task-repair-skills-page.png", fullPage: true });
 
   page.on("dialog", (d) => d.accept());
-  await row.getByRole("button", { name: "删除" }).click();
+  await row.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.getByText("已删除")).toBeVisible({ timeout: 20_000 });
 });
 

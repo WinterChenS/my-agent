@@ -23,7 +23,7 @@ async function login(page: Page) {
   await page.goto("/login");
   await page.getByLabel("用户名").fill("admin");
   await page.getByLabel("密码").fill("Admin@123");
-  await page.getByRole("button", { name: /登录/ }).click();
+  await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL(/\/chat/, { timeout: 20_000 });
 }
 
@@ -81,7 +81,7 @@ test.describe("管理台错误分支（页面级）", () => {
   async function openModelForm(page: Page, modelId: string) {
     await page.goto("/admin/models");
     await page.getByRole("tab", { name: "模型" }).click();
-    await page.getByRole("button", { name: /新建模型/ }).click();
+    await page.getByRole("button", { name: "新建模型", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible({ timeout: 15_000 });
     // 供应商默认选第一个；显式选到我们造的那个
@@ -104,14 +104,14 @@ test.describe("管理台错误分支（页面级）", () => {
       const modelId = `e2e-err-model-${label}-${stamp}`;
       const dialog = await openModelForm(page, modelId);
       await page.getByLabel(field).fill(value);
-      await dialog.getByRole("button", { name: "保存" }).click();
+      await dialog.getByRole("button", { name: "保存", exact: true }).click();
       await expect(page.getByText(expected).first(), `${label} 应给出明确提示`).toBeVisible({
         timeout: 15_000,
       });
       console.log(`  [${label}] 提示:`, expected.source);
       // 弹窗不该关闭（说明没写进去）
       await expect(dialog).toBeVisible();
-      await dialog.getByRole("button", { name: "取消" }).click();
+      await dialog.getByRole("button", { name: "取消", exact: true }).click();
       await page.waitForTimeout(300);
     }
     // 确认没有任何一条落库
@@ -128,13 +128,13 @@ test.describe("管理台错误分支（页面级）", () => {
     const dialog = await openModelForm(page, `e2e-err-model-len-${stamp}`);
     await page.getByLabel("上下文长度").fill("1000");
     await page.getByLabel("最大输出").fill("5000");
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     // 前端会先拦一次（文案不带数值），后端也会给带数值的文案；任一出现即可
     await expect(page.getByText(/输出长度不能大于上下文长度|输出长度（5000）不能大于上下文长度（1000）/).first()).toBeVisible({
       timeout: 15_000,
     });
     console.log("  提示已出现（前端或后端）");
-    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
   });
 
   test("模型页：同一供应商下同名模型被拒", async ({ page }) => {
@@ -146,10 +146,10 @@ test.describe("管理台错误分支（页面级）", () => {
       data: { providerId, modelId, status: "ENABLED" },
     });
     const dialog = await openModelForm(page, modelId);
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText(/该供应商下已存在同名模型/)).toBeVisible({ timeout: 15_000 });
     console.log("  重名提示已出现");
-    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
   });
 
   test("Agent 页：重名 / 非法 temperature / 非法 maxTokens 各自提示", async ({ page }) => {
@@ -165,7 +165,7 @@ test.describe("管理台错误分支（页面级）", () => {
 
     const openAgentForm = async () => {
       await page.goto("/admin/agents");
-      await page.getByRole("button", { name: /新建/ }).click();
+      await page.getByRole("button", { name: "新建", exact: true }).click();
       const dialog = page.getByRole("dialog");
       await expect(dialog).toBeVisible({ timeout: 15_000 });
       return dialog;
@@ -195,10 +195,10 @@ test.describe("管理台错误分支（页面级）", () => {
     await page.getByLabel(/agentId/).fill(agentId);
     await page.getByLabel("系统提示词").fill("你是助手。");
     await page.getByLabel("模型").selectOption(String(model.data.id));
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText(/Agent 名称已存在/)).toBeVisible({ timeout: 15_000 });
     console.log("  [Agent] 重名提示已出现");
-    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
     await page.waitForTimeout(300);
 
     // 2) 非法 temperature（用另一个名字，避开重名）
@@ -208,10 +208,10 @@ test.describe("管理台错误分支（页面级）", () => {
     await page.getByLabel("系统提示词").fill("你是助手。");
     await page.getByLabel("模型").selectOption(String(model.data.id));
     await page.getByLabel("temperature").fill("3");
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText(/temperature 必须在 0~2 之间/)).toBeVisible({ timeout: 15_000 });
     console.log("  [Agent] 非法 temperature 提示已出现");
-    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
     await page.waitForTimeout(300);
 
     // 3) 非法 maxTokens
@@ -221,10 +221,10 @@ test.describe("管理台错误分支（页面级）", () => {
     await page.getByLabel("系统提示词").fill("你是助手。");
     await page.getByLabel("模型").selectOption(String(model.data.id));
     await page.getByLabel("最大输出 tokens（max_tokens）").fill("0");
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText(/maxTokens 必须为正整数/)).toBeVisible({ timeout: 15_000 });
     console.log("  [Agent] 非法 maxTokens 提示已出现");
-    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
   });
 
   test("模型页：非法货币被拒", async ({ page }) => {
@@ -233,7 +233,7 @@ test.describe("管理台错误分支（页面级）", () => {
     await page.getByLabel("价格货币").selectOption("USD").catch(async () => {
       // 下拉里没有 EUR 选项时，用接口直接验（前端限制了可选项，后端仍会校验）
     });
-    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
     // 前端下拉只给 CNY/USD，所以这一条从接口侧验证后端仍然会拦
     const res = await page.request.post(`${API}/api/models`, {
       headers,
@@ -249,19 +249,19 @@ test.describe("管理台错误分支（页面级）", () => {
     const skillName = `e2e-err-skill-${stamp}`;
     const openSkillForm = async () => {
       await page.goto("/admin/skills");
-      await page.getByRole("button", { name: /新建/ }).click();
+      await page.getByRole("button", { name: "新建", exact: true }).click();
       const dialog = page.getByRole("dialog");
       await expect(dialog).toBeVisible({ timeout: 15_000 });
       return dialog;
     };
     // 1) 名称空 → 前端先拦
     const dialog = await openSkillForm();
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText("名称不能为空")).toBeVisible({ timeout: 10_000 });
     console.log("  [技能] 名称空提示已出现");
     // 2) 说明空 → 前端先拦（平台强制要求说明非空）
     await page.locator('input[placeholder="reply-with-ok"]').fill(skillName);
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText(/说明不能为空/)).toBeVisible({ timeout: 10_000 });
     console.log("  [技能] 说明空提示已出现");
     // 3) 重名 → 后端拦
@@ -273,10 +273,10 @@ test.describe("管理台错误分支（页面级）", () => {
     ).json();
     createdSkills.push(created.data.id as number);
     await page.getByTestId("skill-description").fill("e2e 说明");
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText(/Skill 名称已存在/)).toBeVisible({ timeout: 15_000 });
     console.log("  [技能] 重名提示已出现");
-    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
   });
 
   test("技能页：被 Agent 绑定时不允许删除", async ({ page }) => {
@@ -327,7 +327,7 @@ test.describe("管理台错误分支（页面级）", () => {
     const mcpName = `e2e-err-mcp-${stamp}`;
     const openMcpForm = async () => {
       await page.goto("/admin/mcp");
-      await page.getByRole("button", { name: /新建/ }).click();
+      await page.getByRole("button", { name: "新建", exact: true }).click();
       const dialog = page.getByRole("dialog");
       await expect(dialog).toBeVisible({ timeout: 15_000 });
       return dialog;
@@ -335,7 +335,7 @@ test.describe("管理台错误分支（页面级）", () => {
     // 1) STDIO 缺 command
     const dialog = await openMcpForm();
     await dialog.getByLabel("名称").fill(mcpName);
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText(/STDIO 传输必须提供 command/)).toBeVisible({ timeout: 15_000 });
     console.log("  [MCP] STDIO 缺 command 提示已出现");
     // 2) 重名
@@ -347,10 +347,10 @@ test.describe("管理台错误分支（页面级）", () => {
     ).json();
     createdMcps.push(created.data.id as number);
     await dialog.getByLabel("命令").fill("cmd");
-    await dialog.getByRole("button", { name: "保存" }).click();
+    await dialog.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByText(/MCP Server 名称已存在/)).toBeVisible({ timeout: 15_000 });
     console.log("  [MCP] 重名提示已出现");
-    await dialog.getByRole("button", { name: "取消" }).click();
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
     await page.waitForTimeout(300);
     // 3) 被 Agent 绑定时不允许删除
     const model = await (

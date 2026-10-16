@@ -193,11 +193,23 @@ test("多轮对话：发第二条不会清空之前的对话（回归）", async
   await page.screenshot({ path: "../docs/acceptance/chat-bubbles.png", fullPage: true });
 });
 
-test("布局：会话区收窄并居中，输入框与消息区同宽同位置", async ({ page, request }) => {
+test("布局：会话历史在菜单栏下半部分；输入框与消息区同宽同位置", async ({ page, request }) => {
   // 用一个宽窗口，否则看不出“太宽”的问题
   await page.setViewportSize({ width: 1920, height: 1080 });
   const { agentId } = await createStubAgent(request, Date.now());
-  await loginAndSelectAgent(page, agentId);
+  const input = await loginAndSelectAgent(page, agentId);
+
+  // 先发一条：欢迎页下消息区是隐藏的，要量布局得先真正开始一段对话
+  await input.fill("布局检查");
+  await input.press("Enter");
+  await expect(page.getByTestId("chat-column")).toBeVisible({ timeout: 30_000 });
+
+  // ① 会话历史驻在**菜单栏下半部分**（在菜单项下方）
+  const navBox = (await page.locator("aside nav").first().boundingBox())!;
+  const listBox = (await page.getByTestId("session-list").boundingBox())!;
+  expect(listBox.y, "会话历史应位于菜单项下方").toBeGreaterThanOrEqual(
+    navBox.y + navBox.height - 1,
+  );
 
   const section = page.locator("main > div > section");
   const sBox = (await section.boundingBox())!;

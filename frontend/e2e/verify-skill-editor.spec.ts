@@ -35,7 +35,7 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   await page.goto("/login");
   await page.getByLabel("用户名").fill("admin");
   await page.getByLabel("密码").fill("Admin@123");
-  await page.getByRole("button", { name: /登录/ }).click();
+  await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL(/\/chat/);
 
   // ① 分页
@@ -45,7 +45,7 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   console.log("[① 分页]", (await page.getByTestId("skills-pagination").innerText()).replace(/\s+/g, " "));
 
   // 新建一个技能，用所见即所得编辑器写内容
-  await page.getByRole("button", { name: /新建/ }).click();
+  await page.getByRole("button", { name: "新建", exact: true }).click();
   await page.getByTestId("skill-wysiwyg").waitFor({ timeout: 20000 });
   const editable = page.locator('[contenteditable="true"]').first();
 
@@ -131,7 +131,7 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   await page.screenshot({ path: "../docs/acceptance/task-27-skill-wysiwyg.png" });
 
   // 保存
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText(/已创建 Skill|已保存/).first()).toBeVisible({ timeout: 15000 });
 
   // ④ 重新打开 → 内容仍是 Markdown 且渲染正确
@@ -159,7 +159,7 @@ test("技能页：分页 + 所见即所得编辑 + / 插工具 + 保存往返", 
   // 原写法把 page.on("dialog") 放在点击之后，确认框没人接受 → 技能其实没删掉，
   // 于是 `mdx-verify-*` 一直在库里堆积（实测）。
   page.on("dialog", (d) => void d.accept());
-  await page.getByRole("button", { name: "取消" }).click();
+  await page.getByRole("button", { name: "取消", exact: true }).click();
   await page.locator("tr", { hasText: skillName }).getByTitle("删除").click();
   await page.waitForTimeout(1000);
 });

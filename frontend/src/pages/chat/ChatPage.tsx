@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HttpAgent } from "@ag-ui/client";
-import { Bot, ChevronDown, Clock, Plus, Send, Square, Trash2 } from "lucide-react";
+import { Bot, ChevronDown, Clock, Plus, Send, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,14 +31,11 @@ import {
   clearContext,
   compactContext,
   createSession,
-  deleteSession,
   getContextUsage,
   getRunState,
   interruptSession,
   listAgents,
   listMessages,
-  listRunningThreads,
-  listSessions,
 } from "@/api/sessions";
 import { decideApproval } from "@/api/approvals";
 import { uploadArtifact } from "@/api/artifacts";
@@ -49,7 +46,7 @@ import {
 } from "@/lib/attachments/staging";
 import { buildAttachmentBlock } from "@/lib/attachments/message";
 import { filesFromDataTransfer, normalizeIncomingFiles } from "@/lib/attachments/sources";
-import { groupSessionsByTime } from "@/lib/chat/sessionGroups";
+import { useSessionStore } from "@/stores/sessions";
 import { listSkills, type SkillInfo } from "@/api/skills";
 import { partsAreEmpty, partsSkillIds, partsToText, type MentionPart } from "@/lib/skills/selection";
 
@@ -74,7 +71,21 @@ async function fileToImagePart(file: File) {
 const MAX_IMAGES_PER_RUN = 5;
 
 export default function ChatPage() {
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  // 会话列表已提到全局 store：它现在渲染在**菜单栏下半部分**（任意页面可见、可点开）
+  const refreshSessions = useSessionStore((s) => s.refresh);
+  const setSelectedSessionId = useSessionStore((s) => s.setSelectedId);
+  const openRequest = useSessionStore((s) => s.openRequest);
+  const newSessionRequest = useSessionStore((s) => s.newRequest);
+  /** 首屏加载完成前不显示欢迎页，避免"空会话"闪一下 */
+  const [booted, setBooted] = useState(false);
+  /**
+   * 用户是否已经主动操作过（点历史会话 / 点新建会话）。
+   *
+   * <p>首屏会自动恢复"最近一次会话"，而这一过程是异步的：如果用户在它完成前就点了
+   * 「新建会话」，恢复流程结束时会把 session 又设回去 —— 表现为新建失效、Agent 下拉框
+   * 仍是禁用（实测：13 条 e2e 因此失败）。用一个标记让首屏恢复主动让位。
+   */
+  const userActed = useRef(false);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [agentId, setAgentId] = useState<number | null>(null);
   const [session, setSession] = useState<ChatSession | null>(null);
@@ -109,7 +120,6 @@ export default function ChatPage() {
     queuedRef.current = queued;
   }, [queued]);
   /** 正在跑的 threadId 集合（侧栏标记「正在跑」，本进程运行态）。 */
-  const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   /** 支出额度状态（tier1-upgrades ④）。 */
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   /** 正在后台跑、需要盯着结束的会话（id → 标题）。 */
@@ -127,14 +137,6 @@ export default function ChatPage() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const bootstrapped = useRef(false);
-
-  const refreshSessions = useCallback(async () => {
-    try {
-      setSessions(await listSessions());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "加载会话失败");
-    }
-  }, []);
 
   useEffect(() => {
     listAgents()
@@ -254,29 +256,10 @@ export default function ChatPage() {
 
 
 
-  /** 轮询「正在跑」的会话：在侧栏给它们画一个转圈标记（C2）。 */
-  useEffect(() => {
-    let stopped = false;
-    const tick = async () => {
-      try {
-        const ids = await listRunningThreads();
-        if (!stopped) {
-          setRunningThreads(new Set(ids));
-        }
-      } catch {
-        // 后端不可用时不打扰用户：保留上一次结果
-      }
-    };
-    void tick();
-    const timer = window.setInterval(tick, 3000);
-    return () => {
-      stopped = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  function startNewSession() {
+  const startNewSession = useCallback(() => {
+    userActed.current = true;
     setSession(null);
+    setSelectedSessionId(null);
     setChat(initialChatState);
     agentRef.current = createChatAgent();
     setError(null);
@@ -286,19 +269,7 @@ export default function ChatPage() {
     // 新会话把上下文用量也清掉，避免残留到空白新会话里
     setContextUsage(null);
     setContextNotice(null);
-  }
-
-  async function removeSession(target: ChatSession) {
-    try {
-      await deleteSession(target.id);
-      if (session?.id === target.id) {
-        startNewSession();
-      }
-      await refreshSessions();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "删除会话失败");
-    }
-  }
+  }, [setSelectedSessionId]);
 
   /** 发起一轮 /agui/run；text 与 resume 二选一。 */
   /** 刷新上下文用量（打开会话、每轮结束后调用）。 */
@@ -330,6 +301,7 @@ export default function ChatPage() {
     // 如果**目标会话自己**确实在跑，下面的 resumeRunningRun 会再置回 true。
     setBusy(false);
     setSession(target);
+    setSelectedSessionId(target.id);
     agentRef.current = createChatAgent();
     try {
       const messages = await listMessages(target.id);
@@ -342,7 +314,7 @@ export default function ChatPage() {
       void refreshQuota(target.agentId ?? null);
     },
     // 三个 refresh 已用 useCallback 稳定（依赖为空），所以 openSession 也是稳定的
-    [refreshContext, refreshQuota],
+    [refreshContext, refreshQuota, setSelectedSessionId],
   );
 
   // 首次加载：恢复最近一次会话，让刷新后历史仍在（Task 4.3 门禁）。
@@ -353,18 +325,53 @@ export default function ChatPage() {
     bootstrapped.current = true;
     void (async () => {
       try {
-        const list = await listSessions();
-        setSessions(list);
-        if (list.length > 0) {
+        const list = await refreshSessions();
+        // 用户已经点过（历史会话 / 新建会话）就让位：交给对应的 effect 处理，别抢
+        if (list.length > 0 && !useSessionStore.getState().openRequest && !userActed.current) {
           await openSession(list[0]);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "加载会话失败");
+      } finally {
+        setBooted(true);
       }
     })();
-    // openSession 已用 useCallback 稳定；列出来既消除 exhaustive-deps 警告，
+    // openSession / refreshSessions 已用 useCallback 稳定；列出来既消除 exhaustive-deps 警告，
     // 也避免 effect 捕获旧闭包（bootstrapped 守卫保证只跑一次）
-  }, [openSession]);
+  }, [openSession, refreshSessions]);
+
+  /**
+   * 跨页面「打开某条会话」：侧栏（菜单栏下半部分）点击后跳 /chat，
+   * 由这里真正打开 —— 拉历史消息、接续在跑的 run、刷新上下文用量。
+   *
+   * <p>列表里找不到时先刷一次：可能是别的标签页/别处新建的会话。
+   */
+  useEffect(() => {
+    if (!openRequest) {
+      return;
+    }
+    void (async () => {
+      userActed.current = true;
+      let target = useSessionStore.getState().sessions.find((item) => item.id === openRequest.id);
+      if (!target) {
+        const list = await refreshSessions();
+        target = list.find((item) => item.id === openRequest.id);
+      }
+      if (target) {
+        await openSession(target);
+      }
+      useSessionStore.getState().consumeOpen();
+    })();
+  }, [openRequest, openSession, refreshSessions]);
+
+  /** 跨页面「新建会话」：侧栏的 + 在任何页面都能用（标记消费掉，避免重新挂载时误触发）。 */
+  useEffect(() => {
+    if (!newSessionRequest) {
+      return;
+    }
+    startNewSession();
+    useSessionStore.getState().consumeNew();
+  }, [newSessionRequest, startNewSession]);
 
   /** 压缩上下文：拿到压缩后的用量并反馈。 */
   async function handleCompact() {
@@ -819,66 +826,11 @@ export default function ChatPage() {
     return nodes;
   }
 
+  /** 欢迎页：还没有任何对话内容时，把输入框居中并给出引导文案（对齐 ChatGPT 的空白态） */
+  const isEmptyState = booted && !session && chat.items.length === 0;
+
   return (
     <div className="flex h-screen">
-      <aside className="flex w-64 shrink-0 flex-col border-r">
-        <div className="flex items-center justify-between border-b p-2">
-          <span className="text-sm font-medium">会话</span>
-          <Button variant="ghost" size="icon" onClick={startNewSession} title="新建会话">
-            <Plus className="size-4" />
-          </Button>
-        </div>
-        <div className="flex-1 overflow-auto p-2">
-          {sessions.length === 0 && (
-            <p className="text-muted-foreground p-2 text-xs">还没有会话，直接在右侧输入即可新建。</p>
-          )}
-          {groupSessionsByTime(sessions).map((group) => (
-            <div key={group.label} className="mb-2">
-              {/* Phase 13：按时间分组，避免一长条散列 */}
-              <p
-                data-testid="session-group"
-                className="text-muted-foreground px-2 py-1 text-[11px] font-medium"
-              >
-                {group.label}
-              </p>
-              {group.items.map((item) => (
-            <div
-              key={item.id}
-              className={`group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm ${
-                session?.id === item.id ? "bg-accent" : "hover:bg-accent/60"
-              }`}
-            >
-              <button
-                data-testid="session-item"
-                className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left"
-                onClick={() => void openSession(item)}
-                title={item.threadId ?? ""}
-              >
-                {item.threadId && runningThreads.has(item.threadId) && (
-                  <span
-                    data-testid="session-running"
-                    title="这一轮正在后台跑"
-                    aria-label="正在跑"
-                    className="border-primary size-3 shrink-0 animate-spin rounded-full border-2 border-t-transparent"
-                  />
-                )}
-                <span className="truncate">{item.title ?? `会话 ${item.id}`}</span>
-              </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-6 opacity-0 group-hover:opacity-100"
-                onClick={() => void removeSession(item)}
-                title="删除会话"
-              >
-                <Trash2 className="size-3" />
-              </Button>
-            </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </aside>
 
       <section
         className="relative flex min-w-0 flex-1 flex-col"
@@ -910,9 +862,26 @@ export default function ChatPage() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto">
+        {/* 欢迎页：上撑开 + 文案，配合输入框下方的撑开块，使输入框垂直居中 */}
+        {isEmptyState && <div className="flex-1" />}
+        {isEmptyState && (
+          <div className="mx-auto w-full max-w-3xl px-4 pb-5 text-center" data-testid="welcome">
+            <h1 className="text-2xl font-semibold tracking-tight">开始新的对话</h1>
+            <p className="text-muted-foreground mt-2 text-sm">
+              选一个 Agent，直接说清你想要什么。回复会以流式气泡出现，产物自动收进右侧列表。
+            </p>
+            <div className="text-muted-foreground mt-4 flex flex-wrap justify-center gap-2 text-xs">
+              <span className="bg-muted rounded-full px-2.5 py-1">拖拽文件即可添加附件</span>
+              <span className="bg-muted rounded-full px-2.5 py-1">输入 / 引用技能</span>
+              <span className="bg-muted rounded-full px-2.5 py-1">执行中可排队、可撤回</span>
+              <span className="bg-muted rounded-full px-2.5 py-1">断开也不中断，回来接着看</span>
+            </div>
+          </div>
+        )}
+
+        <div className={isEmptyState ? "hidden" : "flex-1 overflow-auto"}>
           <div data-testid="chat-column" className="mx-auto w-full max-w-3xl space-y-4 p-4">
-            {chat.items.length === 0 && (
+            {chat.items.length === 0 && !isEmptyState && (
               <Card className="text-muted-foreground p-6 text-center text-sm">
                 输入一句话开始对话。回复会以流式气泡出现。
               </Card>
@@ -1146,6 +1115,9 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
+
+        {/* 欢迎页下方撑开：与上方撑开块配合，把「文案 + 输入框」整体居中 */}
+        {isEmptyState && <div className="flex-1" />}
       </section>
 
       <SourceArtifactPanel

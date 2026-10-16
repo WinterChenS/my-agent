@@ -13,7 +13,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { SessionList } from "@/components/chat/SessionList";
 import { useAuthStore } from "@/stores/auth";
+import { useSessionStore } from "@/stores/sessions";
 import LoginPage from "@/pages/login/LoginPage";
 
 /**
@@ -76,8 +78,11 @@ function AppLayout() {
   return (
     <div className="flex h-screen">
       <aside className="bg-sidebar text-sidebar-foreground flex w-56 shrink-0 flex-col border-r">
-        <div className="flex h-14 items-center px-4 text-base font-semibold">my-agent</div>
-        <nav className="flex flex-1 flex-col gap-1 p-2">
+        <div className="flex h-14 shrink-0 items-center px-4 text-base font-semibold">
+          my-agent
+        </div>
+        {/* 菜单（上半部分）：条目数量固定，允许被压缩，把更多空间留给会话历史 */}
+        <nav className="flex flex-col gap-1 overflow-y-auto p-2 pt-0">
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
@@ -96,12 +101,24 @@ function AppLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="flex items-center gap-2 border-t p-2 text-xs">
+        {/* 会话历史（下半部分）：全局可见、跨页面可点开、可刷新 */}
+        <SessionList />
+        <div className="flex shrink-0 items-center gap-2 border-t p-2 text-xs">
           <span className="flex-1 truncate" title={user?.username}>
             {user?.displayName ?? user?.username}
             <span className="text-muted-foreground"> ({user?.role})</span>
           </span>
-          <Button variant="ghost" size="icon" className="size-7" onClick={clear} title="退出登录">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => {
+              // 退出时清掉会话缓存，避免下一个账号看到上一个账号的历史
+              useSessionStore.getState().reset();
+              clear();
+            }}
+            title="退出登录"
+          >
             <LogOut className="size-3.5" />
           </Button>
         </div>

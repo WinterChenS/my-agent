@@ -55,11 +55,11 @@ test("用 AI 生成技能并自动填入编辑器", async ({ page, request }) =>
     await page.goto("/login");
     await page.getByLabel("用户名").fill("admin");
     await page.getByLabel("密码").fill("Admin@123");
-    await page.getByRole("button", { name: /登录/ }).click();
+    await page.getByRole("button", { name: "登录", exact: true }).click();
     await page.waitForURL(/\/chat/);
 
     await page.goto("/admin/skills");
-    await page.getByRole("button", { name: /新建/ }).click();
+    await page.getByRole("button", { name: "新建", exact: true }).click();
     await page.getByTestId("skill-ai-panel").waitFor({ timeout: 20_000 });
 
     // 面板上应写明交给模型的工具数量（本地 N + MCP M）
@@ -99,7 +99,7 @@ test("用 AI 生成技能并自动填入编辑器", async ({ page, request }) =>
     expect(editorText).toContain("read_file");
 
     await page.screenshot({ path: "../docs/acceptance/task-32-skill-ai-generate.png" });
-    await page.getByRole("button", { name: "取消" }).click();
+    await page.getByRole("button", { name: "取消", exact: true }).click();
   } finally {
     // 清理自己造的数据，别给库添垃圾
     await request.delete(`${API}/api/models/${modelId}`, { headers });
