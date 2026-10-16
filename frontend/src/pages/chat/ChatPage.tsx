@@ -997,26 +997,6 @@ export default function ChatPage() {
             {/* 输入框：圆角外框 + 自动高度（内容多了自己长高，到上限内部滚动）；
                 底部控制行也放在**框内**（附件 / Agent / 上下文圆环 / 停止 / 发送）。 */}
             <div className="focus-within:border-ring focus-within:ring-ring/30 rounded-2xl border bg-background shadow-sm transition focus-within:ring-[3px]">
-              <div className="px-2 pt-2 empty:hidden">
-                <AttachmentStaging
-                  items={staged}
-                  disabled={uploading}
-                  onRemove={(key) => setStaged((prev) => removeAttachment(prev, key))}
-                />
-              </div>
-              <SkillMentionInput
-                ref={inputRef}
-                parts={parts}
-                onPartsChange={setParts}
-                skills={skills}
-                disabled={false}
-                placeholder="输入消息，回车发送（输入 / 可选择技能）"
-                onSubmit={() => void send()}
-                onPasteFiles={stageIncoming}
-                onContentChange={setHasInput}
-                bare
-              />
-
               {/* 待发送队列（处理中时发的消息会排在这里，可撤回） */}
               {queued.length > 0 && (
                 <div className="space-y-1 px-2 py-1.5" data-testid="queued-list">
@@ -1054,6 +1034,26 @@ export default function ChatPage() {
                   ))}
                 </div>
               )}
+
+              <div className="px-2 pt-2 empty:hidden">
+                <AttachmentStaging
+                  items={staged}
+                  disabled={uploading}
+                  onRemove={(key) => setStaged((prev) => removeAttachment(prev, key))}
+                />
+              </div>
+              <SkillMentionInput
+                ref={inputRef}
+                parts={parts}
+                onPartsChange={setParts}
+                skills={skills}
+                disabled={false}
+                placeholder="输入消息，回车发送（输入 / 可选择技能）"
+                onSubmit={() => void send()}
+                onPasteFiles={stageIncoming}
+                onContentChange={setHasInput}
+                bare
+              />
 
               <div className="flex items-center gap-2 px-2 py-1.5">
                 <input
