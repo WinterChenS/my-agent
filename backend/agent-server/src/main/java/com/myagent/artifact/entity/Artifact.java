@@ -48,6 +48,13 @@ public class Artifact {
 
     private Long sourceMessageId;
 
+    /**
+     * 产出这一条产物的那一轮 run id（Agent 主动交付时由平台写入）。
+     *
+     * <p>前端据此把它展示在对应那一轮的 assistant 气泡下方（消息侧 agui_meta.runId 与之对应）。
+     */
+    private String runId;
+
     private OffsetDateTime createdAt;
 
     private OffsetDateTime updatedAt;
@@ -170,6 +177,14 @@ public class Artifact {
 
     public void setSourceMessageId(Long sourceMessageId) {
         this.sourceMessageId = sourceMessageId;
+    }
+
+    public String getRunId() {
+        return runId;
+    }
+
+    public void setRunId(String runId) {
+        this.runId = runId;
     }
 
     public OffsetDateTime getCreatedAt() {

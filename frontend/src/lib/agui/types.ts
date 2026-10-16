@@ -67,6 +67,13 @@ export type ChatItem =
       role: "user" | "assistant";
       content: string;
       streaming: boolean;
+      /**
+       * 产出这条消息的那一轮 run id。
+       *
+       * <p>用它把该轮的产物挂到气泡下方（artifact.runId 与之一致）：
+       * 历史回放时来自消息的 aguiMeta.runId，实时流式时来自当前 run。
+       */
+      runId?: string | null;
       /** 这一轮被用户停止（Phase 12 / D25），气泡上标注「已停止」 */
       stopped?: boolean;
     }

@@ -17,6 +17,7 @@ import java.time.OffsetDateTime;
  * @param errorMessage 失败原因
  * @param previewable 是否可在线预览（文本类直接已有正文）
  * @param content DB 存储时的正文（MINIO 时为 null）
+ * @param runId 产出它的那一轮 run id（Agent 主动交付的产物才有；用于挂到对应气泡下方）
  * @param createdAt 创建时间
  */
 public record ArtifactResponse(
@@ -32,4 +33,5 @@ public record ArtifactResponse(
         String errorMessage,
         boolean previewable,
         String content,
+        String runId,
         OffsetDateTime createdAt) {}

@@ -16,6 +16,8 @@ export interface ArtifactInfo {
   /** 文本类产物可在线预览（正文就在 content 里） */
   previewable: boolean;
   content: string | null;
+  /** 产出它的那一轮 run id（Agent 主动交付的产物才有）→ 用于挂到对应气泡下方 */
+  runId: string | null;
   createdAt: string;
 }
 
@@ -62,6 +64,23 @@ export async function downloadArtifact(id: number, fileName: string) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * 取产物字节并转成 blob URL（图片等二进制预览用）。
+ *
+ * <p>不能直接把 `/api/artifacts/{id}/download` 塞进 `<img src>`：它要带 Authorization 头。
+ * 用完记得 `URL.revokeObjectURL`。
+ */
+export async function fetchArtifactBlobUrl(id: number): Promise<string> {
+  const token = useAuthStore.getState().token;
+  const response = await fetch(`/api/artifacts/${id}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!response.ok) {
+    throw new Error(`加载产物失败（HTTP ${response.status}）`);
+  }
+  return URL.createObjectURL(await response.blob());
 }
 
 /** 人类可读大小，用于右侧栏展示。 */

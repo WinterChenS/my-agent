@@ -65,6 +65,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     // Phase 11 / D23：会话状态与长期记忆入库（官方 SPI 的 PostgreSQL 实现）
     private final com.myagent.agui.memory.PgAgentStateStore pgAgentStateStore;
     private final io.agentscope.harness.agent.filesystem.remote.RemoteFilesystem memoryRemoteFilesystem;
+    /** 官方「Agent 主动交付产物」的接收端（见 PlatformArtifactDeliveryTarget）。 */
+    private final com.myagent.artifact.PlatformArtifactDeliveryTarget artifactDeliveryTarget;
 
         /** 缓存键：{@code "12"} 或 {@code "12|3,5"}（含会话级技能时），见 build(Long, List)。 */
     private final Map<String, HarnessAgent> cache = new ConcurrentHashMap<>();
@@ -83,7 +85,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             McpServerMapper mcpServerMapper,
             McpToolkitFactory mcpToolkitFactory,
             com.myagent.agui.memory.PgAgentStateStore pgAgentStateStore,
-            io.agentscope.harness.agent.filesystem.remote.RemoteFilesystem memoryRemoteFilesystem) {
+            io.agentscope.harness.agent.filesystem.remote.RemoteFilesystem memoryRemoteFilesystem,
+            com.myagent.artifact.PlatformArtifactDeliveryTarget artifactDeliveryTarget) {
         this.agentMapper = agentMapper;
         this.llmModelMapper = llmModelMapper;
         this.llmProviderMapper = llmProviderMapper;
@@ -98,6 +101,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         this.mcpToolkitFactory = mcpToolkitFactory;
         this.pgAgentStateStore = pgAgentStateStore;
         this.memoryRemoteFilesystem = memoryRemoteFilesystem;
+        this.artifactDeliveryTarget = artifactDeliveryTarget;
     }
 
     /** 按 Agent 主键构建（带缓存）。 */
@@ -248,6 +252,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 // 追加平台级「交互卡片」指引：不依赖用户是否绑定了对应技能，
                 // 每个 Agent 都知道自己手上有卡片工具、以及什么时候该用（用户反馈"不会主动用卡片"）
                 .sysPrompt(withCardGuidance(agent.getSysPrompt()))
+                // 官方产物交付：配了它，框架会向 Agent 注册内置工具 deliverArtifact，
+                // Agent 主动交付的成果会进 artifact 表（并记下所属 run，供气泡下方展示）
+                .artifactDeliveryTarget(artifactDeliveryTarget)
                 .model(chatModel)
                 .maxIters(agent.getMaxIterations() == null ? 20 : agent.getMaxIterations())
                 .workspace(java.nio.file.Path.of(aguiProperties.workspaceRoot()))

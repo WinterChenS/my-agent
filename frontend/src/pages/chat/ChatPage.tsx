@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
+import { ArtifactBox, ArtifactPreviewDrawer } from "@/components/chat/ArtifactBox";
+import { listArtifacts, type ArtifactInfo } from "@/api/artifacts";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import {
   SkillMentionInput,
@@ -129,6 +131,14 @@ export default function ChatPage() {
   // Phase 10：`/` 选技能（D21）、上传中状态、右侧栏刷新信号
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [artifactRefresh, setArtifactRefresh] = useState(0);
+  /**
+   * 本会话的产物（用于**气泡下方**的产物框）。
+   *
+   * <p>与右侧栏各自取一份数据：那边是"整个会话的清单"，这边要按 `runId` 精确挂到产出它的那一轮。
+   */
+  const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
+  /** 右侧预览抽屉里正在看的产物（点气泡下方的预览打开） */
+  const [previewArtifact, setPreviewArtifact] = useState<ArtifactInfo | null>(null);
   const [uploading, setUploading] = useState(false);
   // Phase 13：拖拽进聊天区时高亮提示
   const [dragging, setDragging] = useState(false);
@@ -161,6 +171,29 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView?.({ behavior: "smooth" });
   }, [chat.items]);
+
+  // 取本会话产物：换会话、以及每轮结束（artifactRefresh 自增）时刷新，供气泡下方展示
+  useEffect(() => {
+    if (session?.id == null) {
+      setArtifacts([]);
+      return;
+    }
+    let cancelled = false;
+    listArtifacts(session.id)
+      .then((list) => {
+        if (!cancelled) {
+          setArtifacts(list.filter((item) => item.role === "ARTIFACT"));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setArtifacts([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.id, artifactRefresh]);
 
   /**
    * 接续正在跑的 run（Phase 14）。
@@ -811,6 +844,19 @@ export default function ChatPage() {
             stopped={item.stopped}
           />,
         );
+        // 气泡下方：这一轮的产物（Agent 主动交付的，runId 与本条消息一致）
+        const own = item.role === "assistant" && item.runId
+          ? artifacts.filter((artifact) => artifact.runId === item.runId)
+          : [];
+        if (own.length > 0) {
+          nodes.push(
+            <ArtifactBox
+              key={`${item.id}-artifacts`}
+              items={own}
+              onOpen={setPreviewArtifact}
+            />,
+          );
+        }
       } else if (item.kind === "approval" || item.kind === "card") {
         // 交互卡片不再渲染在气泡流里：统一由输入框上方的悬浮层呈现（见 cardOverlay）
         i += 1;
@@ -1122,6 +1168,9 @@ export default function ChatPage() {
         refreshKey={artifactRefresh}
         onError={setError}
       />
+
+      {/* 点击气泡下方的预览 → 从右侧滑出完整预览 */}
+      <ArtifactPreviewDrawer item={previewArtifact} onClose={() => setPreviewArtifact(null)} />
     </div>
   );
 }

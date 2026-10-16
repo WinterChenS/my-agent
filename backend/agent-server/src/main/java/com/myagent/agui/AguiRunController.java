@@ -201,11 +201,11 @@ public class AguiRunController {
                             // tier1-upgrades ③：这一轮的失败原因也要落库（状态记 ERROR）
                             runningRuns.markError(threadId, String.valueOf(error.getMessage()));
                             sendRunError(emitter, threadId, input.getRunId(), error, streamGuard);
-                            finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText,
-                                    customEventNames, interrupts, finished);
+                            finish(emitter, session.getId(), userId, threadId, input.getRunId(),
+                                    workspaceSnapshot, assistantText, customEventNames, interrupts, finished);
                         },
-                        () -> finish(emitter, session.getId(), userId, threadId, workspaceSnapshot, assistantText,
-                                customEventNames, interrupts, finished));
+                        () -> finish(emitter, session.getId(), userId, threadId, input.getRunId(),
+                                workspaceSnapshot, assistantText, customEventNames, interrupts, finished));
 
         // Phase 14：客户端断开（刷新页面/切页/关标签页）时**不要立刻** dispose + 中断——
         // 实测那样做会让这一轮永远不落库（finish() 不执行 → 答案丢失，用户看到"对话没有接续"）。
@@ -285,6 +285,7 @@ public class AguiRunController {
             Long sessionId,
             Long userId,
             String threadId,
+            String runId,
             Map<String, Long> workspaceSnapshot,
             StringBuilder assistantText,
             List<String> customEventNames,
@@ -297,7 +298,7 @@ public class AguiRunController {
         boolean stopped = runningRuns.consumeStopped(threadId);
         try {
             chatSessionService.appendMessage(
-                    sessionId, "ASSISTANT", assistantText.toString(), meta(customEventNames, stopped));
+                    sessionId, "ASSISTANT", assistantText.toString(), meta(customEventNames, stopped, runId));
             chatSessionService.touch(sessionId);
         } catch (Exception ex) {
             log.error("落库 assistant 消息失败 sessionId={}", sessionId, ex);
@@ -414,11 +415,15 @@ public class AguiRunController {
         }
     }
 
-    private static Map<String, Object> meta(List<String> customEventNames, boolean stopped) {
-        if (customEventNames.isEmpty() && !stopped) {
+    private static Map<String, Object> meta(List<String> customEventNames, boolean stopped, String runId) {
+        if (customEventNames.isEmpty() && !stopped && runId == null) {
             return null;
         }
         Map<String, Object> meta = new LinkedHashMap<>();
+        if (runId != null) {
+            // 这一轮的气泡据此挂上本轮的产物（artifact.run_id 与它对应）
+            meta.put("runId", runId);
+        }
         if (!customEventNames.isEmpty()) {
             meta.put("customEvents", customEventNames);
         }

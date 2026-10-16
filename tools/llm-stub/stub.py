@@ -67,6 +67,9 @@ STUB_SLOW_MODEL = os.environ.get("STUB_SLOW_MODEL", "slow-")
 # 模型名含它（默认 card-）时，桩主动发一次 `demo_confirm_card` 工具调用。
 # 用于验证"交互卡片悬浮在输入框上方"，且不必改全局 STUB_TOOL_NAME 去污染别的用例。
 STUB_CARD_MODEL = os.environ.get("STUB_CARD_MODEL", "card-")
+# 模型名含它（默认 script-）时，桩走「两轮脚本」：先 write_file 写一个文件，再 deliver_artifact
+# 把它作为**产物**交付（官方产物交付链路）。用于验证"产物落到哪一轮"与气泡下方的展示。
+STUB_SCRIPT_MODEL = os.environ.get("STUB_SCRIPT_MODEL", "script-")
 STUB_SLOW_DELAY_MS = int(os.environ.get("STUB_SLOW_DELAY_MS", "2500"))
 STUB_CODE_FENCE = os.environ.get(
     "STUB_CODE_FENCE",
@@ -178,6 +181,9 @@ class Handler(BaseHTTPRequestHandler):
         """
         model = str(body.get("model", ""))
         card_mode = bool(STUB_CARD_MODEL) and STUB_CARD_MODEL.lower() in model.lower()
+        script_mode = bool(STUB_SCRIPT_MODEL) and STUB_SCRIPT_MODEL.lower() in model.lower()
+        if script_mode:
+            return self._script_tool_call(body, model)
         if not STUB_TOOL_NAME and not card_mode:
             return None
         tools = body.get("tools") or []
@@ -199,6 +205,44 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"TOOL-CALL-HIT={name}", flush=True)
                 return {
                     "id": f"call_stub_{tool_done + 1}",
+                    "type": "function",
+                    "function": {"name": name, "arguments": args},
+                }
+        return None
+
+    def _script_tool_call(self, body, model):
+        """
+        两轮脚本：① write_file 写一个文件；② deliver_artifact 把它作为产物交付。
+
+        参数名取自官方/框架实际下发的 schema（实测 dump 得到）：
+          write_file(path, content)
+          deliver_artifact(filePath, fileName, description, force)
+        """
+        tools = body.get("tools") or []
+        if not tools:
+            return None
+        tool_done = sum(1 for m in (body.get("messages") or []) if m.get("role") == "tool")
+        suffix = "".join(ch for ch in model if ch.isdigit()) or "1"
+        path = f"outputs/report-{suffix}.md"
+        if tool_done == 0:
+            wanted = "write_file"
+            body_text = chr(10).join(["# 季度报告 " + suffix, "", "这是本轮交付的正文。", ""])
+            args = json.dumps({"path": path, "content": body_text}, ensure_ascii=False)
+        elif tool_done == 1:
+            wanted = "deliver_artifact"
+            args = json.dumps(
+                {"filePath": path, "fileName": f"报告-{suffix}.md", "description": "季度报告（桩生成）"},
+                ensure_ascii=False,
+            )
+        else:
+            return None
+        for t in tools:
+            fn = (t or {}).get("function") or {}
+            name = fn.get("name") or ""
+            if wanted in name.lower():
+                print(f"TOOL-CALL-HIT={name}", flush=True)
+                return {
+                    "id": f"call_script_{tool_done + 1}",
                     "type": "function",
                     "function": {"name": name, "arguments": args},
                 }

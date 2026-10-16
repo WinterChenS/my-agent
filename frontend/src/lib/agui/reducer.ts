@@ -47,6 +47,7 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
             role: "assistant",
             content: "",
             streaming: true,
+            runId: state.runId,
           },
         ],
       };
@@ -54,7 +55,7 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
     case "TEXT_MESSAGE_CONTENT":
       return {
         ...state,
-        items: upsertText(state.items, event.messageId, event.delta ?? ""),
+        items: upsertText(state.items, event.messageId, event.delta ?? "", state.runId),
       };
 
     case "TEXT_MESSAGE_END":
@@ -284,7 +285,12 @@ function applyCustom(state: ChatState, event: AguiEventLike): ChatState {
   };
 }
 
-function upsertText(items: ChatItem[], messageId: string | undefined, delta: string): ChatItem[] {
+function upsertText(
+  items: ChatItem[],
+  messageId: string | undefined,
+  delta: string,
+  runId?: string | null,
+): ChatItem[] {
   const index = items.findIndex((item) => item.kind === "text" && item.id === messageId);
   if (index === -1) {
     // 没有 START 就来了 CONTENT：补一个文本块，保证内容不丢
@@ -296,6 +302,7 @@ function upsertText(items: ChatItem[], messageId: string | undefined, delta: str
         role: "assistant",
         content: delta,
         streaming: true,
+        runId,
       },
     ];
   }
@@ -330,11 +337,13 @@ export function replayMessages(
       return;
     }
     const stopped = message.aguiMeta?.["stopped"] === true;
+    const runId = (message.aguiMeta?.["runId"] as string | undefined) ?? null;
     items.push({
       kind: "text",
       id: `history-${index}`,
       role,
       content: message.content,
+      runId,
       streaming: false,
       // Phase 12 / D25：被停止的那一轮刷新后仍标注「已停止」
       ...(stopped ? { stopped: true } : {}),

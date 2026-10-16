@@ -158,6 +158,23 @@ public class ArtifactService {
             String mime,
             byte[] bytes,
             boolean materializeToWorkspace) {
+        return store(userId, sessionId, role, fileName, mime, bytes, materializeToWorkspace, null);
+    }
+
+    /**
+     * 登记产物，并记下「属于哪一轮」。
+     *
+     * @param runId 产出它的那一轮 run id（Agent 主动交付时平台传入；上传/扫描等旧路径为 null）
+     */
+    public Artifact store(
+            Long userId,
+            Long sessionId,
+            String role,
+            String fileName,
+            String mime,
+            byte[] bytes,
+            boolean materializeToWorkspace,
+            String runId) {
         String sha = sha256(bytes);
         Optional<Artifact> existing = artifactMapper
                 .selectList(Wrappers.<Artifact>lambdaQuery()
@@ -178,6 +195,7 @@ public class ArtifactService {
         artifact.setMime(mime);
         artifact.setSizeBytes((long) bytes.length);
         artifact.setSha256(sha);
+        artifact.setRunId(runId);
 
         // 路由还要看内容：MIME/扩展名说是文本，但内容可能带 NUL 或不是合法 UTF-8
         // （实测踩过：UTF-16 的 .md 或扩展名是文本但内容是二进制 → 插进 PG 的 text 列直接报
@@ -357,6 +375,7 @@ public class ArtifactService {
                 a.getErrorMessage(),
                 "DB".equals(a.getStorage()),
                 "DB".equals(a.getStorage()) ? a.getContent() : null,
+                a.getRunId(),
                 a.getCreatedAt());
     }
 
