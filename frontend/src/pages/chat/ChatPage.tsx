@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import type { HttpAgent } from "@ag-ui/client";
 import { Bot, ChevronDown, Clock, Plus, Send, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -75,19 +75,19 @@ export default function ChatPage() {
   // 会话列表已提到全局 store：它现在渲染在**菜单栏下半部分**（任意页面可见、可点开）
   const refreshSessions = useSessionStore((s) => s.refresh);
   /**
-   * URL 里的会话 id —— 它是「当前打开哪个会话」的**唯一来源**。
+   * URL 路径里的会话 id（`/chat/1033`）—— 它是「当前打开哪个会话」的**唯一来源**。
    *
    * <p>好处有三个：① 打开某条会话的链接可以复制粘贴/分享，刷新也能还原；
-   * ② 点菜单「聊天」得到的是 `/chat`（无参数）→ 干净的新会话欢迎页（用户要求）；
+   * ② 点菜单「聊天」得到的是 `/chat`（无路径参数）→ 干净的新会话欢迎页（用户要求）；
    * ③ 不必再维护"跨页面打开请求"这类组件间暗号。
    */
-  const [searchParams, setSearchParams] = useSearchParams();
-  const sessionParam = searchParams.get("session");
+  const navigate = useNavigate();
+  const { sessionId: sessionParam } = useParams<{ sessionId?: string }>();
   const urlSessionId = sessionParam ? Number(sessionParam) : null;
   /** 打开动作完成前不显示欢迎页，避免"空会话"闪一下 */
   const [booted, setBooted] = useState(false);
   /** 上一次的 session 参数：用来判断「有到无」的转变（见下面 effect 的说明） */
-  const prevSessionParam = useRef<string | null>(null);
+  const prevSessionParam = useRef<string | undefined>(undefined);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [agentId, setAgentId] = useState<number | null>(null);
   const [session, setSession] = useState<ChatSession | null>(null);
@@ -334,7 +334,7 @@ export default function ChatPage() {
        * 第一轮发消息时会出现「session 已建好、URL 参数还没写进去」的中间帧，那样会把刚建的会话清掉，
        * 于是第二轮发消息时上文全没了（实测：多轮对话/排队/侧栏标记等 5 条 e2e 因此失败）。
        */
-      if (prevParam !== null) {
+      if (prevParam !== undefined && prevParam !== null) {
         startNewSession();
       }
       setBooted(true);
@@ -371,7 +371,7 @@ export default function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [urlSessionId, sessionParam, session, openSession, refreshSessions, startNewSession]);
+  }, [urlSessionId, sessionParam, session, openSession, refreshSessions, startNewSession, navigate]);
 
   /** 压缩上下文：拿到压缩后的用量并反馈。 */
   async function handleCompact() {
@@ -567,8 +567,8 @@ export default function ChatPage() {
       try {
         active = await createSession(agentId);
         setSession(active);
-        // id 立刻进 URL：可复制粘贴分享，刷新也能重新打开这条会话
-        setSearchParams({ session: String(active.id) }, { replace: true });
+        // id 立刻进 URL（/chat/<id>）：可复制粘贴分享，刷新也能重新打开这条会话
+        void navigate(`/chat/${active.id}`, { replace: true });
         await refreshSessions();
         agentRef.current = createChatAgent();
       } catch (err) {
@@ -870,7 +870,7 @@ export default function ChatPage() {
           <div className="mx-auto w-full max-w-3xl px-4 pb-5 text-center" data-testid="welcome">
             <h1 className="text-2xl font-semibold tracking-tight">开始新的对话</h1>
             <p className="text-muted-foreground mt-2 text-sm">
-              选一个 Agent，直接说清你想要什么。回复会以流式气泡出现，产物自动收进右侧列表。
+              选一个 Agent，直接说清你想要什么。产物会自动收进右侧列表。
             </p>
             <div className="text-muted-foreground mt-4 flex flex-wrap justify-center gap-2 text-xs">
               <span className="bg-muted rounded-full px-2.5 py-1">拖拽文件即可添加附件</span>

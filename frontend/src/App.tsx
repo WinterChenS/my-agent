@@ -153,7 +153,7 @@ export default function App() {
           }
         >
           <Route index element={<Navigate to="/chat" replace />} />
-          <Route path="chat" element={<ChatPage />} />
+          <Route path="chat/:sessionId?" element={<ChatPage />} />
           <Route path="admin/models" element={<ModelsPage />} />
           <Route path="admin/agents" element={<AgentsPage />} />
           <Route path="admin/skills" element={<SkillsPage />} />

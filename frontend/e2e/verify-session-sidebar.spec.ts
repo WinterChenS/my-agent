@@ -45,8 +45,8 @@ test.describe("会话历史侧栏与欢迎页", () => {
       ).toHaveCount(1, { timeout: 20_000 });
       // 打开了会话 → 不再是欢迎页
       await expect(page.getByTestId("welcome")).toHaveCount(0);
-      // ②-b 会话 id 进了 URL —— 链接可以复制粘贴/分享
-      await expect(page).toHaveURL(new RegExp(`session=${created.data.id}`));
+      // ②-b 会话 id 进了 URL 路径（/chat/<id>）—— 链接可以复制粘贴/分享
+      await expect(page).toHaveURL(new RegExp(`/chat/${created.data.id}$`));
       const shareUrl = page.url();
       console.log(`[侧栏] 从管理页面点历史 → 已打开并带参 URL：${shareUrl.slice(-40)}`);
 
@@ -114,13 +114,13 @@ test.describe("会话历史侧栏与欢迎页", () => {
       const row = page.locator(`[data-testid="session-item"][title="${threadId}"]`);
       await expect(row).toHaveCount(1, { timeout: 20_000 });
       await row.click();
-      await expect(page).toHaveURL(new RegExp(`session=${created.data.id}`));
+      await expect(page).toHaveURL(new RegExp(`/chat/${created.data.id}$`));
       await expect(page.getByTestId("welcome")).toHaveCount(0);
 
       // 点菜单「聊天」——应当回到欢迎页，且 URL 去掉 session 参数
       await page.getByRole("link", { name: "聊天", exact: true }).click();
       await expect(page.getByTestId("welcome")).toBeVisible({ timeout: 20_000 });
-      await expect(page).not.toHaveURL(/session=/);
+      await expect(page).not.toHaveURL(/\/chat\/\d+/);
       console.log(`[聊天菜单] 点「聊天」→ 欢迎页 ✓ URL=${page.url()}`);
 
       // 刷新后仍是欢迎页（不自动恢复最近会话）

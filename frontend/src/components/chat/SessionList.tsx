@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { deleteSession, listRunningThreads } from "@/api/sessions";
 import { Button } from "@/components/ui/button";
@@ -21,9 +21,13 @@ export function SessionList() {
   const runningThreads = useSessionStore((s) => s.runningThreads);
   const refresh = useSessionStore((s) => s.refresh);
   const setRunningThreads = useSessionStore((s) => s.setRunningThreads);
-  // 当前打开的是哪条，直接从 URL 推导（URL 是唯一来源）
-  const [searchParams] = useSearchParams();
-  const selectedId = searchParams.get("session") ? Number(searchParams.get("session")) : null;
+  /*
+   * 当前打开的是哪条，从 URL 路径推导（URL 是唯一来源）。
+   * 用 useLocation 而不是 useParams：侧栏挂在布局路由下，拿不到子路由的路径参数。
+   */
+  const { pathname } = useLocation();
+  const matched = pathname.match(/^\/chat\/(\d+)/);
+  const selectedId = matched ? Number(matched[1]) : null;
 
   // 首次挂载拉一次：侧边栏在任何页面都挂着，因此"任意页面都能看到历史"
   useEffect(() => {
@@ -53,7 +57,7 @@ export function SessionList() {
 
   /** 点历史会话：把 id 带进 URL 并跳转 —— 链接即可复制粘贴分享/刷新还原 */
   function openSession(item: ChatSession) {
-    void navigate(`/chat?session=${item.id}`);
+    void navigate(`/chat/${item.id}`);
   }
 
   async function remove(target: ChatSession) {
