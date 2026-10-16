@@ -78,3 +78,6 @@ patch-*.py
 # 验证用的桩请求体 dump（临时产物）
 .verify-dump.json
 .t1-*.json
+
+# 桩的请求 dump（测试产物，可能含会话内容，不入库）
+tools/llm-stub/dump*.txt
