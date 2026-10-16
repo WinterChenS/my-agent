@@ -49,9 +49,16 @@ export const SkillMentionInput = forwardRef<
     onSubmit: () => void;
     onPasteFiles: (files: File[]) => void;
     onContentChange?: (hasContent: boolean) => void;
+    /**
+     * 只要输入区、不要它自己的边框/圆角/聚焦环。
+     *
+     * 用途：外层已经有一个圆角框（聊天输入区就是），此时内层再画一圈会变成
+     * **双层边框 + 中间一条线**，视觉上很脏（用户反馈）。边框与聚焦环统一由外层负责。
+     */
+    bare?: boolean;
   }
 >(function SkillMentionInput(
-  { parts, onPartsChange, skills, disabled, placeholder, onSubmit, onPasteFiles, onContentChange },
+  { parts, onPartsChange, skills, disabled, placeholder, onSubmit, onPasteFiles, onContentChange, bare },
   ref,
 ) {
   const domRef = useRef<HTMLDivElement>(null);
@@ -255,8 +262,11 @@ export const SkillMentionInput = forwardRef<
         contentEditable={!disabled}
         suppressContentEditableWarning
         className={cn(
-          "border-input chat-input box-border max-h-40 min-h-9 w-full overflow-y-auto rounded-md border bg-transparent px-3 py-2 text-sm leading-6 break-words whitespace-pre-wrap",
-          "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none",
+          "chat-input box-border max-h-40 min-h-9 w-full overflow-y-auto bg-transparent px-3 py-2 text-sm leading-6 break-words whitespace-pre-wrap focus-visible:outline-none",
+          // bare：边框/圆角/聚焦环交给外层容器（避免双层边框、中间出现一条线）
+          bare
+            ? "rounded-none border-0 focus-visible:ring-0"
+            : "border-input rounded-md border focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
           disabled && "cursor-not-allowed opacity-50",
         )}
         onClick={onContainerClick}

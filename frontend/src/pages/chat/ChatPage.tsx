@@ -1018,11 +1018,12 @@ export default function ChatPage() {
                 onSubmit={() => void send()}
                 onPasteFiles={stageIncoming}
                 onContentChange={setHasInput}
+                bare
               />
 
               {/* 待发送队列（处理中时发的消息会排在这里，可撤回） */}
               {queued.length > 0 && (
-                <div className="space-y-1 border-t px-2 py-1.5" data-testid="queued-list">
+                <div className="space-y-1 px-2 py-1.5" data-testid="queued-list">
                   {queued.map((item, index) => (
                     <div
                       key={item.id}
