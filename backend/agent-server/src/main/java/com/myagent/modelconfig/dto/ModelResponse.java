@@ -16,6 +16,7 @@ public record ModelResponse(
         Integer maxTokens,
         java.math.BigDecimal priceInput,
         java.math.BigDecimal priceOutput,
+        java.math.BigDecimal priceCache,
         String priceCurrency,
         Boolean multimodal,
         String status,

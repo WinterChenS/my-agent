@@ -82,7 +82,7 @@ class SkillConfigServiceTest {
                         "ENABLED"))
                 .id();
         Long modelId = modelConfigService
-                .createModel(new ModelRequest(providerId, "skill-test-model", null, null, null, null, null, null, null, null, null, null, "ENABLED"))
+                .createModel(new ModelRequest(providerId, "skill-test-model", null, null, null, null, null, null, null, null, null, null, "ENABLED", null))
                 .id();
 
         agentConfigService.create(new AgentRequest(

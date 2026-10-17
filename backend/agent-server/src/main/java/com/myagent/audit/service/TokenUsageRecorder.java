@@ -108,7 +108,9 @@ public class TokenUsageRecorder {
             usage.setAgentId(agentDbId);
             usage.setModelId(context == null ? null : context.modelId());
             usage.setProviderType(context == null ? null : context.providerType());
-            usage.setPromptTokens(p);
+            // 缓存命中 token：不同厂商/事件字段名不一，按可能的名字依次取（取不到就是 0）
+        usage.setCacheTokens(firstInt(delta, "cacheTokens", "cachedTokens", "cacheReadTokens", "cachedInputTokens"));
+        usage.setPromptTokens(p);
             usage.setCompletionTokens(c);
             usage.setTotalTokens(t);
             usage.setRequestId(requestId);
@@ -117,6 +119,17 @@ public class TokenUsageRecorder {
             // 审计失败不能影响对话主链路
             log.error("写入 token_usage 失败 sessionId={} requestId={}", sessionId, requestId, ex);
         }
+    }
+
+    /** 依次尝试多个字段名，返回第一个非空值（都没有则 0）。 */
+    private static int firstInt(Map<String, Object> delta, String... keys) {
+        for (String key : keys) {
+            Integer value = asInt(delta.get(key));
+            if (value != null) {
+                return value;
+            }
+        }
+        return 0;
     }
 
     private static Integer asInt(Object value) {

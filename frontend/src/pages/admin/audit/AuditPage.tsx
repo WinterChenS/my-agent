@@ -222,6 +222,21 @@ export default function AuditPage() {
             {fmt(summary?.records ?? 0)}
           </CardContent>
         </Card>
+        <Card data-testid="kpi-cache">
+          <CardHeader className="p-3">
+            <CardTitle className="text-xs font-normal">缓存命中 Tokens</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 text-2xl font-semibold">
+            {fmt(summary?.cacheTokens ?? 0)}
+            <span className="text-muted-foreground ml-1 text-xs font-normal">
+              {(() => {
+                const total = Number(summary?.promptTokens ?? 0);
+                const hit = Number(summary?.cacheTokens ?? 0);
+                return total > 0 ? `命中率 ${((hit / total) * 100).toFixed(1)}%` : "无命中";
+              })()}
+            </span>
+          </CardContent>
+        </Card>
         <Card data-testid="kpi-scope">
           <CardHeader className="p-3">
             <CardTitle className="text-xs font-normal">会话 / Agent / 模型</CardTitle>
@@ -331,7 +346,8 @@ export default function AuditPage() {
                 <TableHead>输入</TableHead>
                 <TableHead>输出</TableHead>
                 <TableHead>合计</TableHead>
-                <TableHead>单价（入/出）</TableHead>
+                <TableHead>缓存命中</TableHead>
+                <TableHead>单价（入/出/缓存）</TableHead>
                 <TableHead>成本</TableHead>
               </TableRow>
             </TableHeader>
@@ -351,12 +367,13 @@ export default function AuditPage() {
                       return `${ratio.toFixed(1)}%`;
                     })()}
                   </TableCell>
+                  <TableCell className="tabular-nums">{fmt(row.cache_tokens)}</TableCell>
                   <TableCell>{fmt(row.prompt_tokens)}</TableCell>
                   <TableCell>{row.completion_tokens}</TableCell>
                   <TableCell>{row.total_tokens}</TableCell>
                   <TableCell className="font-mono text-xs">
-                    {row.price_input != null || row.price_output != null
-                      ? `${row.price_input ?? "-"} / ${row.price_output ?? "-"}`
+                    {row.price_input != null || row.price_output != null || row.price_cache != null
+                      ? `${row.price_input ?? "-"} / ${row.price_output ?? "-"} / ${row.price_cache ?? "-"}`
                       : "-"}
                   </TableCell>
                   <TableCell className="font-mono text-xs">

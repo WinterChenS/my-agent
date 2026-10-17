@@ -19,6 +19,12 @@ export interface TokenTotalsRow {
   currency?: string | null;
   price_input?: number | null;
   price_output?: number | null;
+  /** 缓存命中价（为空 = 不区分，命中按输入价计） */
+  price_cache?: number | null;
+  cache_tokens?: number | null;
+  cost_input?: number | null;
+  cost_cache?: number | null;
+  cost_output?: number | null;
 }
 
 export interface TokenSummary {
@@ -37,6 +43,12 @@ export interface TokenSummary {
   /** KPI 计数：调用次数 / 会话数 / 用到的 Agent 数 / 模型数 */
   records?: number;
   sessions?: number;
+  /** 缓存命中 token 数（厂商返回才有） */
+  cacheTokens?: number;
+  /** 分类成本：未命中输入 / 缓存命中 / 输出（三者之和 = costTotal） */
+  costInput?: number | null;
+  costCache?: number | null;
+  costOutput?: number | null;
   agentCount?: number;
   modelCount?: number;
 }
@@ -55,6 +67,8 @@ export interface TokenRecord {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** 缓存命中 token 数 */
+  cacheTokens?: number | null;
   requestId: string | null;
   createdAt: string;
 }

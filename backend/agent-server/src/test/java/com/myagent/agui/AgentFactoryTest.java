@@ -57,7 +57,7 @@ class AgentFactoryTest {
                         "ENABLED"))
                 .id();
         return modelConfigService
-                .createModel(new ModelRequest(providerId, "factory-test-model", "工厂测试模型", null, null, null, null, null, null, null, null, null, "ENABLED"))
+                .createModel(new ModelRequest(providerId, "factory-test-model", "工厂测试模型", null, null, null, null, null, null, null, null, null, "ENABLED", null))
                 .id();
     }
 

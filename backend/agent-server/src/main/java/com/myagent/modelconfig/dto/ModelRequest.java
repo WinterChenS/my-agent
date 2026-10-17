@@ -18,4 +18,6 @@ public record ModelRequest(
         java.math.BigDecimal priceOutput,
         String priceCurrency,
         Boolean multimodal,
-        String status) {}
+        String status,
+        // 缓存命中价放在**末尾**：这样既有调用方（含测试，按位置传参）只需在最后补一个 null
+        java.math.BigDecimal priceCache) {}

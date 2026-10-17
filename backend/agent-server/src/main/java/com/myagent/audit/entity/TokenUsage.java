@@ -26,6 +26,9 @@ public class TokenUsage {
 
     private Integer completionTokens;
 
+    /** 命中缓存的输入 token 数（厂商不返回时为 0）。 */
+    private Integer cacheTokens;
+
     private Integer totalTokens;
 
     /** 一次 /agui/run 的 runId；同一 run 内多轮模型调用共用该值。 */
@@ -91,6 +94,14 @@ public class TokenUsage {
 
     public Integer getCompletionTokens() {
         return completionTokens;
+    }
+
+    public Integer getCacheTokens() {
+        return cacheTokens;
+    }
+
+    public void setCacheTokens(Integer cacheTokens) {
+        this.cacheTokens = cacheTokens;
     }
 
     public void setCompletionTokens(Integer completionTokens) {

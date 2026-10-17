@@ -16,7 +16,8 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
     @Select("""
             SELECT coalesce(sum(prompt_tokens), 0)     AS prompt_tokens,
                    coalesce(sum(completion_tokens), 0) AS completion_tokens,
-                   coalesce(sum(total_tokens), 0)      AS total_tokens
+                   coalesce(sum(total_tokens), 0)      AS total_tokens,
+                   coalesce(sum(cache_tokens), 0)      AS cache_tokens
             FROM token_usage
             WHERE user_id = #{userId}
               AND created_at >= #{from}
@@ -39,8 +40,18 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
                    m.price_currency                     AS currency,
                    m.price_input                        AS price_input,
                    m.price_output                       AS price_output,
+                   -- 缓存命中价：为空表示不区分，命中部分按输入价计
+                   m.price_cache                        AS price_cache,
+                   coalesce(sum(t.cache_tokens), 0)     AS cache_tokens,
+                   -- 分类成本：未命中输入 / 缓存命中 / 输出，三项之和即合计
+                   coalesce(sum(greatest(t.prompt_tokens - t.cache_tokens, 0)
+                                / 1000000.0 * m.price_input), 0)          AS cost_input,
+                   coalesce(sum(t.cache_tokens / 1000000.0
+                                * coalesce(m.price_cache, m.price_input)), 0) AS cost_cache,
+                   coalesce(sum(t.completion_tokens / 1000000.0 * m.price_output), 0) AS cost_output,
                    coalesce(sum(
-                       t.prompt_tokens     / 1000000.0 * m.price_input
+                       greatest(t.prompt_tokens - t.cache_tokens, 0) / 1000000.0 * m.price_input
+                     + t.cache_tokens / 1000000.0 * coalesce(m.price_cache, m.price_input)
                      + t.completion_tokens / 1000000.0 * m.price_output
                    ), 0)                                AS cost_total
             FROM token_usage t
@@ -49,7 +60,7 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
               AND t.created_at >= #{from}
               AND t.created_at <= #{to}
             GROUP BY t.model_id, m.display_name, m.model_id, t.provider_type,
-                     m.price_currency, m.price_input, m.price_output
+                     m.price_currency, m.price_input, m.price_output, m.price_cache
             ORDER BY total_tokens DESC
             """)
     List<Map<String, Object>> byModel(
@@ -115,6 +126,7 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
 
     @Select("""
             SELECT to_char(created_at, 'YYYY-MM-DD')    AS day,
+                   coalesce(sum(cache_tokens), 0)      AS cache_tokens,
                    coalesce(sum(prompt_tokens), 0)     AS prompt_tokens,
                    coalesce(sum(completion_tokens), 0) AS completion_tokens,
                    coalesce(sum(total_tokens), 0)      AS total_tokens

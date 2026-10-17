@@ -66,6 +66,8 @@ public class TokenStatsService {
         result.put("promptTokens", number(totals, "prompt_tokens"));
         result.put("completionTokens", number(totals, "completion_tokens"));
         result.put("totalTokens", number(totals, "total_tokens"));
+        // 缓存命中 token（厂商返回才有值）与"按缓存价计"的那部分
+        result.put("cacheTokens", number(totals, "cache_tokens"));
         // Phase 15：价格生效——按货币汇总成本（不同货币不混加）
         java.math.BigDecimal costTotal = java.math.BigDecimal.ZERO;
         String currency = null;
@@ -87,6 +89,18 @@ public class TokenStatsService {
         }
         result.put("costTotal", costTotal);
         result.put("costCurrency", mixed ? "MIXED" : currency);
+        // 分类成本：未命中输入 / 缓存命中 / 输出（byModel 已按模型算好，这里汇总）
+        java.math.BigDecimal costInput = java.math.BigDecimal.ZERO;
+        java.math.BigDecimal costCache = java.math.BigDecimal.ZERO;
+        java.math.BigDecimal costOutput = java.math.BigDecimal.ZERO;
+        for (Map<String, Object> row : byModel) {
+            costInput = costInput.add(decimal(row, "cost_input"));
+            costCache = costCache.add(decimal(row, "cost_cache"));
+            costOutput = costOutput.add(decimal(row, "cost_output"));
+        }
+        result.put("costInput", costInput);
+        result.put("costCache", costCache);
+        result.put("costOutput", costOutput);
         result.put("byModel", byModel);
         result.put("byDay", byDay);
         // 更多维度：按 Agent、按供应商；以及调用/会话/Agent/模型 的计数（KPI 卡片用）
@@ -197,9 +211,25 @@ public class TokenStatsService {
         row.put("promptTokens", usage.getPromptTokens());
         row.put("completionTokens", usage.getCompletionTokens());
         row.put("totalTokens", usage.getTotalTokens());
+        row.put("cacheTokens", usage.getCacheTokens() == null ? 0 : usage.getCacheTokens());
         row.put("requestId", usage.getRequestId());
         row.put("createdAt", usage.getCreatedAt());
         return row;
+    }
+
+    /** 从聚合行里取小数（null 视为 0）。 */
+    private static java.math.BigDecimal decimal(Map<String, Object> map, String key) {
+        Object value = map == null ? null : map.get(key);
+        if (value == null) {
+            return java.math.BigDecimal.ZERO;
+        }
+        if (value instanceof java.math.BigDecimal bd) {
+            return bd;
+        }
+        if (value instanceof Number n) {
+            return java.math.BigDecimal.valueOf(n.doubleValue());
+        }
+        return new java.math.BigDecimal(String.valueOf(value));
     }
 
     private static long number(Map<String, Object> map, String key) {

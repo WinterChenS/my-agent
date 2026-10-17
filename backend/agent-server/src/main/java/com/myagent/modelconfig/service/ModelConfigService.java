@@ -241,7 +241,11 @@ public class ModelConfigService {
         }
         java.math.BigDecimal priceInput = request.priceInput();
         java.math.BigDecimal priceOutput = request.priceOutput();
-        if ((priceInput != null && priceInput.signum() < 0) || (priceOutput != null && priceOutput.signum() < 0)) {
+        // 缓存命中价（可选）：有值时才生效
+        java.math.BigDecimal priceCache = request.priceCache();
+        if ((priceInput != null && priceInput.signum() < 0)
+                || (priceOutput != null && priceOutput.signum() < 0)
+                || (priceCache != null && priceCache.signum() < 0)) {
             throw BizException.badRequest("价格不能为负数");
         }
         String currency = request.priceCurrency() == null ? null : request.priceCurrency().trim().toUpperCase(java.util.Locale.ROOT);
@@ -255,6 +259,7 @@ public class ModelConfigService {
         model.setMaxTokens(maxTokens);
         model.setPriceInput(priceInput);
         model.setPriceOutput(priceOutput);
+        model.setPriceCache(priceCache);
         model.setPriceCurrency(currency == null || currency.isEmpty() ? "CNY" : currency);
         model.setMultimodal(Boolean.TRUE.equals(request.multimodal()));
     }
@@ -339,6 +344,7 @@ public class ModelConfigService {
                 model.getMaxTokens(),
                 model.getPriceInput(),
                 model.getPriceOutput(),
+                model.getPriceCache(),
                 model.getPriceCurrency(),
                 model.getMultimodal(),
                 model.getStatus(),

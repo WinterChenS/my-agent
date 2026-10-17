@@ -45,6 +45,9 @@ public class LlmModel {
     /** 价格货币：CNY / USD。 */
     private String priceCurrency;
 
+    /** 每百万 token 的**缓存命中**价；为空表示不区分（命中部分按 priceInput 计）。 */
+    private java.math.BigDecimal priceCache;
+
     /** 是否支持图片输入（多模态）。 */
     private Boolean multimodal;
 
@@ -141,6 +144,14 @@ public class LlmModel {
 
     public void setPriceOutput(java.math.BigDecimal priceOutput) {
         this.priceOutput = priceOutput;
+    }
+
+    public java.math.BigDecimal getPriceCache() {
+        return priceCache;
+    }
+
+    public void setPriceCache(java.math.BigDecimal priceCache) {
+        this.priceCache = priceCache;
     }
 
     public String getPriceCurrency() {

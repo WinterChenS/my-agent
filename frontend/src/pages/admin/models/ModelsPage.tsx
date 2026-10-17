@@ -58,6 +58,8 @@ interface ModelForm {
   maxTokens: string;
   priceInput: string;
   priceOutput: string;
+  /** 缓存命中价（可留空 = 不区分） */
+  priceCache: string;
   priceCurrency: string;
   /** tier1-upgrades ①：是否支持图片输入 */
   multimodal: boolean;
@@ -84,6 +86,7 @@ const EMPTY_MODEL: ModelForm = {
   maxTokens: "",
   priceInput: "",
   priceOutput: "",
+  priceCache: "",
   priceCurrency: "CNY",
   multimodal: false,
   status: "ENABLED",
@@ -191,6 +194,7 @@ export default function ModelsPage() {
       maxTokens: num(modelForm.maxTokens),
       priceInput: num(modelForm.priceInput),
       priceOutput: num(modelForm.priceOutput),
+      priceCache: num(modelForm.priceCache),
       priceCurrency: modelForm.priceCurrency || "CNY",
       multimodal: modelForm.multimodal,
       status: modelForm.status,
@@ -462,6 +466,7 @@ export default function ModelsPage() {
                               m.maxTokens != null ? String(m.maxTokens) : "",
                             priceInput: m.priceInput != null ? String(m.priceInput) : "",
                             priceOutput: m.priceOutput != null ? String(m.priceOutput) : "",
+                            priceCache: m.priceCache != null ? String(m.priceCache) : "",
                             priceCurrency: m.priceCurrency ?? "CNY",
                             multimodal: m.multimodal === true,
                             status: m.status,
@@ -493,8 +498,8 @@ export default function ModelsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs whitespace-nowrap">
-                        {m.priceInput != null || m.priceOutput != null
-                          ? `入 ${m.priceInput ?? "-"} / 出 ${m.priceOutput ?? "-"} ${m.priceCurrency ?? ""}`
+                        {m.priceInput != null || m.priceOutput != null || m.priceCache != null
+                          ? `入 ${m.priceInput ?? "-"} / 出 ${m.priceOutput ?? "-"} / 缓存 ${m.priceCache ?? "-"} ${m.priceCurrency ?? ""}`
                           : "-"}
                       </TableCell>
                       <TableCell>
@@ -539,6 +544,7 @@ export default function ModelsPage() {
                                 maxTokens: m.maxTokens != null ? String(m.maxTokens) : "",
                                 priceInput: m.priceInput != null ? String(m.priceInput) : "",
                                 priceOutput: m.priceOutput != null ? String(m.priceOutput) : "",
+                                priceCache: m.priceCache != null ? String(m.priceCache) : "",
                                 priceCurrency: m.priceCurrency ?? "CNY",
                             multimodal: m.multimodal === true,
                                 status: m.status,
@@ -741,6 +747,15 @@ export default function ModelsPage() {
                   value={modelForm.priceOutput}
                   onChange={(e) => setModelForm({ ...modelForm, priceOutput: e.target.value })}
                   placeholder="如 6"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                缓存命中价格 / 百万 token（可选）
+                <Input
+                  data-testid="model-price-cache"
+                  value={modelForm.priceCache}
+                  onChange={(e) => setModelForm({ ...modelForm, priceCache: e.target.value })}
+                  placeholder="留空 = 不区分（按输入价计）"
                 />
               </label>
               <label className="flex items-center gap-2 self-end text-sm">

@@ -46,6 +46,8 @@ export interface ModelInfo {
   priceInput: number | null;
   /** 输出价格：每百万 token */
   priceOutput: number | null;
+  /** 缓存命中价（每百万 token）；null = 不区分，命中部分按输入价计 */
+  priceCache: number | null;
   /** 价格货币：CNY / USD */
   priceCurrency: string | null;
   /** 是否支持图片输入（多模态） */
@@ -67,6 +69,7 @@ export interface ModelPayload {
   maxTokens?: number | null;
   priceInput?: number | null;
   priceOutput?: number | null;
+  priceCache?: number | null;
   priceCurrency?: string | null;
   status?: "ENABLED" | "DISABLED";
 }
