@@ -42,7 +42,9 @@ test("审计看板显示支出额度并可设置", async ({ page, request }) => 
   await expect(card).toBeVisible({ timeout: 20000 });
 
   // 选 admin 用户，额度卡片会载入
-  await page.locator("#audit-user").selectOption({ index: 1 });
+  // 按 value 选 admin（user id=1，与 resetQuota 一致）：
+  // 用 index 选会在别的用例造了其它有消耗的用户时选错人，导致额度卡片读的不是 admin（实测全量跑偶发红）
+  await page.locator("#audit-user").selectOption("1");
   await expect(page.getByTestId("quota-usage")).toContainText("今日已用", { timeout: 15000 });
   await expect(page.getByTestId("quota-usage")).toContainText("本月已用");
   console.log("额度显示:", (await page.getByTestId("quota-usage").innerText()).replace(/\s+/g, " "));
