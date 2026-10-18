@@ -33,23 +33,43 @@ public class AgentConfigService {
     private final AgentMcpServerMapper agentMcpServerMapper;
     private final LlmModelMapper llmModelMapper;
     private final AgentCacheInvalidator cacheInvalidator;
+    /** 按资源授权：Agent 的可用用户白名单（空 = 对所有人开放）。 */
+    private final com.myagent.agentconfig.mapper.AgentUserMapper agentUserMapper;
 
     public AgentConfigService(
             AgentMapper agentMapper,
             AgentSkillMapper agentSkillMapper,
             AgentMcpServerMapper agentMcpServerMapper,
             LlmModelMapper llmModelMapper,
-            AgentCacheInvalidator cacheInvalidator) {
+            AgentCacheInvalidator cacheInvalidator,
+            com.myagent.agentconfig.mapper.AgentUserMapper agentUserMapper) {
         this.agentMapper = agentMapper;
         this.agentSkillMapper = agentSkillMapper;
         this.agentMcpServerMapper = agentMcpServerMapper;
         this.llmModelMapper = llmModelMapper;
         this.cacheInvalidator = cacheInvalidator;
+        this.agentUserMapper = agentUserMapper;
     }
 
-    public PageResult<AgentResponse> list(long current, long size) {
+    /**
+     * Agent 列表。
+     *
+     * <p>按资源授权：普通用户**只看到**"对所有人开放"或"显式授权给他"的 Agent；
+     * 条件推给数据库（不是取全量再过滤），否则分页会错。
+     */
+    public PageResult<AgentResponse> list(long current, long size, Long userId, boolean isAdmin) {
         Page<Agent> page = agentMapper.selectPage(
-                new Page<>(current, size), Wrappers.<Agent>lambdaQuery().orderByAsc(Agent::getId));
+                new Page<>(current, size),
+                Wrappers.<Agent>lambdaQuery()
+                        .apply(
+                                !isAdmin,
+                                """
+                                (NOT EXISTS (SELECT 1 FROM agent_user au WHERE au.agent_id = agent.id)
+                                 OR EXISTS (SELECT 1 FROM agent_user au2
+                                            WHERE au2.agent_id = agent.id AND au2.user_id = {0}))
+                                """,
+                                userId)
+                        .orderByAsc(Agent::getId));
         return PageResult.of(
                 page.getRecords().stream().map(this::toResponse).toList(),
                 page.getTotal(),
@@ -59,6 +79,40 @@ public class AgentConfigService {
 
     public AgentResponse get(Long id) {
         return toResponse(requireAgent(id));
+    }
+
+    /**
+     * 该用户能不能用这个 Agent（按资源授权）。
+     *
+     * <p>规则：ADMIN 始终可用；**没有白名单记录 = 对所有人开放**；配了记录就必须在里面。
+     * 运行入口（/agui/run）会调它 —— 否则白名单只是界面上的装饰。
+     */
+    public void assertUsable(Long agentId, Long userId, boolean isAdmin) {
+        if (isAdmin || agentId == null) {
+            return;
+        }
+        List<Long> allowed = agentUserMapper.findUserIds(agentId);
+        if (!allowed.isEmpty() && !allowed.contains(userId)) {
+            throw BizException.forbidden("该 Agent 未授权给你使用，请联系管理员");
+        }
+    }
+
+    /** 设置某 Agent 的可用用户白名单；传空列表 = 恢复为"对所有人开放"。 */
+    @Transactional
+    public AgentResponse setAllowedUsers(Long agentId, List<Long> userIds) {
+        Agent agent = requireAgent(agentId);
+        agentUserMapper.deleteByAgent(agentId);
+        if (userIds != null) {
+            userIds.stream().distinct().forEach(uid -> {
+                com.myagent.agentconfig.entity.AgentUser row =
+                        new com.myagent.agentconfig.entity.AgentUser();
+                row.setAgentId(agentId);
+                row.setUserId(uid);
+                agentUserMapper.insert(row);
+            });
+        }
+        cacheInvalidator.invalidate(agentId);
+        return toResponse(agentMapper.selectById(agent.getId()));
     }
 
     @Transactional
@@ -219,6 +273,8 @@ public class AgentConfigService {
                 agentSkillMapper.findSkillIds(agent.getId()),
                 agentMcpServerMapper.findMcpServerIds(agent.getId()),
                 agent.getCreatedAt(),
-                agent.getUpdatedAt());
+                agent.getUpdatedAt(),
+                // 空列表 = 对所有人开放（界面显示"全部用户"）
+                agentUserMapper.findUserIds(agent.getId()));
     }
 }

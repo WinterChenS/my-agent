@@ -20,4 +20,6 @@ public record AgentResponse(
         List<Long> skillIds,
         List<Long> mcpServerIds,
         OffsetDateTime createdAt,
-        OffsetDateTime updatedAt) {}
+        OffsetDateTime updatedAt,
+        /** 允许使用的用户 id；**空 = 对所有人开放** */
+        List<Long> allowedUserIds) {}

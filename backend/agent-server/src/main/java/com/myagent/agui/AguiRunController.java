@@ -61,6 +61,8 @@ public class AguiRunController {
     private final SessionTitleService sessionTitleService;
     private final MultimodalGuard multimodalGuard;
     private final com.myagent.quota.service.QuotaService quotaService;
+    /** 按资源授权：校验该用户能否使用这个 Agent。 */
+    private final com.myagent.agentconfig.service.AgentConfigService agentConfigService;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -76,7 +78,8 @@ public class AguiRunController {
             RunningRunRegistry runningRuns,
             SessionTitleService sessionTitleService,
             MultimodalGuard multimodalGuard,
-            com.myagent.quota.service.QuotaService quotaService) {
+            com.myagent.quota.service.QuotaService quotaService,
+            com.myagent.agentconfig.service.AgentConfigService agentConfigService) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
@@ -91,6 +94,7 @@ public class AguiRunController {
         this.sessionTitleService = sessionTitleService;
         this.multimodalGuard = multimodalGuard;
         this.quotaService = quotaService;
+        this.agentConfigService = agentConfigService;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -114,6 +118,9 @@ public class AguiRunController {
         Long agentDbId = StringUtils.hasText(agentRef)
                 ? agentFactory.resolveAgentDbId(agentRef)
                 : existing.map(ChatSession::getAgentId).orElse(null);
+        // 按资源授权：白名单限制的 Agent，未授权用户不允许发起（否则白名单只是界面装饰）
+        agentConfigService.assertUsable(
+                agentDbId, userId, principal != null && "ADMIN".equals(principal.role()));
         if (agentDbId == null) {
             throw BizException.badRequest(
                     "无法确定 Agent：请在 forwardedProps.agentId 指定 agent_id，或复用已有 threadId");
