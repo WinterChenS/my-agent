@@ -69,7 +69,14 @@ test.describe("会话恢复：切走再切回不打乱对话", () => {
       await rowB.click();
       await expect(page).toHaveURL(new RegExp(`/chat/${created.data.id}$`));
 
-      // ① 不串会话：B 是空会话，绝不该出现 A 正在生成的文本
+      /*
+       * ① 不串会话：B 是空会话，绝不该出现 A 正在生成的文本。
+       *
+       * 先"等切换落定"再断言：点 B 之后、B 的消息加载完成之前，界面显示的仍是 **A 的旧内容**
+       * （URL 已经是 B）—— 那是切换的瞬时态，不是泄漏（实测诊断：url=/chat/B 而 items=0，
+       * 说明被数到的那 1 条来自上一帧）。真正的泄漏会"持续"出现，所以这里要求**连续多次**都为 0。
+       */
+      await page.waitForTimeout(1500);
       for (let i = 0; i < 8; i += 1) {
         const leaked = await page.getByTestId("assistant-text").count();
         if (leaked > 0 && i === 0) {

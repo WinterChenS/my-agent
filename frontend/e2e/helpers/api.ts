@@ -146,6 +146,22 @@ export async function seedTodaysCost(request: APIRequestContext): Promise<{ clea
   const token = await apiToken(request);
   const headers = { Authorization: `Bearer ${token}` };
   const stamp = Date.now();
+
+  /*
+   * 先把自己（admin）的额度恢复成"不限"，再种数据。
+   *
+   * 为什么必须先做：额度是**用户级全局状态**。若上一次跑在某处中断（或在临时设了极小额度时挂掉），
+   * 残留的极小额度会把**种数据这一轮**直接拦掉 —— 于是"今日已用"仍是 0，后面的「已超出」断言
+   * 永远不成立。表现就是"只在全量跑偶发红、单独跑绿"，而且会自我延续（实测）。先解锁即可断掉这个环。
+   */
+  const me = await (await request.get(`${API}/api/auth/me`, { headers })).json();
+  const myId = (me.data?.id ?? me.data?.userId) as number;
+  if (myId) {
+    await request.put(`${API}/api/users/${myId}/quota`, {
+      headers,
+      data: { dailyQuota: null, monthlyQuota: null, mode: "BLOCK" },
+    });
+  }
   const provider = await (
     await request.post(`${API}/api/model-providers`, {
       headers,
@@ -195,7 +211,7 @@ export async function seedTodaysCost(request: APIRequestContext): Promise<{ clea
   const sessions = await (await request.get(`${API}/api/sessions`, { headers })).json();
   const threadId = (sessions.data as { id: number; threadId: string }[]).find((x) => x.id === session.data.id)!.threadId;
   // 真跑一轮（用桩），让 token_usage 落一条今日记录
-  await request.post(`${API}/agui/run`, {
+  const runResp = await request.post(`${API}/agui/run`, {
     headers,
     data: {
       threadId,
@@ -204,6 +220,31 @@ export async function seedTodaysCost(request: APIRequestContext): Promise<{ clea
       forwardedProps: { agentId: agentName },
     },
   });
+  const runText = await runResp.text();
+
+  /*
+   * 校验"确实种下了"：这条会话的用量记录必须出现。
+   *
+   * 为什么必须校验：原先只发一次 run 就返回，若那一轮被额度拦掉/出错，调用方完全不知情，
+   * 最终以"某处超时"的形式失败 —— 排查成本极高。这里直接给出可读原因。
+   */
+  let seeded = false;
+  for (let i = 0; i < 20 && !seeded; i += 1) {
+    const page = await (
+      await request.get(`${API}/api/audit/token/records?current=1&size=20`, { headers })
+    ).json();
+    const rows = (page.data?.records ?? []) as { sessionId: number | null }[];
+    seeded = rows.some((r) => r.sessionId === session.data.id);
+    if (!seeded) {
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+  if (!seeded) {
+    throw new Error(
+      `seedTodaysCost 失败：这一轮没有落 token_usage（sessionId=${session.data.id}）。` +
+        `run 返回片段=${runText.slice(0, 200)}`,
+    );
+  }
   return {
     cleanup: async () => {
       await request.delete(`${API}/api/sessions/${session.data.id}`, { headers });
