@@ -73,6 +73,10 @@ STUB_SCRIPT_MODEL = os.environ.get("STUB_SCRIPT_MODEL", "script-")
 # 模型名含它（默认 think-）时，桩在**首字之前**先静默等待 STUB_THINK_DELAY_MS。
 # 用来模拟"推理型模型想很久、界面上半天不出气泡"的场景（验证占位 loading 气泡）。
 STUB_THINK_MODEL = os.environ.get("STUB_THINK_MODEL", "think-")
+# 模型名含它（默认 cache-）时，桩在 usage 里报「缓存命中 token」：
+# prompt_tokens_details.cached_tokens = STUB_CACHE_HIT_TOKENS（用于验证缓存命中链路端到端）
+STUB_CACHE_MODEL = os.environ.get("STUB_CACHE_MODEL", "cache-")
+STUB_CACHE_HIT_TOKENS = int(os.environ.get("STUB_CACHE_HIT_TOKENS", "80"))
 STUB_THINK_DELAY_MS = int(os.environ.get("STUB_THINK_DELAY_MS", "5000"))
 STUB_SLOW_DELAY_MS = int(os.environ.get("STUB_SLOW_DELAY_MS", "2500"))
 STUB_CODE_FENCE = os.environ.get(
@@ -148,6 +152,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
         created = int(time.time())
         usage = {"prompt_tokens": 11, "completion_tokens": 5, "total_tokens": 16}
+        if STUB_CACHE_MODEL and STUB_CACHE_MODEL in str(model):
+            # 模拟厂商的缓存明细：命中 STUB_CACHE_HIT_TOKENS，其余算未命中
+            hit = STUB_CACHE_HIT_TOKENS
+            miss = 1000
+            usage = {
+                "prompt_tokens": hit + miss,
+                "completion_tokens": 5,
+                "total_tokens": hit + miss + 5,
+                "prompt_tokens_details": {"cached_tokens": hit},
+            }
         tool_call = self._tool_call_to_emit(body)
 
         if body.get("stream"):
