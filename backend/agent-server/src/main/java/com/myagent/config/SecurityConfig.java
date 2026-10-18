@@ -42,13 +42,17 @@ public class SecurityConfig {
     private final RestAuthEntryPoint authEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
 
+    private final com.myagent.auth.mapper.SysUserMapper userMapper;
+
     public SecurityConfig(
             JwtService jwtService,
             RestAuthEntryPoint authEntryPoint,
-            RestAccessDeniedHandler accessDeniedHandler) {
+            RestAccessDeniedHandler accessDeniedHandler,
+            com.myagent.auth.mapper.SysUserMapper userMapper) {
         this.jwtService = jwtService;
         this.authEntryPoint = authEntryPoint;
         this.accessDeniedHandler = accessDeniedHandler;
+        this.userMapper = userMapper;
     }
 
     @Bean
@@ -67,7 +71,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, CONFIG_PATHS).authenticated()
                         .requestMatchers(CONFIG_PATHS).hasRole("ADMIN")
                         .anyRequest().authenticated())
-                .addFilterBefore(new JwtAuthFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(
+                        new JwtAuthFilter(jwtService, userMapper), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 
