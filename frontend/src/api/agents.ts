@@ -20,6 +20,8 @@ export interface AgentDetail {
   status: "ENABLED" | "DISABLED";
   skillIds: number[];
   mcpServerIds: number[];
+  /** 可用用户（按资源授权）；**空 = 对所有人开放** */
+  allowedUserIds?: number[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -61,6 +63,18 @@ export function createAgent(payload: AgentPayload) {
 
 export function updateAgent(id: number, payload: AgentPayload) {
   return apiFetch<AgentDetail>(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+/**
+ * 设置该 Agent 的可用用户（按资源授权）。
+ *
+ * <p>传空数组 = 恢复"对所有人开放"。（写操作仅 ADMIN，由后端 SecurityConfig 保证。）
+ */
+export function setAgentAllowedUsers(id: number, userIds: number[]) {
+  return apiFetch<AgentDetail>(`/api/agents/${id}/users`, {
+    method: "PUT",
+    body: JSON.stringify({ userIds }),
+  });
 }
 
 export function deleteAgent(id: number) {

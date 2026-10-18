@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { listUsers, type UserRow } from "@/api/users";
+import { setAgentAllowedUsers } from "@/api/agents";
 import { toast } from "sonner";
 import { Plus, RefreshCw, Trash2, Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +87,9 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
+  /** 全部用户（用于「可用用户」多选；空数组 = 对所有人开放） */
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [allowedUserIds, setAllowedUserIds] = useState<number[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -109,6 +114,13 @@ export default function AgentsPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // 用户列表：给「可用用户」多选用（该页仅 ADMIN 可进，/api/users 对 ADMIN 开放）
+  useEffect(() => {
+    listUsers({ current: 1, size: 200 })
+      .then((page) => setUsers(page.records ?? []))
+      .catch(() => setUsers([]));
+  }, []);
 
   function toggle(list: number[], id: number): number[] {
     return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
@@ -140,12 +152,18 @@ export default function AgentsPage() {
       mcpServerIds: form.mcpServerIds,
     };
     try {
+      let savedId = form.id;
       if (form.id == null) {
-        await createAgent(payload);
+        const created = await createAgent(payload);
+        savedId = created.id;
         toast.success("已创建 Agent");
       } else {
         await updateAgent(form.id, payload);
         toast.success("已保存（绑定已整体替换）");
+      }
+      // 按资源授权：白名单单独一次调用（空数组 = 对所有人开放）
+      if (savedId != null) {
+        await setAgentAllowedUsers(savedId, allowedUserIds);
       }
       setDialogOpen(false);
       await refresh();
@@ -170,6 +188,7 @@ export default function AgentsPage() {
           className="ml-auto"
           onClick={() => {
             setForm({ ...EMPTY, modelId: models[0]?.id ?? null });
+            setAllowedUserIds([]);
             setDialogOpen(true);
           }}
         >
@@ -192,6 +211,7 @@ export default function AgentsPage() {
                 <TableHead>agentId</TableHead>
                 <TableHead>模型</TableHead>
                 <TableHead>权限模式</TableHead>
+                <TableHead>可用用户</TableHead>
                 <TableHead>绑定</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead className="text-right">操作</TableHead>
@@ -212,6 +232,11 @@ export default function AgentsPage() {
                       {MODE_LABEL[a.permissionMode] ?? a.permissionMode}
                     </Badge>
                   </TableCell>
+                  <TableCell className="text-xs" data-testid="agent-allowed-users">
+                    {(a.allowedUserIds?.length ?? 0) === 0
+                      ? "全部用户"
+                      : `${a.allowedUserIds!.length} 个用户`}
+                  </TableCell>
                   <TableCell className="text-xs">
                     Skill {a.skillIds.length} · MCP {a.mcpServerIds.length}
                   </TableCell>
@@ -227,6 +252,7 @@ export default function AgentsPage() {
                         variant="ghost"
                         title="编辑"
                         onClick={() => {
+                          setAllowedUserIds(a.allowedUserIds ?? []);
                           setForm({
                             id: a.id,
                             name: a.name,
@@ -471,6 +497,36 @@ export default function AgentsPage() {
               </select>
             </label>
           </div>
+          {/* 按资源授权：不勾选 = 对所有人开放；勾了就只给这些人用 */}
+          <div className="space-y-1 text-sm">
+            可用用户（不勾选 = 对所有人开放）
+            <div
+              data-testid="agent-allowed-users-picker"
+              className="border-input max-h-32 space-y-1 overflow-auto rounded-md border p-2"
+            >
+              {users.length === 0 && (
+                <p className="text-muted-foreground text-xs">暂无其它用户</p>
+              )}
+              {users.map((u) => (
+                <label key={u.id} className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    className="size-3.5"
+                    data-testid={`agent-allowed-user-${u.id}`}
+                    checked={allowedUserIds.includes(u.id)}
+                    onChange={() =>
+                      setAllowedUserIds((prev) =>
+                        prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id],
+                      )
+                    }
+                  />
+                  {u.displayName ?? u.username}
+                  <span className="text-muted-foreground">({u.username})</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               取消
