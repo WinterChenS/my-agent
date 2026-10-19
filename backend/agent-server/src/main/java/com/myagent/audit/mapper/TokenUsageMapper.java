@@ -164,7 +164,12 @@ public interface TokenUsageMapper extends BaseMapper<TokenUsage> {
     @Select("""
             <script>
             SELECT coalesce(sum(
-                       t.prompt_tokens     / 1000000.0 * coalesce(m.price_input, 0)
+                       -- 与 byModel 用**同一套分类口径**：未命中输入 + 缓存命中(按缓存价，缺省退回输入价) + 输出
+                       -- （原先这里少了缓存那一项，导致"配额算的钱"与"审计显示的钱"不一致）
+                       greatest(t.prompt_tokens - t.cache_tokens, 0) / 1000000.0
+                           * coalesce(m.price_input, 0)
+                     + t.cache_tokens / 1000000.0
+                           * coalesce(m.price_cache, m.price_input, 0)
                      + t.completion_tokens / 1000000.0 * coalesce(m.price_output, 0)
                    ), 0) AS cost_total
             FROM token_usage t
