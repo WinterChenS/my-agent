@@ -185,7 +185,13 @@ test("A19/A20 审计看板显示已用/额度，设极小额度后提示超限",
 
   const card = page.getByTestId("quota-card");
   await expect(card).toBeVisible({ timeout: 20000 });
+  // 等额度请求真的回来再往下操作：loadQuota 是"选完用户后异步拉"的，晚到的响应会重置输入框，
+  // 导致保存进去的其实是空值（=不限）——「已超出」就不会出现（与 phase19-quota 同一个竞态）。
+  const quotaLoaded = page.waitForResponse(
+    (r) => /\/api\/users\/\d+\/quota$/.test(new URL(r.url()).pathname) && r.request().method() === "GET",
+  );
   await page.locator("#audit-user").selectOption({ index: 1 });
+  await quotaLoaded;
   const usage = page.getByTestId("quota-usage");
   await expect(usage).toContainText("今日已用", { timeout: 20000 });
   console.log("[A20] 看板额度显示:", (await usage.innerText()).replace(/\s+/g, " "));
@@ -277,7 +283,13 @@ test("A17/A18 跑完的站内提示已按用户要求移除；实时可见性改
 test("收尾：把额度复原为「不限」，不留痕", async ({ page }) => {
   await login(page);
   await page.goto("/admin/audit");
+  // 同样要等额度数据到位再清空：否则晚到的响应会把"已清空"的输入框又填回旧值，
+  // 保存时提交的不是 null，额度清理不掉（会残留给后续用例）。
+  const quotaLoaded = page.waitForResponse(
+    (r) => /\/api\/users\/\d+\/quota$/.test(new URL(r.url()).pathname) && r.request().method() === "GET",
+  );
   await page.locator("#audit-user").selectOption({ index: 1 });
+  await quotaLoaded;
   await expect(page.getByTestId("quota-usage")).toContainText("今日已用", { timeout: 20000 });
   await page.getByTestId("quota-daily").fill("");
   await page.getByTestId("quota-mode").selectOption("BLOCK");

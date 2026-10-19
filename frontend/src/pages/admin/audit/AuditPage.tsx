@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getUserQuota, setUserQuota, type QuotaStatus } from "@/api/quota";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,7 @@ import {
   type TokenUser,
 } from "@/api/audit";
 import { useAuthStore } from "@/stores/auth";
+import { money } from "@/lib/utils";
 import {
   BreakdownBars,
   Donut,
@@ -48,18 +49,40 @@ export default function AuditPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  /** 输入框里当前这份数值属于哪个用户（用来区分「换用户」和「同一用户的后台重拉」）。 */
+  const quotaUserRef = useRef<number | null>(null);
+  /** 额度请求序号：快速切用户时，先发的响应可能后到，用它把过期响应丢掉。 */
+  const quotaReqRef = useRef(0);
+
   /** 拉该用户的额度状态（审计看板显示已用/额度）。 */
   const loadQuota = useCallback(async (targetUserId: number | null) => {
     if (targetUserId == null) {
       setQuota(null);
+      quotaUserRef.current = null;
       return;
     }
+    const reqId = (quotaReqRef.current += 1);
     try {
       const data = await getUserQuota(targetUserId);
+      if (reqId !== quotaReqRef.current) {
+        // 过期响应：这期间用户已经切到别的用户，写进去只会是错的值
+        return;
+      }
       setQuota(data);
-      setQuotaDaily(data.dailyQuota == null ? "" : String(data.dailyQuota));
-      setQuotaMonthly(data.monthlyQuota == null ? "" : String(data.monthlyQuota));
-      setQuotaMode(data.mode);
+      /*
+       * 只有**换用户**时才把输入框重置成服务端的值。
+       *
+       * 为什么：`load()` 里会顺带调一次 loadQuota，而 load() 会因为筛选条件等变化重跑。
+       * 若每次响应都重置输入框，用户「刚选完用户、正在输入额度」时晚到的那次重拉就会把输入清空 ——
+       * 点保存时提交的其实是空值（=不限），表现为「设了极小额度却没有超限提示」（实测全量跑必现，
+       * 单独跑只是后端更快、恰好没撞上）。
+       */
+      if (quotaUserRef.current !== targetUserId) {
+        quotaUserRef.current = targetUserId;
+        setQuotaDaily(data.dailyQuota == null ? "" : String(data.dailyQuota));
+        setQuotaMonthly(data.monthlyQuota == null ? "" : String(data.monthlyQuota));
+        setQuotaMode(data.mode);
+      }
     } catch {
       setQuota(null);
     }
@@ -208,7 +231,7 @@ export default function AuditPage() {
             <CardTitle className="text-xs font-normal">成本</CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 text-2xl font-semibold">
-            {summary?.costTotal == null ? "—" : Number(summary.costTotal).toFixed(2)}
+            {money(summary?.costTotal)}
             <span className="text-muted-foreground ml-1 text-xs font-normal">
               {summary?.costCurrency && summary.costCurrency !== "MIXED" ? summary.costCurrency : "（多币种）"}
             </span>

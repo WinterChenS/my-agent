@@ -29,3 +29,29 @@ export function maxTokensWarning(value: string): string | null {
   }
   return null;
 }
+
+/**
+ * 金额展示（审计看板）。
+ *
+ * <p>为什么要单独一个：一次极小调用的成本是 0.000016 这个量级，用 `toFixed(2)` 会显示成
+ * **0.00** —— 看起来像“没花钱”，和“确实产生了成本”的事实相矛盾（实测反馈）。
+ * 规则：越大越少给小数，越小越多给，保证不会把非零金额显示成 0。
+ *  - ≥ 1      → 2 位（1.20）
+ *  - ≥ 0.01   → 4 位（0.0162）
+ *  - 更小     → 6 位（0.000016）
+ */
+export function money(value: number | string | null | undefined): string {
+  if (value == null || value === "") {
+    return "—";
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return "—";
+  }
+  const abs = Math.abs(n);
+  // 0（以及 ≥1）用标准的 2 位；否则按量级多给几位，避免非零金额被显示成 0
+  if (abs === 0 || abs >= 1) {
+    return n.toFixed(2);
+  }
+  return n.toFixed(abs >= 0.01 ? 4 : 6);
+}
