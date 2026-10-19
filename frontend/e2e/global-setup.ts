@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,10 +51,10 @@ function pythonCandidates(): ChildProcess["spawnfile"][] {
   if (hermes && existsSync(hermes)) {
     // 目录下是形如 generation-*/cpython-*/python.exe 的结构，扫一层即可
     try {
-      const fs = require("node:fs") as typeof import("node:fs");
-      for (const gen of fs.readdirSync(hermes)) {
+      // 不能用 require（前端是 ESM）：顶部 import 进来用
+      for (const gen of readdirSync(hermes)) {
         const base = resolve(hermes, gen);
-        for (const arch of fs.readdirSync(base)) {
+        for (const arch of readdirSync(base)) {
           const exe = resolve(base, arch, "python.exe");
           if (existsSync(exe)) {
             list.push(exe);
