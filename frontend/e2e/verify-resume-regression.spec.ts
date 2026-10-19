@@ -198,5 +198,86 @@ test.describe("会话恢复：切走再切回不打乱对话", () => {
       await deleteStubAgent(request, headers, agentDbId);
     }
   });
+
+  /**
+   * 回归（本次修复）：**刷新那一刻探测到的 `running` 可能是 false**。
+   *
+   * <p>原因：刷新会中断还在途的 `POST /agui/run`，而服务端是「收到请求 → 解析 Agent →
+   * `RunningRunRegistry.beginRun`」之后才登记这一轮。旧实现**一次判定就放弃**：界面从此永远停在
+   * 「只有上一轮答案、没有本轮气泡、也没有停止按钮」，而且此后**没有任何东西**会再触发接续
+   * （全量跑实测：`assistant-text` 的 `toHaveCount(2)` 实得 1）。
+   *
+   * <p>真实全量跑时这个瞬间只是**偶发**（取决于后端/环境快慢），所以这里把它**确定性地**造出来：
+   * 刷新后把**第一次** `GET /run` 的响应改成 `running=false`，之后一律放行。
+   * 于是只有「会重试」的实现才能发现这一轮仍在跑 —— 只判定一次就必然红。
+   */
+  test("刷新后首次探测说「没在跑」也要重试，不能就此放弃接续", async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const stamp = Date.now();
+    const { agentName, agentDbId, headers } = await createStubAgent(request, stamp, {
+      modelId: `stub-slow-${stamp}`,
+    });
+    try {
+      const input = await loginAndSelectAgent(page, agentName);
+
+      // 第一轮：等它真的跑完并落库，界面上留下一条完整的助手答案
+      await input.fill("第一轮");
+      await input.press("Enter");
+      await expect(page.getByTestId("stop-button")).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId("stop-button")).toHaveCount(0, { timeout: 120_000 });
+      const firstAnswer = await page.getByTestId("assistant-text").first().innerText();
+      expect(firstAnswer.length).toBeGreaterThan(10);
+
+      // 第二轮：发出后立刻刷新（SSE 必然断开，服务端继续跑）
+      await input.fill("第二轮");
+      await input.press("Enter");
+      await expect(page.getByTestId("stop-button")).toBeVisible({ timeout: 30_000 });
+
+      /*
+       * 只改**刷新之后第一次** /run 探测的响应：伪装成「服务端还没登记这一轮」。
+       * 之后的探测放行，所以能否接上这一轮，就完全取决于实现会不会重试。
+       */
+      let probes = 0;
+      await page.route(/\/api\/sessions\/\d+\/run$/, async (route) => {
+        probes += 1;
+        if (probes === 1) {
+          await route.fulfill({
+            contentType: "application/json",
+            body: JSON.stringify({
+              code: 0,
+              msg: "ok",
+              data: { running: false, text: "", runId: null, stopped: false },
+            }),
+          });
+          return;
+        }
+        await route.continue();
+      });
+
+      await page.reload();
+      console.log("[首次探测为假] 已刷新，且已把第一次 /run 探测改成 running=false");
+
+      // 历史重放：两条用户消息都在
+      await expect(page.getByTestId("user-text")).toHaveCount(2, { timeout: 60_000 });
+      // 关键断言：仍然把本轮的气泡接上（一次判定就放弃的实现会永远只有 1 条）
+      await expect(page.getByTestId("assistant-text")).toHaveCount(2, { timeout: 90_000 });
+      expect(probes, "应该重试（探测不止一次）才可能发现这一轮仍在跑").toBeGreaterThan(1);
+      // 上一轮的答案没有被改写
+      await expect(page.getByTestId("assistant-text").first()).toHaveText(firstAnswer);
+      console.log("[首次探测为假] 重试后接上了本轮气泡，且上一轮答案未被改写 ✓");
+
+      // 跑完后两条都完整
+      await expect(page.getByTestId("stop-button")).toHaveCount(0, { timeout: 180_000 });
+      await expect(page.getByTestId("assistant-text").nth(1)).not.toHaveText("", { timeout: 60_000 });
+      console.log("[首次探测为假] 两条答案都完整 ✓");
+    } finally {
+      await page.unroute(/\/api\/sessions\/\d+\/run$/).catch(() => {});
+      const sessions = await (await request.get(`${API}/api/sessions`, { headers })).json();
+      for (const s of sessions.data as { id: number; agentId: number | null }[]) {
+        if (s.agentId === agentDbId) await request.delete(`${API}/api/sessions/${s.id}`, { headers });
+      }
+      await deleteStubAgent(request, headers, agentDbId);
+    }
+  });
 }
 );

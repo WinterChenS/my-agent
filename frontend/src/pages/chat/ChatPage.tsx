@@ -53,6 +53,7 @@ import { filesFromDataTransfer, normalizeIncomingFiles } from "@/lib/attachments
 import { useSessionStore } from "@/stores/sessions";
 import { listSkills, type SkillInfo } from "@/api/skills";
 import { partsAreEmpty, partsSkillIds, partsToText, type MentionPart } from "@/lib/skills/selection";
+import { probeRunningRun } from "@/lib/chat/resumeProbe";
 
 /** 图片文件 → AG-UI 的 image 内容块（base64 内联；官方适配器会转成 ImageBlock）。 */
 async function fileToImagePart(file: File) {
@@ -150,6 +151,24 @@ export default function ChatPage() {
   /** 接续「正在跑的 run」的令牌：换会话/重复接续时让旧循环失效（见 resumeRunningRun） */
   const resumeToken = useRef(0);
   /**
+   * 本页**自己**正在流式跑的那一轮（实时流的归属）。
+   *
+   * <p>为什么要跟踪：接续（{@link resumeRunningRun}）和实时流会写同一轮的气泡。两边同时写时，
+   * 接续拿到的是**轮询快照**（1.2s 一次），可能比实时流**旧** —— 会把更新的文本改回旧的；
+   * 收尾时还会用 listMessages 整体替换界面，把正在等用户操作的卡片抹掉。
+   * 实测（全量跑）：
+   *  - 「切走再切回」用例：第一条答案被改短 1 个字符，断言 toHaveText 失败；
+   *  - 「交互卡片」用例：点「继续」后卡片不消失，45s 等待超时。
+   * 所以：这一轮**归实时流**，接续不插手。页面刷新进来时这张表是空的，所以
+   * 「刷新后接续 / 别的标签页的 run」这些真正需要接续的场景不受影响。
+   *
+   * <p>用 Map（而不是单个 id）：用户可能在 A 会话还跑着时切到 B 再发一条，两条 run 同时流式，
+   * 两个会话都得受保护。值是本轮的唯一令牌，避免旧一轮的收尾把新登记的那条清掉。
+   */
+  const liveRunsRef = useRef<Map<number, number>>(new Map());
+  /** 实时流轮次序号：排队消息会再起一轮，用它保证只有**最后一次**收尾能清掉登记 */
+  const liveRunSeq = useRef(0);
+  /**
    * **当前显示的**会话 id（ref，供异步回调读取）。
    *
    * <p>为什么必须有：一轮 run 的流式回调（以及收尾逻辑）是绑在"发起它的那个会话"上的。
@@ -232,7 +251,12 @@ export default function ChatPage() {
        * `replayMessages(A 的消息)` 整个替换界面 —— 对话就串了。
        */
       const token = (resumeToken.current += 1);
-      const active = () => token === resumeToken.current;
+      /*
+       * `active()` 除了「令牌没被换掉」，还要确认**本页没有在实时跑这一轮**：
+       * 本页自己发起的 run 由实时流负责写入，接续插手只会把更新的内容改回旧快照
+       * （甚至把待确认卡片抹掉）——见 liveRunsRef 的说明。
+       */
+      const active = () => token === resumeToken.current && !liveRunsRef.current.has(target.id);
 
       const applyPartial = (text: string, runIdFromApi: string | null) => {
         if (!text || !active()) {
@@ -262,7 +286,11 @@ export default function ChatPage() {
             if (item.kind === "text" && item.role === "assistant") {
               items[i] = {
                 ...item,
-                content: text,
+                /*
+                 * 同一轮的文本**只会增长**：轮询快照可能落后于实时流，
+                 * 照抄会把已经显示出来的后续内容改短（实测：答案被改短 1 个字符）。
+                 */
+                content: text.length >= item.content.length ? text : item.content,
                 streaming: true,
                 stopped: false,
                 runId: item.runId ?? itemRunId ?? prev.runId,
@@ -290,8 +318,22 @@ export default function ChatPage() {
         setBusy(true);
       };
 
-      const state = await getRunState(target.id).catch(() => null);
-      if (!state?.running) {
+      /*
+       * 首次探测**要重试**，不能一次判定。
+       *
+       * 刷新页面会中断还在途的 POST /agui/run，而服务端是收到请求、解析完 Agent 之后才
+       * 登记这一轮（RunningRunRegistry.beginRun）。于是"刷新那一刻"探到的 running 可能还是 false ——
+       * 若就此放弃，界面会永远停在「只有上一轮答案、没有本轮气泡、也没有停止按钮」，
+       * 而且此后没有任何东西会再触发接续（实测：全量跑时报「助手气泡 toHaveCount(2) 实得 1」，
+       * 单独跑时后端更快、恰好登记完了所以是绿的）。重试窗口见 probeRunningRun。
+       */
+      const state = await probeRunningRun(
+        () => getRunState(target.id).catch(() => null),
+        (snapshot) => snapshot.running,
+        { active },
+      );
+      // 再确认一次 active()：探测期间用户可能刚好发了消息（那一刻起归实时流，接续要让位）
+      if (!state || !active()) {
         return false;
       }
       applyPartial(state.text, state.runId ?? null);
@@ -546,6 +588,12 @@ export default function ChatPage() {
 
     /** 这一轮的界面写入是否还有效（用户切走了就不要再写，否则串到别的会话上） */
     const stillOnScreen = () => activeSessionIdRef.current === active.id;
+    /*
+     * 登记「这一轮的实时流归本页」——只在 runAgent 期间有效，收尾时释放。
+     * 接续（resumeRunningRun）看到这里登记了自己就会让位（详见 liveRunsRef 的说明）。
+     */
+    const myLiveToken = (liveRunSeq.current += 1);
+    liveRunsRef.current.set(active.id, myLiveToken);
     if (stillOnScreen()) {
       setChat((prev) => ({ ...prev, status: "running" }));
       setBusy(true);
@@ -623,6 +671,10 @@ export default function ChatPage() {
         setParts(options.restoreParts);
       }
     } finally {
+      // 只有**最后一次**登记的实时流才清得掉（排队消息会在收尾前再起一轮）
+      if (liveRunsRef.current.get(active.id) === myLiveToken) {
+        liveRunsRef.current.delete(active.id);
+      }
       if (stillOnScreen()) {
         setBusy(false);
         void refreshContext(session);
