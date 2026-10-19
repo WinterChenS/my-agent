@@ -323,3 +323,60 @@ describe("replayMessages：已停止标记（Phase 12 / D25）", () => {
   });
 });
 
+
+/**
+ * 回归（全量 e2e 暴露的重复气泡竞态）：
+ * 同一轮的文字可能同时来自「实时 SSE 流」与「接续正在跑的 run」（切回会话/刷新后按 /run 轮询补文本），
+ * 两者先后不定。若各建一条，界面上会出现**两个气泡装着同一轮的内容**。
+ * 归并键是 runId —— 下面两种情况都必须只留一条。
+ */
+describe("reduceEvent：同 runId 只保留一条助手气泡（接续 vs 流）", () => {
+  /** 模拟"接续"先建出的气泡：带本轮 runId，内容是已生成的部分 */
+  const resumedState: ChatState = {
+    items: [
+      { kind: "text", id: "resumed-1", role: "assistant", content: "半截", streaming: true, runId: "r1" },
+    ],
+    status: "running",
+    runId: "r1",
+  };
+
+  it("接续先建、流后来：复用同一条，不新建（历史 bug：会多一条气泡）", () => {
+    const state = [
+      { type: "TEXT_MESSAGE_START", messageId: "m1" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "文本" } as AguiEventLike,
+    ].reduce(reduceEvent, resumedState);
+
+    const assistants = state.items.filter((i) => i.kind === "text" && i.role === "assistant");
+    expect(assistants, "同一轮只能有一条助手气泡").toHaveLength(1);
+    // 复用后应当接着原来的内容继续追加（而不是丢掉已生成的部分）
+    expect((assistants[0] as { content: string }).content).toBe("半截文本");
+  });
+
+  it("流先建、接续后来：CONTENT 没有 START 时也按 runId 并进同一条", () => {
+    const state = [
+      { type: "RUN_STARTED", runId: "r2" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_START", messageId: "m2" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "m2", delta: "A" } as AguiEventLike,
+      // 接续路径写进来的增量（没有 START、messageId 对不上）
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "other", delta: "B" } as AguiEventLike,
+    ].reduce(reduceEvent, initialChatState);
+
+    const assistants = state.items.filter((i) => i.kind === "text" && i.role === "assistant");
+    expect(assistants, "同一轮只能有一条助手气泡").toHaveLength(1);
+    expect((assistants[0] as { content: string }).content).toBe("AB");
+  });
+
+  it("不同轮次（runId 不同）仍应各自成条", () => {
+    const state = [
+      { type: "TEXT_MESSAGE_START", messageId: "m1" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "第一轮" } as AguiEventLike,
+      { type: "RUN_FINISHED" } as AguiEventLike,
+      { type: "RUN_STARTED", runId: "r2" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_START", messageId: "m2" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "m2", delta: "第二轮" } as AguiEventLike,
+    ].reduce(reduceEvent, initialChatState);
+
+    const assistants = state.items.filter((i) => i.kind === "text" && i.role === "assistant");
+    expect(assistants).toHaveLength(2);
+  });
+});

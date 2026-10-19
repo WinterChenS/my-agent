@@ -36,7 +36,30 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
         runId: event.runId ?? state.runId,
       };
 
-    case "TEXT_MESSAGE_START":
+    case "TEXT_MESSAGE_START": {
+      /*
+       * 同一轮（同 runId）已经有一条助手气泡时**复用它**，不要新建。
+       *
+       * 为什么：这一轮的文字可能同时来自两处 —— 实时 SSE 流，以及"接续正在跑的 run"
+       * （切回会话/刷新后按 /run 轮询把已生成的文本补上）。两者先后不定，
+       * 若各建一条，界面上就会出现**两个气泡装着同一轮的内容**（实测：全量里表现为
+       * 顺序断言多出一条 assistant 气泡）。归并键就是 runId。
+       */
+      const sameRun = state.runId
+        ? state.items.find(
+            (item) => item.kind === "text" && item.role === "assistant" && item.runId === state.runId,
+          )
+        : undefined;
+      if (sameRun) {
+        return {
+          ...state,
+          items: state.items.map((item) =>
+            item === sameRun
+              ? { ...item, id: event.messageId ?? item.id, streaming: true }
+              : item,
+          ),
+        };
+      }
       return {
         ...state,
         items: [
@@ -51,6 +74,7 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
           },
         ],
       };
+    }
 
     case "TEXT_MESSAGE_CONTENT":
       return {
@@ -293,6 +317,20 @@ function upsertText(
 ): ChatItem[] {
   const index = items.findIndex((item) => item.kind === "text" && item.id === messageId);
   if (index === -1) {
+    // 同一轮已有气泡（可能来自"接续"）：把增量并进去，**不新建**（理由见 TEXT_MESSAGE_START）
+    const sameRun =
+      runId == null
+        ? -1
+        : items.findIndex(
+            (item) => item.kind === "text" && item.role === "assistant" && item.runId === runId,
+          );
+    if (sameRun !== -1) {
+      return items.map((item, i) =>
+        i === sameRun && item.kind === "text"
+          ? { ...item, id: messageId ?? item.id, content: item.content + delta, streaming: true }
+          : item,
+      );
+    }
     // 没有 START 就来了 CONTENT：补一个文本块，保证内容不丢
     return [
       ...items,

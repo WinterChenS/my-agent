@@ -234,10 +234,15 @@ export default function ChatPage() {
       const token = (resumeToken.current += 1);
       const active = () => token === resumeToken.current;
 
-      const applyPartial = (text: string) => {
+      const applyPartial = (text: string, runIdFromApi: string | null) => {
         if (!text || !active()) {
           return;
         }
+        /*
+         * runId 来自 /run 接口（服务端这一轮的 run id）——**必须写进这条气泡**：
+         * 它是与"实时 SSE 流"归并的依据（同 runId 只保留一条气泡，避免重复）。
+         */
+        const itemRunId = runIdFromApi ?? null;
         setChat((prev) => {
           const items = [...prev.items];
           /*
@@ -255,8 +260,14 @@ export default function ChatPage() {
           for (let i = items.length - 1; i > lastUserIndex; i -= 1) {
             const item = items[i];
             if (item.kind === "text" && item.role === "assistant") {
-              items[i] = { ...item, content: text, streaming: true, stopped: false, runId: item.runId ?? prev.runId };
-              return { ...prev, items, status: "running" };
+              items[i] = {
+                ...item,
+                content: text,
+                streaming: true,
+                stopped: false,
+                runId: item.runId ?? itemRunId ?? prev.runId,
+              };
+              return { ...prev, items, status: "running", runId: itemRunId ?? prev.runId };
             }
           }
           // 本轮还没有助手气泡 → **追加**一个（绝不能覆盖上一轮的答案）
@@ -269,11 +280,11 @@ export default function ChatPage() {
                 role: "assistant",
                 content: text,
                 streaming: true,
-                runId: prev.runId,
+                runId: itemRunId ?? prev.runId,
               },
             ],
             status: "running",
-            runId: prev.runId,
+            runId: itemRunId ?? prev.runId,
           };
         });
         setBusy(true);
@@ -283,7 +294,7 @@ export default function ChatPage() {
       if (!state?.running) {
         return false;
       }
-      applyPartial(state.text);
+      applyPartial(state.text, state.runId ?? null);
 
       // 轮询到这一轮结束（结束/宽限期超时后服务端会落库）
       const deadline = Date.now() + 10 * 60 * 1000;
@@ -305,7 +316,7 @@ export default function ChatPage() {
           continue;
         }
         failures = 0;
-        applyPartial(next.text);
+        applyPartial(next.text, next.runId ?? null);
         if (!next.running) {
           break;
         }
