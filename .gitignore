@@ -81,3 +81,4 @@ patch-*.py
 
 # 桩的请求 dump（测试产物，可能含会话内容，不入库）
 tools/llm-stub/dump*.txt
+e2e/.stub-started-by-tests

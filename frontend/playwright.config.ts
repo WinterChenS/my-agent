@@ -8,6 +8,9 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
+  // 自给自足：跑之前保证模型桩在跑（没跑就自己拉起），跑完只关掉自己拉起的那个
+  globalSetup: "./e2e/global-setup.ts",
+  globalTeardown: "./e2e/global-teardown.ts",
   timeout: 90_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,

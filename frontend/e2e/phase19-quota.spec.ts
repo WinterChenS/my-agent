@@ -54,6 +54,31 @@ test("审计看板显示支出额度并可设置", async ({ page, request }) => 
   await page.getByTestId("quota-mode").selectOption("BLOCK");
   await page.getByTestId("quota-save").click();
   await expect(page.getByTestId("quota-notice")).toContainText("已保存", { timeout: 15000 });
+  // 诊断（失败时一次问清）：接口原始返回到底是什么
+  if (process.env.QUOTA_DEBUG === "1") {
+    const token2 = (await (await request.post(`${API}/api/auth/login`, { data: { username: "admin", password: "Admin@123" } })).json()).data.token as string;
+    const raw = await (
+      await request.get(`${API}/api/users/1/quota`, { headers: { Authorization: `Bearer ${token2}` } })
+    ).json();
+    const recs = await (
+      await request.get(`${API}/api/audit/token/records?current=1&size=3`, {
+        headers: { Authorization: `Bearer ${token2}` },
+      })
+    ).json();
+    console.log(`[诊断] users/1/quota = ${JSON.stringify(raw.data)}`);
+    console.log(
+      `[诊断] 最近用量行 = ${JSON.stringify(
+        (recs.data.records as Record<string, unknown>[]).map((r) => ({
+          session: r.sessionId,
+          modelId: r.modelId,
+          model: r.modelName,
+          total: r.totalTokens,
+          at: r.createdAt,
+        })),
+      )}`,
+    );
+    console.log(`[诊断] 页面额度文本 = ${JSON.stringify((await page.getByTestId("quota-usage").innerText()).replace(/\s+/g, " "))}`);
+  }
   await expect(page.getByTestId("quota-exceeded")).toBeVisible({ timeout: 15000 });
   console.log("超限提示:", await page.getByTestId("quota-exceeded").innerText());
 
