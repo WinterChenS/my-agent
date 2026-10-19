@@ -54,8 +54,12 @@ test("审计看板显示支出额度并可设置", async ({ page, request }) => 
   await page.getByTestId("quota-mode").selectOption("BLOCK");
   await page.getByTestId("quota-save").click();
   await expect(page.getByTestId("quota-notice")).toContainText("已保存", { timeout: 15000 });
-  // 诊断（失败时一次问清）：接口原始返回到底是什么
-  if (process.env.QUOTA_DEBUG === "1") {
+  /*
+   * 诊断：**始终打印**（不再用环境变量门控）。
+   * 原因：上一轮全量里这条用例失败，但诊断被门控住没输出 → 白跑一次没法定位。
+   * 三行日志成本可忽略，换来"失败时自己说明问题"。
+   */
+  {
     const token2 = (await (await request.post(`${API}/api/auth/login`, { data: { username: "admin", password: "Admin@123" } })).json()).data.token as string;
     const raw = await (
       await request.get(`${API}/api/users/1/quota`, { headers: { Authorization: `Bearer ${token2}` } })
