@@ -131,9 +131,9 @@ export function ArtifactPreviewPanel({
         </Button>
       </div>
 
-      {/* 内容区 */}
-      <div className="min-h-0 flex-1 overflow-auto p-3">
-        <div className="mb-2 flex items-center gap-2">
+      {/* 内容区：文件名/大小/下载一行，下面占满**剩余全高**（用户要求：预览窗口高度要够） */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+        <div className="flex items-center gap-2">
           <span
             className="text-muted-foreground min-w-0 flex-1 truncate text-xs"
             title={active.fileName}
@@ -151,7 +151,10 @@ export function ArtifactPreviewPanel({
             <Download className="size-4" />
           </Button>
         </div>
-        <ArtifactPreviewBody item={active} />
+        {/* 这一层才是滚动容器：HTML/PDF 的 iframe 用 h-full 正好填满它 */}
+        <div className="min-h-0 flex-1 overflow-auto">
+          <ArtifactPreviewBody item={active} />
+        </div>
       </div>
     </aside>
   );

@@ -95,19 +95,35 @@ test("代码块文字与背景对比度足够", async ({ page, request }) => {
     });
     await page.waitForTimeout(500);
 
-    const styles = await page
-      .locator("[data-testid='assistant-text'] pre")
-      .first()
-      .evaluate((el) => {
-        const cs = getComputedStyle(el);
-        const code = el.querySelector("code");
-        const ccs = code ? getComputedStyle(code) : null;
-        return {
-          preColor: cs.color,
-          preBg: cs.backgroundColor,
-          codeColor: ccs?.color ?? null,
-        };
-      });
+    /*
+     * 取样必须**轮询到拿到非空颜色**为止。
+     *
+     * 为什么：一轮收尾时 chat items 会被整体替换（replayMessages），气泡 DOM 有一帧重建 ——
+     * 恰好在这一帧取到的 `pre` 已经是**脱离文档的旧节点**，`getComputedStyle` 返回空字符串，
+     * 于是对比度算成 1.00:1、用例假红（实测：单独跑绿、全量跑红，日志就是 `文字/背景 = / `）。
+     */
+    let styles = { preColor: "", preBg: "", codeColor: null as string | null };
+    await expect
+      .poll(
+        async () => {
+          styles = await page
+            .locator("[data-testid='assistant-text'] pre")
+            .first()
+            .evaluate((el) => {
+              const cs = getComputedStyle(el);
+              const code = el.querySelector("code");
+              const ccs = code ? getComputedStyle(code) : null;
+              return {
+                preColor: cs.color,
+                preBg: cs.backgroundColor,
+                codeColor: ccs?.color ?? null,
+              };
+            });
+          return styles.preColor !== "" && styles.preBg !== "";
+        },
+        { timeout: 30_000, message: "pre 的颜色应能取到（说明拿到的是活节点）" },
+      )
+      .toBe(true);
     console.log("pre  文字/背景 =", styles.preColor, "/", styles.preBg);
 
     const contrast = await page.evaluate(

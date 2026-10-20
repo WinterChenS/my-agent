@@ -232,6 +232,17 @@ test("按类型渲染：html/pdf/markdown/纯文本/Excel/Word 各走各的，�
     await expect(htmlFrame.locator("h1")).toHaveText("html-script-ok", { timeout: 20_000 });
     console.log("[预览] html → 沙箱 iframe 且脚本生效 ✓");
 
+    // ①b iframe 要**占满面板可用高度**（以前写死 70vh：下方留白、内容还被截断）
+    const panelBox0 = (await panel.boundingBox())!;
+    const htmlBox = (await page.getByTestId("preview-html").boundingBox())!;
+    const bottomGap = panelBox0.y + panelBox0.height - (htmlBox.y + htmlBox.height);
+    console.log(
+      `[预览] html 高度=${Math.round(htmlBox.height)} 面板高=${Math.round(panelBox0.height)} 底部余量=${Math.round(bottomGap)}`,
+    );
+    expect(bottomGap, "iframe 应填满面板（只留内边距）").toBeLessThan(24);
+    expect(htmlBox.height).toBeGreaterThan(panelBox0.height * 0.8);
+    await page.screenshot({ path: "../docs/acceptance/task-10.7-preview-height.png" });
+
     // ② PDF：交给浏览器内置阅读器
     panel = await openPreview(page, names.pdf);
     await expect(panel.getByTestId("preview-pdf")).toBeVisible({ timeout: 20_000 });

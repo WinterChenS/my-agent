@@ -16,7 +16,9 @@ import { useArtifactBytes } from "./useArtifactBytes";
  * <p>各类格式的实现代价（都是刻意选择的结果，见 `docs/待办-产物预览重构.md`）：
  * <ul>
  *   <li>HTML：沙箱 iframe（`allow-scripts`、**不给** `allow-same-origin`）—— 能跑图表，
- *       读不到本站 token/存储；但它仍能自行外发请求（残余风险，已与用户确认）；</li>
+ *       读不到本站 token/存储；但它仍能自行外发请求（残余风险，已与用户确认）；
+ *   <li>高度：HTML/PDF/图片都**占满面板可用高度**（`h-full`）—— 以前写死 `70vh`，
+ *       窗口下方白白空出一块、内容还被截断（用户实测指出）；</li>
  *   <li>Markdown / 纯文本：正文已在 `item.content` 里，直接渲染；</li>
  *   <li>PDF / 图片：走鉴权下载 → blob URL；</li>
  *   <li>Excel：`xlsx`（SheetJS）**动态 import**，按 sheet 出表格；</li>
@@ -57,7 +59,7 @@ function HtmlPreview({ item }: { item: ArtifactInfo }) {
       // 允许脚本（能跑图表）但不给 allow-same-origin → 拿不到本站 token/存储
       sandbox="allow-scripts"
       srcDoc={item.content ?? ""}
-      className="h-[70vh] w-full rounded-md border bg-white"
+      className="h-full min-h-[20rem] w-full rounded-md border bg-white"
     />
   );
 }
@@ -98,7 +100,7 @@ function PdfPreview({ item }: { item: ArtifactInfo }) {
       data-testid="preview-pdf"
       title={item.fileName}
       src={url}
-      className="h-[70vh] w-full rounded-md border"
+      className="h-full min-h-[20rem] w-full rounded-md border"
     />
   );
 }
@@ -116,7 +118,7 @@ function ImagePreview({ item }: { item: ArtifactInfo }) {
       data-testid="artifact-preview-image"
       src={url}
       alt={item.fileName}
-      className="mx-auto max-h-[70vh] max-w-full rounded"
+      className="mx-auto max-h-full max-w-full rounded"
     />
   );
 }

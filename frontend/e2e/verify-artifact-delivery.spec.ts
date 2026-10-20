@@ -67,11 +67,18 @@ test.describe("产物交付（官方 deliver_artifact）", () => {
       );
       expect(boxBox.y, "产物框应在气泡下方").toBeGreaterThanOrEqual(bubble.y + bubble.height - 2);
 
-      // ④ 预览：文本可预览 → 点它在**右侧预览面板**里打开完整内容（内联挤压，无遮罩）
-      const inline = page.getByTestId("artifact-preview-inline").first();
-      await expect(inline).toBeVisible();
-      console.log(`[产物] 行内预览文本 = ${JSON.stringify((await inline.innerText()).slice(0, 40))}`);
-      await inline.click();
+      // ③b 紧凑：一个文件只占**一行**（不内联正文/缩略图）—— 之前把产物框撑得太高
+      console.log(`[产物] 单个产物的框高=${Math.round(boxBox.height)}px`);
+      expect(boxBox.height, "一行一个文件的紧凑列表").toBeLessThan(80);
+      await expect(page.getByTestId("artifact-open")).toHaveCount(1);
+      await expect(page.getByTestId("artifact-preview-inline")).toHaveCount(0);
+      await page.screenshot({ path: "../docs/acceptance/task-10.7-artifact-cards.png", fullPage: true });
+
+      // ④ 预览：点这一行 → 在**右侧预览面板**里打开完整内容（内联挤压，无遮罩）
+      const row = page.getByTestId("artifact-open").first();
+      await expect(row).toBeVisible();
+      console.log(`[产物] 产物行 = ${JSON.stringify((await row.innerText()).slice(0, 40))}`);
+      await row.click();
       const panel = page.getByTestId("preview-panel");
       await expect(panel).toBeVisible({ timeout: 15_000 });
       await expect(page.getByTestId("artifact-preview-full")).toContainText("季度报告");
