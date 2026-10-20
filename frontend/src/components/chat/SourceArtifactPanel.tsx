@@ -16,10 +16,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useArtifactBlobUrl } from "./useArtifactBlobUrl";
 import {
+  canPreview,
   deleteArtifact,
   downloadArtifact,
   formatSize,
+  isImageArtifact,
   listArtifacts,
   type ArtifactInfo,
 } from "@/api/artifacts";
@@ -43,6 +46,8 @@ export function SourceArtifactPanel({ sessionId, refreshKey, onError }: Props) {
   const [openArtifacts, setOpenArtifacts] = useState(true);
   // 文本类产物的在线预览（10.4 门禁：文本类可预览）
   const [preview, setPreview] = useState<ArtifactInfo | null>(null);
+  // 图片走与气泡/抽屉**同一个** blob hook（下载接口要鉴权，不能直接塞给 <img>）
+  const { url: previewUrl, failed: previewFailed } = useArtifactBlobUrl(preview);
 
   const reload = useCallback(async () => {
     if (sessionId == null) {
@@ -108,12 +113,27 @@ export function SourceArtifactPanel({ sessionId, refreshKey, onError }: Props) {
           <DialogHeader>
             <DialogTitle className="truncate">{preview?.fileName}</DialogTitle>
           </DialogHeader>
-          <pre
-            data-testid="artifact-preview"
-            className="max-h-[60vh] overflow-auto rounded-md border bg-muted/40 p-3 text-xs whitespace-pre-wrap"
-          >
-            {preview?.content ?? "（无预览内容）"}
-          </pre>
+          {isImageArtifact(preview) ? (
+            previewFailed ? (
+              <p className="text-muted-foreground text-sm">图片加载失败，可关闭后下载查看。</p>
+            ) : previewUrl ? (
+              <img
+                data-testid="artifact-preview-image"
+                src={previewUrl}
+                alt={preview?.fileName ?? ""}
+                className="mx-auto max-h-[70vh] max-w-full rounded"
+              />
+            ) : (
+              <p className="text-muted-foreground text-sm">加载中…</p>
+            )
+          ) : (
+            <pre
+              data-testid="artifact-preview"
+              className="max-h-[60vh] overflow-auto rounded-md border bg-muted/40 p-3 text-xs whitespace-pre-wrap"
+            >
+              {preview?.content ?? "（无预览内容）"}
+            </pre>
+          )}
         </DialogContent>
       </Dialog>
     </>
@@ -196,7 +216,7 @@ function Section({
                     {formatSize(item.sizeBytes)}
                   </span>
                   <div className="ml-auto flex opacity-0 transition-opacity group-hover:opacity-100">
-                    {item.previewable && (
+                    {canPreview(item) && (
                       <Button
                         variant="ghost"
                         size="icon"

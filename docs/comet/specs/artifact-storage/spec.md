@@ -96,7 +96,11 @@
 
 **取字节只有一条路**：产物下载接口要带 `Authorization`，所以 `<img src>` 不能直连 —— 统一走已有的
 `fetchArtifactBlobUrl(id)`（fetch → blob URL），并由唯一的 hook `useArtifactBlobUrl(item)` 复用（含 `revokeObjectURL`）。
-气泡内图片、产物缩略图、右侧抽屉、正文 Markdown 图片**全部复用它**。
+**四个**位置全用它：气泡内图片、产物缩略图、右侧**抽屉**、右侧栏**预览弹窗**、正文 Markdown 图片。
+
+> 实测修正（2026-10-20）：预览入口其实有**两处** —— 右侧栏条目点开的弹窗（`SourceArtifactPanel` 自己的 Dialog，
+> 原本只认文本：`<pre>{content}</pre>`）与气泡点开的抽屉（`ArtifactPreviewDrawer`）。两者都要认得图片，
+> 但只共用同一个 hook，不各写一套取字节逻辑；文本分支保持原样（`artifact-preview` 这个 testid 有既有用例依赖）。
 
 **正文里的 Markdown 图片**（模型可能写 `![](xxx.png)`）：复用 react-markdown 已有的 `components` 覆盖加一个 `img`：
 
