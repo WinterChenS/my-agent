@@ -326,7 +326,7 @@ public class AguiRunController {
         }
         // 登记本次 run 产出的文件（失败不影响 run）
         try {
-            artifactCaptureService.endRun(userId, sessionId, threadId, workspaceSnapshot);
+            artifactCaptureService.endRun(userId, sessionId, threadId, workspaceSnapshot, runId);
         } catch (Exception ex) {
             log.warn("产物登记失败 sessionId={}: {}", sessionId, ex.toString());
         }

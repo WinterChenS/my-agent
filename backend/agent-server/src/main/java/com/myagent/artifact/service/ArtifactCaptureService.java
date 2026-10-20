@@ -38,9 +38,11 @@ public class ArtifactCaptureService {
     /**
      * run 结束：登记本次新增/变更的文件。
      *
+     * @param runId 本轮 run id —— 写进产物的 `run_id`，前端才能把产物挂到“产出它的那一轮”气泡下方
      * @return 实际登记的产物数量
      */
-    public int endRun(Long userId, Long sessionId, String threadId, Map<String, Long> before) {
+    public int endRun(
+            Long userId, Long sessionId, String threadId, Map<String, Long> before, String runId) {
         if (threadId == null || sessionId == null || userId == null) {
             return 0;
         }
@@ -54,7 +56,7 @@ public class ArtifactCaptureService {
                 String fileName = path.getFileName().toString();
                 String mime = guessMime(fileName);
                 artifactService.store(
-                        userId, sessionId, ArtifactService.ROLE_ARTIFACT, fileName, mime, bytes, false);
+                        userId, sessionId, ArtifactService.ROLE_ARTIFACT, fileName, mime, bytes, false, runId);
                 registered += 1;
             } catch (Exception ex) {
                 // 单个文件失败不影响其它文件，也不影响 run
