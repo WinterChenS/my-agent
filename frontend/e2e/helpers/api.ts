@@ -52,7 +52,7 @@ export async function deleteNewSessions(
 export async function createStubAgent(
   request: APIRequestContext,
   stamp: number,
-  opts: { modelId?: string } = {},
+  opts: { modelId?: string; baseUrl?: string } = {},
 ): Promise<{ agentName: string; agentDbId: number; headers: Record<string, string> }> {
   const token = await apiToken(request);
   const headers = { Authorization: `Bearer ${token}` };
@@ -62,7 +62,7 @@ export async function createStubAgent(
       data: {
         name: `e2e-prov-${stamp}`,
         providerType: "OPENAI_COMPATIBLE",
-        baseUrl: "http://localhost:8099/v1",
+        baseUrl: opts.baseUrl ?? "http://localhost:8099/v1",
         apiKey: "stub-key",
         status: "ENABLED",
       },

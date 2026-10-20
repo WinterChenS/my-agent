@@ -1,6 +1,15 @@
+import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Paperclip, Sparkles } from "lucide-react";
+import {
+  formatSize,
+  INLINE_IMAGE_MAX_BYTES,
+  isImageArtifact,
+  type ArtifactInfo,
+} from "@/api/artifacts";
+import { resolveMarkdownImage } from "@/lib/chat/artifactImage";
+import { useArtifactBlobUrl } from "./useArtifactBlobUrl";
 import { cn } from "@/lib/utils";
 import { attachmentBaseName, parseAttachmentBlock } from "@/lib/attachments/message";
 import { textToParts } from "@/lib/skills/selection";
@@ -21,14 +30,22 @@ export function MessageBubble({
   content,
   streaming,
   stopped,
+  artifacts,
+  onOpenArtifact,
 }: {
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
   /** 这一轮被用户停止（Phase 12 / D25） */
   stopped?: boolean;
+  /** 本轮的产物：图片进气泡内，正文 Markdown 图片也按文件名在这里找 */
+  artifacts?: ArtifactInfo[];
+  /** 点击图片 → 打开右侧抽屉（复用 ChatPage 已有的 previewArtifact） */
+  onOpenArtifact?: (item: ArtifactInfo) => void;
 }) {
   const isUser = role === "user";
+  const roundArtifacts = useMemo(() => artifacts ?? [], [artifacts]);
+  const roundImages = useMemo(() => roundArtifacts.filter(isImageArtifact), [roundArtifacts]);
   // 用户气泡里要把「本轮附件」显示出来（否则用户看不到自己发了什么文件）；
   // 附件块是随消息一起存库的，所以刷新回放同样能渲染。
   const parsed = isUser ? parseAttachmentBlock(content) : { text: content, attachments: [] };
@@ -115,6 +132,15 @@ export function MessageBubble({
                     {children}
                   </a>
                 ),
+                // 正文里的图片：data:/blob:/http(s) 原样；否则按文件名找本会话产物；找不到给提示
+                img: ({ src, alt }) => (
+                  <MarkdownImage
+                    src={typeof src === "string" ? src : ""}
+                    alt={alt ?? ""}
+                    artifacts={roundArtifacts}
+                    onOpenArtifact={onOpenArtifact}
+                  />
+                ),
               }}
             >
               {content}
@@ -130,9 +156,122 @@ export function MessageBubble({
                 已停止
               </p>
             )}
+            {/* 本轮的图片产物：直接显示在气泡内（点击看大图） */}
+            {roundImages.length > 0 && (
+              <div data-testid="bubble-images" className="mt-2 space-y-1.5">
+                {roundImages.map((item) => (
+                  <BubbleImage key={item.id} item={item} onOpen={onOpenArtifact} />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+/** 气泡内的一张图片：超过上限的只给可点开的占位（避免大图把页面拖死）。 */
+function BubbleImage({
+  item,
+  onOpen,
+}: {
+  item: ArtifactInfo;
+  onOpen?: (item: ArtifactInfo) => void;
+}) {
+  const { url, failed } = useArtifactBlobUrl(item);
+
+  if (item.sizeBytes > INLINE_IMAGE_MAX_BYTES) {
+    return (
+      <button
+        type="button"
+        data-testid="bubble-image"
+        onClick={() => onOpen?.(item)}
+        className="text-muted-foreground text-xs underline-offset-2 hover:underline"
+      >
+        图片较大（{formatSize(item.sizeBytes)}），点击预览
+      </button>
+    );
+  }
+  if (failed) {
+    return <p className="text-muted-foreground text-xs">图片加载失败，可在右侧「产物」里下载</p>;
+  }
+  if (!url) {
+    return <p className="text-muted-foreground text-xs">图片加载中…</p>;
+  }
+  return (
+    <button
+      type="button"
+      data-testid="bubble-image"
+      title="点击查看大图"
+      onClick={() => onOpen?.(item)}
+      className="block"
+    >
+      <img
+        src={url}
+        alt={item.fileName}
+        loading="lazy"
+        className="max-h-64 rounded-lg border object-contain"
+      />
+    </button>
+  );
+}
+
+/** 正文里的 Markdown 图片：直接渲染 / 按文件名找产物 / 给提示（不静默留破图）。 */
+function MarkdownImage({
+  src,
+  alt,
+  artifacts,
+  onOpenArtifact,
+}: {
+  src: string;
+  alt: string;
+  artifacts: ArtifactInfo[];
+  onOpenArtifact?: (item: ArtifactInfo) => void;
+}) {
+  const resolved = useMemo(() => resolveMarkdownImage(src, artifacts), [src, artifacts]);
+  const artifactItem = resolved?.kind === "artifact" ? resolved.item : null;
+  const { url, failed } = useArtifactBlobUrl(artifactItem);
+
+  if (!resolved) {
+    return (
+      <span data-testid="markdown-image-missing" className="text-muted-foreground text-xs">
+        图片未找到：{src}
+      </span>
+    );
+  }
+  if (resolved.kind === "direct") {
+    return (
+      <img
+        data-testid="markdown-image"
+        src={resolved.url}
+        alt={alt}
+        loading="lazy"
+        className="max-h-64 rounded-lg border object-contain"
+      />
+    );
+  }
+  if (failed || !url) {
+    return (
+      <span className="text-muted-foreground text-xs">
+        {failed ? "图片加载失败" : "图片加载中…"}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      title="点击查看大图"
+      onClick={() => onOpenArtifact?.(resolved.item)}
+      className="block"
+    >
+      <img
+        data-testid="markdown-image"
+        src={url}
+        alt={alt || resolved.item.fileName}
+        loading="lazy"
+        className="max-h-64 rounded-lg border object-contain"
+      />
+    </button>
   );
 }

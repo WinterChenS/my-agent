@@ -9,7 +9,7 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { PendingBubble } from "@/components/chat/PendingBubble";
 import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
 import { ArtifactBox, ArtifactPreviewDrawer } from "@/components/chat/ArtifactBox";
-import { listArtifacts, type ArtifactInfo } from "@/api/artifacts";
+import { isImageArtifact, listArtifacts, type ArtifactInfo } from "@/api/artifacts";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import {
   SkillMentionInput,
@@ -973,6 +973,12 @@ export default function ChatPage() {
       if (item.kind === "subagent") {
         nodes.push(<SubagentCard key={item.id} item={item} />);
       } else if (item.kind === "text") {
+        // 本轮的产物：图片进气泡内；其余仍在气泡下方的产物框
+        const own =
+          item.role === "assistant" && item.runId
+            ? artifacts.filter((artifact) => artifact.runId === item.runId)
+            : [];
+        const ownFiles = own.filter((artifact) => !isImageArtifact(artifact));
         nodes.push(
           <MessageBubble
             key={item.id}
@@ -980,17 +986,15 @@ export default function ChatPage() {
             content={item.content}
             streaming={item.streaming}
             stopped={item.stopped}
+            artifacts={item.role === "assistant" ? own : undefined}
+            onOpenArtifact={setPreviewArtifact}
           />,
         );
-        // 气泡下方：这一轮的产物（Agent 主动交付的，runId 与本条消息一致）
-        const own = item.role === "assistant" && item.runId
-          ? artifacts.filter((artifact) => artifact.runId === item.runId)
-          : [];
-        if (own.length > 0) {
+        if (ownFiles.length > 0) {
           nodes.push(
             <ArtifactBox
               key={`${item.id}-artifacts`}
-              items={own}
+              items={ownFiles}
               onOpen={setPreviewArtifact}
             />,
           );
