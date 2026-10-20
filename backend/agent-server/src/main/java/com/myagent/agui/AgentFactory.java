@@ -251,7 +251,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .agentId(agent.getAgentId())
                 // 追加平台级「交互卡片」指引：不依赖用户是否绑定了对应技能，
                 // 每个 Agent 都知道自己手上有卡片工具、以及什么时候该用（用户反馈"不会主动用卡片"）
-                .sysPrompt(withCardGuidance(agent.getSysPrompt()))
+                // 再追加「长期记忆用法」指引：框架的 memory_search 是字面量整串匹配，
+                // 模型传整句问句必然 0 命中（用户反馈"永久记忆不生效"）
+                .sysPrompt(withMemoryGuidance(withCardGuidance(agent.getSysPrompt())))
                 // 官方产物交付：配了它，框架会向 Agent 注册内置工具 deliverArtifact，
                 // Agent 主动交付的成果会进 artifact 表（并记下所属 run，供气泡下方展示）
                 .artifactDeliveryTarget(artifactDeliveryTarget)
@@ -308,6 +310,37 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 "   缺少只有用户知道的信息且答案可枚举。question 要写清后果。",
                 "2. `demo_mapping_card` —— 要展示字段映射、多行对照清单等结构化数据时用它。",
                 "调用后用户会在界面上看到卡片；他的选择会作为后续消息回到你这里，**在收到之前不要假定他已同意**。");
+        return base.isEmpty() ? guidance : base + "\n\n" + guidance;
+    }
+
+    /**
+     * 在系统提示词后面追加一段**长期记忆**使用指引。
+     *
+     * <p>为什么必须由平台注入（实测，2026-10-20）：
+     * 框架的 {@code memory_search} 把整条 {@code query} 当成**一个整体字面量**去匹配记忆文件的每一行
+     * （{@code MemorySearchTool.keywordSearch}：{@code Pattern.compile(Pattern.quote(query))}），
+     * 而模型习惯把问句整句填进去。实测同一条记忆：
+     * <ul>
+     *   <li>{@code query="怎么称呼我"} → {@code No matching memories found}（用户看到“它说没有找到”）</li>
+     *   <li>{@code query="主人"} → {@code Found 37 matches}（其中就有“用户希望被称为「主人」”）</li>
+     * </ul>
+     * 记忆本身是好的（`memory_save` 写得进、`memory_context` 也注入了）；坏的是“怎么问”。
+     * 所以这里把三件事讲明白：先看已注入的 memory_context、搜索只给短关键词、0 命中要换词再试。
+     *
+     * <p>不改框架的记忆检索逻辑（门禁 G8），只补提示词。
+     */
+    static String withMemoryGuidance(String sysPrompt) {
+        String base = sysPrompt == null ? "" : sysPrompt.trim();
+        String guidance = String.join("\n",
+                "## 长期记忆（本平台能力，请正确使用）",
+                "1. `<memory_context>` 里**已经注入**了 MEMORY.md 与最近的记忆台账 —— 回答“我叫什么/我的偏好/之前说好的事”",
+                "   这类问题前**先看它**，不要一上来就搜索。",
+                "2. `memory_search` 的 `query` 是**按字面量匹配整段文字**的：只传**短关键词**（如 `称呼`、`主人`、`偏好`、`报销`），",
+                "   **绝对不要传整句问句**（传“用户平时怎么称呼我”会 0 命中）。",
+                "3. 命中 0 条**不等于没有记忆**：换成更短或同义的关键词再试（`称呼` → `主人` → `叫`），",
+                "   或直接用 `memory_get` 读 `MEMORY.md`。不要因为搜索为空就回答“没有相关记忆”。",
+                "4. 命中后用返回的 `Source: <path#line>` 调 `memory_get` 取上下文，并在回答里注明来源。",
+                "5. 用户让你“记住 / 以后都这样”时，调 `memory_save`；**不要**用 `write_file`/`edit_file` 改 MEMORY.md 或 memory/ 下的文件。");
         return base.isEmpty() ? guidance : base + "\n\n" + guidance;
     }
 
