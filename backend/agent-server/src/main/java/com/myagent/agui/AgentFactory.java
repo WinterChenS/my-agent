@@ -266,6 +266,11 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .toolkit(toolkit)
                 // Phase 11 / D23：框架会话状态落数据库（替换默认 JsonFileAgentStateStore）
                 .stateStore(pgAgentStateStore)
+                // 每轮把记忆里的关键事实提到系统提示最前面：
+                // 框架注入的 <memory_context> 靠后且体量大，模型实测会忽略它、改用 memory_search，
+                // 而后者是整串字面量匹配（整句/多词 → 0 命中）→ 模型就说“没有记录”。
+                .middleware(new com.myagent.agui.middleware.MemoryHintMiddleware(
+                        java.nio.file.Path.of(aguiProperties.workspaceRoot())))
                 // 上下文治理（官方能力）：历史超阈值就压缩；超长工具结果（例如被读进来的大文件正文）
                 // 外置到文件、只留预览。没有这两个配置时，上下文会无上限增长——实测出现过
                 // 1.8MB 的会话状态，向模型请求 127 万 tokens 直接被厂商拒绝（context_length_exceeded）。

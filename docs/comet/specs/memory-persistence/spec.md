@@ -63,14 +63,30 @@
 
 数据侧佐证：「主人」出现在 8/10 个台账文件，而「称呼」只在 2/10、且当天台账里没有 —— 所以用「称呼」搜当天记忆也会 0 命中。
 
-**处理（不改框架检索逻辑，门禁 G8）：** 平台在系统提示尾部追加一段「长期记忆用法」指引（与既有 `withCardGuidance` 同一手法，`AgentFactory.withMemoryGuidance`）：
+**第一轮处理（不够）：** 平台在系统提示尾部追加「长期记忆用法」指引（`AgentFactory.withMemoryGuidance`）。
+用户复测仍失败（模型照样用多词查询）——**提示词管不住模型**。
+
+**最终处理（确定性，走官方钩子）：** 新增 `MemoryHintMiddleware implements MiddlewareBase`
+（经 `HarnessAgent.Builder.middleware(...)` 接入），实现 `onSystemPrompt`：
+每轮读该用户 `MEMORY.md`，把「用户偏好」小节要点 + 称呼/偏好类条目（≤12 条、≤900 字）拼成一段
+**放在系统提示最前面**，并声明“以上已确认，回答问题以此为准，不要再声称没有记录”。
+
+- 位置最关键：`<memory_context>` 是“工作区参考资料”（靠后、体量大），模型会忽略；
+  指令区开头的一句话它才当回事。
+- 实测（deepseek-v4.1-flash）：改造前答“没有设过任何称呼”，改造后答「我称呼您为「主人」」。
+- 只读框架维护的 MEMORY.md、只在提示层做提示，不重写框架记忆逻辑（G8）。
+- 也试过用权限层 DENY `memory_search`：能拦住（返回 `Permission denied by rules`），但**光堵不解决问题**，故最终没有保留。
+
+**原提示词层指引（保留，作为补充）：** 平台在系统提示尾部追加一段「长期记忆用法」指引（与既有 `withCardGuidance` 同一手法，`AgentFactory.withMemoryGuidance`）：
 
 1. 先看**已注入**的 `<memory_context>`，不要一上来就搜索；
 2. `memory_search` 的 `query` 只传**短关键词**，**不要传整句问句**；
 3. 命中 0 条**不等于没有记忆**：换更短/同义的关键词再试，或 `memory_get` 直接读 `MEMORY.md`；
 4. 保存只走 `memory_save`，不要 `write_file`/`edit_file` 改记忆文件。
 
-已知局限（留给后续决策）：这是**提示词层**的修补，依赖模型听话；若要“确定性”更强，可选方案是平台在每轮开始把 MEMORY.md 的**关键条目**直接注入（已是现状）或把检索改成多关键词 OR（需改框架，G8 不允许）。
+已知局限：框架的 `memory_search` 仍是整串字面量匹配（改它要动框架，G8 不允许），所以“按需深搜旧记忆”这条路依旧不好用；
+现在的兜底是**关键事实每轮前置注入**（`MemoryHintMiddleware`），只在 `MEMORY.md` 的偏好类条目范围内保证可靠。
+另：记忆提醒每轮都会读一次 `MEMORY.md`（约 10KB），开销可忽略，但若将来 MEMORY.md 涨到很大，需要改成只读小节。
 
 ## 验收标准
 
