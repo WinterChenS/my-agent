@@ -1,13 +1,8 @@
-import { useEffect, useState } from "react";
 import { Download, FileText, Image as ImageIcon, Package, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  downloadArtifact,
-  fetchArtifactBlobUrl,
-  formatSize,
-  type ArtifactInfo,
-} from "@/api/artifacts";
+import { downloadArtifact, formatSize, isImageArtifact, type ArtifactInfo } from "@/api/artifacts";
+import { useArtifactBlobUrl } from "./useArtifactBlobUrl";
 
 /**
  * 产物方框：展示在**对话气泡下方**（Agent 主动交付的产物挂到产出它的那一轮）。
@@ -43,46 +38,13 @@ export function ArtifactBox({
   );
 }
 
-function isImage(item: ArtifactInfo) {
-  return (item.mime ?? "").startsWith("image/");
-}
-
 /** 文本类可预览时最多显示几行（点开抽屉看全文） */
 const PREVIEW_LINES = 6;
 
 function ArtifactPreview({ item, onOpen }: { item: ArtifactInfo; onOpen: () => void }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const image = isImage(item);
-
-  // 图片走带鉴权的下载接口拿 blob（不能直接塞进 <img src>）
-  useEffect(() => {
-    if (!image) {
-      return;
-    }
-    let cancelled = false;
-    let created: string | null = null;
-    fetchArtifactBlobUrl(item.id)
-      .then((url) => {
-        created = url;
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-        } else {
-          setBlobUrl(url);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setFailed(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-      if (created) {
-        URL.revokeObjectURL(created);
-      }
-    };
-  }, [image, item.id]);
+  const image = isImageArtifact(item);
+  // 图片走带鉴权的下载接口拿 blob（不能直接塞进 <img src>）—— 统一在 hook 里做
+  const { url: blobUrl, failed } = useArtifactBlobUrl(item);
 
   const previewable = item.previewable && typeof item.content === "string";
   const previewText = previewable
@@ -154,47 +116,12 @@ export function ArtifactPreviewDrawer({
   item: ArtifactInfo | null;
   onClose: () => void;
 }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    setBlobUrl(null);
-    setFailed(false);
-    if (!item) {
-      return;
-    }
-    const image = (item.mime ?? "").startsWith("image/");
-    if (!image) {
-      return;
-    }
-    let cancelled = false;
-    let created: string | null = null;
-    fetchArtifactBlobUrl(item.id)
-      .then((url) => {
-        created = url;
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-        } else {
-          setBlobUrl(url);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setFailed(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-      if (created) {
-        URL.revokeObjectURL(created);
-      }
-    };
-  }, [item]);
+  const { url: blobUrl, failed } = useArtifactBlobUrl(item);
 
   if (!item) {
     return null;
   }
-  const image = (item.mime ?? "").startsWith("image/");
+  const image = isImageArtifact(item);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" data-testid="artifact-drawer">

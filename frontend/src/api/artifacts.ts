@@ -93,3 +93,23 @@ export function formatSize(bytes: number): string {
   }
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/** 图片产物：**只认 mime**（不另立扩展名清单 —— 后端已统一按 MIME 归类）。 */
+export function isImageArtifact(
+  item: { mime?: string | null } | null | undefined,
+): boolean {
+  return (item?.mime ?? "").startsWith("image/");
+}
+
+/** 能否在线预览：文本类正文已在手；图片走鉴权下载转 blob。 */
+export function canPreview(item: ArtifactInfo): boolean {
+  return item.previewable || isImageArtifact(item);
+}
+
+/**
+ * 气泡内**内联**渲染图片的大小上限。
+ *
+ * <p>产物最大可达 50MB（`myagent.minio.max-file-size-mb`），无上限内联会把页面拖死；
+ * 超限不在气泡内渲染，给一个可点开右侧抽屉的占位。
+ */
+export const INLINE_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
