@@ -17,3 +17,16 @@ if (typeof globalThis.crypto === "undefined" || !globalThis.crypto.randomUUID) {
     configurable: true,
   });
 }
+
+/**
+ * jsdom 没实现 `URL.createObjectURL` / `revokeObjectURL`（浏览器里都有）。
+ * 产物图片预览靠 blob URL，组件卸载时一定会 revoke —— 缺了会在 cleanup 里直接抛错。
+ */
+if (typeof URL !== "undefined") {
+  if (typeof URL.createObjectURL !== "function") {
+    URL.createObjectURL = () => "blob:test-url";
+  }
+  if (typeof URL.revokeObjectURL !== "function") {
+    URL.revokeObjectURL = () => {};
+  }
+}
