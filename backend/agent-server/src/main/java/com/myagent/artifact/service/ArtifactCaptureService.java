@@ -54,7 +54,7 @@ public class ArtifactCaptureService {
             try {
                 byte[] bytes = Files.readAllBytes(path);
                 String fileName = path.getFileName().toString();
-                String mime = guessMime(fileName);
+                String mime = ArtifactMime.guess(fileName);
                 artifactService.store(
                         userId, sessionId, ArtifactService.ROLE_ARTIFACT, fileName, mime, bytes, false, runId);
                 registered += 1;
@@ -67,31 +67,5 @@ public class ArtifactCaptureService {
             log.info("已登记 {} 个产物 sessionId={} owner={}", registered, sessionId, userId);
         }
         return registered;
-    }
-
-    /** 极简 MIME 推断（存储路由只需要区分文本/非文本，正文类型由下载方决定）。 */
-    static String guessMime(String fileName) {
-        String name = fileName.toLowerCase(java.util.Locale.ROOT);
-        int dot = name.lastIndexOf('.');
-        String ext = dot < 0 ? "" : name.substring(dot + 1);
-        return switch (ext) {
-            case "md", "markdown" -> "text/markdown";
-            case "txt", "log" -> "text/plain";
-            case "json", "jsonl" -> "application/json";
-            case "csv" -> "text/csv";
-            case "xml" -> "application/xml";
-            case "yaml", "yml" -> "application/yaml";
-            case "html", "htm" -> "text/html";
-            case "css" -> "text/css";
-            case "js", "mjs" -> "text/javascript";
-            case "ts", "tsx" -> "text/plain";
-            case "py", "java", "sh", "sql", "properties", "ini", "conf", "toml" -> "text/plain";
-            case "png" -> "image/png";
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "gif" -> "image/gif";
-            case "pdf" -> "application/pdf";
-            case "zip" -> "application/zip";
-            default -> "application/octet-stream";
-        };
     }
 }

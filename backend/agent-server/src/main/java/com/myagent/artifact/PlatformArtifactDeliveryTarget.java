@@ -2,6 +2,7 @@ package com.myagent.artifact;
 
 import com.myagent.agui.RunningRunRegistry;
 import com.myagent.artifact.entity.Artifact;
+import com.myagent.artifact.service.ArtifactMime;
 import com.myagent.artifact.service.ArtifactService;
 import com.myagent.chat.entity.ChatSession;
 import com.myagent.chat.mapper.ChatSessionMapper;
@@ -11,7 +12,6 @@ import io.agentscope.harness.agent.artifact.ArtifactDeliveryRequest;
 import io.agentscope.harness.agent.artifact.ArtifactDeliveryResult;
 import io.agentscope.harness.agent.artifact.ArtifactDeliveryTarget;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -110,31 +110,12 @@ public class PlatformArtifactDeliveryTarget implements ArtifactDeliveryTarget {
     }
 
     /**
-     * 由扩展名猜 MIME。
+     * 由扩展名猜 MIME —— 表在 {@link ArtifactMime}（**唯一**一份，扫描路径也用它）。
      *
-     * <p>只影响「文本入库还是走 MinIO」与预览判定（{@code ArtifactService.isTextual} 对空 mime 也会按扩展名兜底），
-     * 所以这里只需覆盖常见类型。
+     * <p>保留这个静态方法是因为既有单测直接调它（{@code PlatformArtifactDeliveryTargetTest}）。
      */
     static String guessMime(String fileName) {
-        String name = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
-        int dot = name.lastIndexOf('.');
-        String ext = dot >= 0 ? name.substring(dot + 1) : "";
-        return switch (ext) {
-            case "txt", "log" -> "text/plain";
-            case "md", "markdown" -> "text/markdown";
-            case "json" -> "application/json";
-            case "csv" -> "text/csv";
-            case "html", "htm" -> "text/html";
-            case "xml" -> "application/xml";
-            case "yml", "yaml" -> "application/yaml";
-            case "png" -> "image/png";
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "gif" -> "image/gif";
-            case "webp" -> "image/webp";
-            case "svg" -> "image/svg+xml";
-            case "pdf" -> "application/pdf";
-            default -> "application/octet-stream";
-        };
+        return ArtifactMime.guess(fileName);
     }
 
     /** 文本预览时用（避免 IDE 报未使用）：交付结果里的正文编码。 */
