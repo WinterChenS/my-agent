@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 import {
   Bot,
   Blocks,
+  Brain,
   MessageSquare,
   Plug,
   Cpu,
@@ -27,6 +28,7 @@ import LoginPage from "@/pages/login/LoginPage";
  */
 // 聊天页也拆出去：未登录用户先看到的是登录页，没必要为它下载聊天页 + markdown 渲染器等一大票
 const ChatPage = lazy(() => import("@/pages/chat/ChatPage"));
+const MemoryPage = lazy(() => import("@/pages/memory/MemoryPage"));
 const AuditPage = lazy(() => import("@/pages/admin/audit/AuditPage"));
 const ModelsPage = lazy(() => import("@/pages/admin/models/ModelsPage"));
 const AgentsPage = lazy(() => import("@/pages/admin/agents/AgentsPage"));
@@ -42,6 +44,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/chat", label: "聊天", icon: MessageSquare },
+  { to: "/memory", label: "记忆", icon: Brain },
   { to: "/admin/models", label: "模型", icon: Cpu },
   { to: "/admin/agents", label: "Agent", icon: Bot },
   { to: "/admin/skills", label: "Skill", icon: Blocks },
@@ -154,6 +157,7 @@ export default function App() {
         >
           <Route index element={<Navigate to="/chat" replace />} />
           <Route path="chat/:sessionId?" element={<ChatPage />} />
+          <Route path="memory" element={<MemoryPage />} />
           <Route path="admin/models" element={<ModelsPage />} />
           <Route path="admin/agents" element={<AgentsPage />} />
           <Route path="admin/skills" element={<SkillsPage />} />

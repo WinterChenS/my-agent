@@ -78,6 +78,8 @@ class MemoryHintMiddlewareTest {
         assertThat(merged).endsWith(systemPrompt);
         // 明确禁止再声称没有记录（这是用户看到的错误回答）
         assertThat(merged).contains("不要再声称“没有记录”");
+        // 关键：称呼要**主动生效**（用户要求“以后都叫我主人”，不是被问了才叫）
+        assertThat(merged).contains("每次回答都要用这里的称呼称呼用户");
     }
 
     @Test

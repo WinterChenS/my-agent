@@ -37,4 +37,15 @@ public class MemoryStoreConfig {
     public RemoteFilesystem memoryRemoteFilesystem(PgBaseStore store, PgNamespaceFactory namespaceFactory) {
         return new RemoteFilesystem(store, namespaceFactory);
     }
+
+    /**
+     * 「记忆可视化」页面的服务：列/读/改/删该用户的记忆。
+     *
+     * <p>复用官方存储布局（MEMORY.md 在工作区、每日台账在 memory_store），不重写记忆逻辑。
+     */
+    @Bean
+    public MemoryAdminService memoryAdminService(
+            PgBaseStore store, com.myagent.agui.AguiProperties aguiProperties) {
+        return new MemoryAdminService(store, java.nio.file.Path.of(aguiProperties.workspaceRoot()));
+    }
 }

@@ -84,8 +84,10 @@ public class MemoryHintMiddleware implements MiddlewareBase {
             for (String line : lines) {
                 sb.append("- ").append(line).append('\n');
             }
-            sb.append("（以上内容已确认：回答用户个人信息 / 称呼 / 偏好这类问题时**以此为准**，")
-                    .append("不要再声称“没有记录”，也不要为了确认去检索。）");
+            sb.append("（以上是已确认的用户信息，**不是参考资料**：\n")
+                    .append("① **每次回答都要用这里的称呼称呼用户**（例如开头/句中用「主人」），不要用泛泛的「你」；\n")
+                    .append("② 涉及这些事实时直接以此为准，不要再声称“没有记录”，也不要为了确认去检索；\n")
+                    .append("③ 记忆里确实没有的信息（比如还从没告诉过你的姓名/身份），就直说没记下并顺便用上称呼。）");
             return sb.toString();
         } catch (Exception ex) {
             log.warn("读取 MEMORY.md 生成记忆提醒失败 user={}: {}", userId, ex.toString());

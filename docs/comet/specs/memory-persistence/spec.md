@@ -88,6 +88,53 @@
 现在的兜底是**关键事实每轮前置注入**（`MemoryHintMiddleware`），只在 `MEMORY.md` 的偏好类条目范围内保证可靠。
 另：记忆提醒每轮都会读一次 `MEMORY.md`（约 10KB），开销可忽略，但若将来 MEMORY.md 涨到很大，需要改成只读小节。
 
+## 记忆可视化与编辑（Task 11.4，2026-10-20）
+
+用户要求「记忆可视化，可以编辑」。落地为：前端 `/memory` 页面 + `GET/PUT/DELETE /api/memory` 三个接口。
+
+**数据从哪来（沿用框架自己的布局，不另立存储）**
+
+| 文件 | 位置 | 谁在写 |
+|---|---|---|
+| `MEMORY.md`（精华长期记忆） | `<workspaceRoot>/<userId>/MEMORY.md`（工作区磁盘） | 框架 consolidation |
+| `memory/YYYY-MM-DD.md`（每日台账） | `memory_store` 表：`namespace_path=user/<userId>`、`item_key=/YYYY-MM-DD.md` | 框架 MemoryFlush（append） |
+
+**接口**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/memory` | 清单（`MEMORY.md` 在前，台账按日期倒序；**不带正文**） |
+| GET | `/api/memory/{name}` | 单份正文；`name` 只能是 `MEMORY.md` 或**真实日期**的 `YYYY-MM-DD.md` |
+| PUT | `/api/memory/{name}` | 整份覆盖保存 |
+| DELETE | `/api/memory/{name}` | 删台账；`MEMORY.md` 拒绝（只能清空正文后保存） |
+
+- 只操作**当前登录用户**的记忆（`userId` 取自 JWT，不接受前端传参）。
+- 文件名白名单 + `LocalDate.parse` 校验，挡掉 `../x`、`2026-13-99.md` 这类路径穿越/垃圾 key。
+- 写 `MEMORY.md` 用「临时文件 + 原子移动」；写台账沿用框架 payload 形状（`content`/`encoding`/`created_at`/`modified_at`），
+  `created_at` 保留原值、`modified_at` 刷新 —— 这样框架读取与后续 consolidation 都不会被格式差异搞坏。
+- 实现分层：`agui/memory/MemoryAdminService` 才碰官方 SPI（`BaseStore`），`memory/controller` 只做 HTTP → DTO（门禁 G2）。
+
+**AgentScope 官方提供了什么（实测 `javap` 2.0.3）**
+
+- 有：`WorkspaceManager.writeUtf8WorkspaceRelative/appendUtf8WorkspaceRelative/readMemoryMd/readManagedWorkspaceFileUtf8/listMemoryFilePaths`、
+  `MemoryFlushManager.flushMemories(ctx, msgs)`、`BaseStore`（`put/putIfVersion/delete`）、给模型用的 `memory_save/memory_get/memory_search` 工具。
+- 没有：面向人的「编辑记忆」API；`MEMORY.md` 的正文格式归 consolidation 所有，官方只暴露文件级读写。
+- 所以我们**自己加一层薄的读写服务**（复用官方存储布局），不重写记忆生成/合并逻辑。
+
+**是否立即生效（实测）**
+
+- 修改 `MEMORY.md` 后，**下一轮**对话的系统提示里立刻能看到新内容（抓包证据：写入 `MEM-VIS-MARK-…` 后下一轮 system prompt 命中该标记；`MemoryHintMiddleware` 每轮都会读它）。
+- 无需重启后端、无需清缓存（记忆是文件/库，Agent 每轮重新读）。
+- 注意两个边界：① 框架只注入**最近若干天**的台账（写很久以前的日期不会进上下文，实测 `2020-01-01.md` 不进）；
+  ② consolidation 之后可能把台账内容合并/重排进 `MEMORY.md`，人工编辑的内容不会被阻止，但可能被再次整合。
+
+**前端页面**
+
+- `/memory`：左侧清单（`长期记忆` 置顶 + 每日台账按日期倒序，带大小），右侧「预览 / 编辑」双模式；
+  有未保存改动时显示「未保存」徽标，切换文件会二次确认，支持 `Ctrl/Cmd+S` 保存；台账可删除（二次确认）。
+- 单测：`src/lib/memory/files.test.ts` 7 项（排序/汇总/未保存判定/标签）；e2e：`verify-memory-page.spec.ts`
+  （造假日期台账 → 清单 → 预览 → 编辑 → 保存 → **接口复查存储已变** → 删除，全程不碰真实记忆）。
+
 ## 验收标准
 
 - 完成一轮会触发 Memory Flush 的对话后，长期记忆内容能在数据库表中用 SQL 查到（附 SQL 与结果）。
