@@ -295,6 +295,7 @@ test("按类型渲染：html/pdf/markdown/纯文本/Excel/Word 各走各的，�
       panelTriggerBox.y + panelTriggerBox.height - 1,
     );
     expect(popoverBox.height, "弹窗应该比宽高（竖长条）").toBeGreaterThan(popoverBox.width);
+    await page.screenshot({ path: "../docs/acceptance/task-10.7-artifact-browser-popover.png" });
     await page.keyboard.press("Escape");
     await expect(popover).toHaveCount(0);
     console.log("[预览] 面板左上角入口 → 弹窗在按钮下方、竖长条 ✓");
