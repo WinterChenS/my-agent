@@ -17,7 +17,7 @@ class WorkspaceArtifactScannerTest {
 
     private WorkspaceArtifactScanner scanner(Path root) {
         return new WorkspaceArtifactScanner(
-                new AguiProperties(root.toString(), 120_000, 32_000, 30_000, 1_500));
+                new AguiProperties(root.toString(), 120_000, 32_000, 30_000, 1_500, 128_000));
     }
 
     @Test

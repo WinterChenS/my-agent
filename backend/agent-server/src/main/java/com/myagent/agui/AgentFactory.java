@@ -319,6 +319,24 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         return compactionTriggerFor(model == null ? null : model.getContextWindow());
     }
 
+    /**
+     * 本会话模型生效的**上下文窗口**（长度）：模型配了就用配的，没配用兜底值。
+     *
+     * <p>前端用它做上下文用量条的分母（以前只给了压缩触发阈值，模型配的窗口在界面上完全没体现）。
+     */
+    public int effectiveContextWindow(Long agentDbId) {
+        Agent agent = agentDbId == null ? null : agentMapper.selectById(agentDbId);
+        LlmModel model = (agent == null || agent.getModelId() == null)
+                ? null : llmModelMapper.selectById(agent.getModelId());
+        return resolveContextWindow(
+                model == null ? null : model.getContextWindow(), aguiProperties.contextWindowFallback());
+    }
+
+    /** 窗口解析：配了（正整数）就用配的，否则用兜底值。纯函数，便于单测。 */
+    static int resolveContextWindow(Integer configured, int fallback) {
+        return configured != null && configured > 0 ? configured : fallback;
+    }
+
     /** 该 Agent 绑定的模型是否开启多模态（图片输入）；模型缺失或未开启都返回 false。 */
     public boolean isMultimodal(Long agentDbId) {
         Agent agent = agentDbId == null ? null : agentMapper.selectById(agentDbId);

@@ -59,7 +59,9 @@ public class SessionContextService {
             int triggerTokens,
             int keepTokens,
             boolean compacted,
-            String summaryPreview) {}
+            String summaryPreview,
+            /** 模型生效的上下文窗口（配了就用配的，没配用兜底值）—— 用量条的分母 */
+            int contextWindow) {}
 
     /** 读该 threadId 的官方状态（没有则 null）。 */
     private AgentState loadState(String threadId) {
@@ -98,7 +100,8 @@ public class SessionContextService {
                 agentFactory.effectiveCompactionTrigger(agentDbId),
                 aguiProperties.compactionKeepTokens(),
                 effectiveSummary != null && !effectiveSummary.isBlank(),
-                preview(effectiveSummary));
+                preview(effectiveSummary),
+                agentFactory.effectiveContextWindow(agentDbId));
     }
 
     /**

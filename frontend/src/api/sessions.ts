@@ -46,6 +46,8 @@ export type ContextUsage = {
   keepTokens: number;
   compacted: boolean;
   summaryPreview: string | null;
+  /** 模型生效的上下文窗口（配了就用配的，没配用兜底值）—— 用量条的分母 */
+  contextWindow: number;
 };
 
 /** 看该会话上下文用量与阈值。 */

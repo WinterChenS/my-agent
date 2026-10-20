@@ -27,7 +27,7 @@ class ArtifactCaptureServiceTest {
     @Test
     void 扫描登记的产物带上本轮runId(@TempDir Path root) throws Exception {
         WorkspaceArtifactScanner scanner = new WorkspaceArtifactScanner(
-                new AguiProperties(root.toString(), 120_000, 32_000, 30_000, 1_500));
+                new AguiProperties(root.toString(), 120_000, 32_000, 30_000, 1_500, 128_000));
         ArtifactCaptureService capture = new ArtifactCaptureService(scanner, artifactService);
 
         Path ws = root.resolve("7");

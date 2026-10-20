@@ -16,7 +16,8 @@ import type { ContextUsage } from "@/api/sessions";
  * 上下文容量圆环（tier1-upgrades ②）——放在发送键旁边的**一眼可见**指示器。
  *
  * 设计取舍：以前是输入框上方一整条用量条，占地方又难看。改成 32px 圆环：
- * 环的填充比例 = 当前上下文 / 压缩触发阈值，颜色分三档（正常/接近/超阈值）；
+ * 环的填充比例 = 当前上下文 / **模型生效的上下文窗口**（配了就用配的，没配用后端兜底值）；
+ * 颜色分三档（正常/接近/超阈值）仍跟随**压缩触发阈值**。
  * 具体数字、压缩、清空都收进点击后的浮层里，输入区保持干净。
  *
  * 「清空上下文」不可逆（模型上下文归零），所以必须**二次确认**。
@@ -40,7 +41,14 @@ export function ContextRing({
   }
 
   const ratio = usage.triggerTokens > 0 ? usage.estimatedTokens / usage.triggerTokens : 0;
-  const percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  /*
+   * 圆的填充比例按**模型生效的上下文窗口**算（模型配的上下文长度就体现在这里；没配则用兜底值）。
+   * 颜色/提示仍跟随**压缩触发阈值** —— 那才决定“下一轮会不会被自动压缩”。
+   * 两个数字在详情里都显示，不藏信息。
+   */
+  const windowTokens = Number(usage.contextWindow) > 0 ? Number(usage.contextWindow) : 0;
+  const windowRatio = windowTokens > 0 ? usage.estimatedTokens / windowTokens : 0;
+  const percent = Math.max(0, Math.min(100, Math.round(windowRatio * 100)));
   const level = ratio >= 1 ? "over" : ratio >= 0.8 ? "near" : "ok";
   const strokeColor =
     level === "over"
@@ -71,8 +79,8 @@ export function ContextRing({
           size="icon"
           className="size-9 shrink-0"
           data-testid="context-ring"
-          title={`上下文 ${percent}%（点击查看详情）`}
-          aria-label={`上下文用量 ${percent}%`}
+          title={`上下文占窗口 ${percent}%（点击查看详情）`}
+          aria-label={`上下文占窗口 ${percent}%`}
         >
           <span className="relative inline-flex size-7 items-center justify-center">
             <svg viewBox="0 0 32 32" className="size-7 -rotate-90">
@@ -101,8 +109,9 @@ export function ContextRing({
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-medium">上下文用量</p>
           <span className={`text-right text-xs ${textColor}`} data-testid="context-usage">
-            上下文 {usage.estimatedTokens.toLocaleString()} / 触发阈值{" "}
-            {usage.triggerTokens.toLocaleString()} tokens（{percent}%）
+            上下文 {usage.estimatedTokens.toLocaleString()} / 窗口{" "}
+            {windowTokens > 0 ? windowTokens.toLocaleString() : "—"} tokens（{percent}%）· 触发阈值{" "}
+            {usage.triggerTokens.toLocaleString()} tokens
           </span>
         </div>
 

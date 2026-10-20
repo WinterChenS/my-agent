@@ -30,13 +30,16 @@ public class AguiProperties {
     private final int toolResultMaxChars;
     /** 外置后保留的预览字符数。 */
     private final int toolResultPreviewChars;
+    /** 模型未配上下文窗口时的兜底窗口长度（token）。 */
+    private final int contextWindowFallback;
 
     public AguiProperties(
             @Value("${myagent.workspace-root:./.myagent-workspace}") String workspaceRoot,
             @Value("${myagent.compaction.trigger-tokens:120000}") int compactionTriggerTokens,
             @Value("${myagent.compaction.keep-tokens:32000}") int compactionKeepTokens,
             @Value("${myagent.tool-result.max-chars:30000}") int toolResultMaxChars,
-            @Value("${myagent.tool-result.preview-chars:1500}") int toolResultPreviewChars) {
+            @Value("${myagent.tool-result.preview-chars:1500}") int toolResultPreviewChars,
+            @Value("${myagent.compaction.context-window-fallback:128000}") int contextWindowFallback) {
         this.workspaceRoot = java.nio.file.Path.of(workspaceRoot)
                 .toAbsolutePath()
                 .normalize()
@@ -45,6 +48,7 @@ public class AguiProperties {
         this.compactionKeepTokens = compactionKeepTokens;
         this.toolResultMaxChars = toolResultMaxChars;
         this.toolResultPreviewChars = toolResultPreviewChars;
+        this.contextWindowFallback = contextWindowFallback;
         log.info("Agent 工作区根目录（已规范为绝对路径）: {}", this.workspaceRoot);
     }
 
@@ -58,6 +62,11 @@ public class AguiProperties {
 
     public int compactionKeepTokens() {
         return compactionKeepTokens;
+    }
+
+    /** 模型未配上下文窗口时的兜底窗口长度（token）。 */
+    public int contextWindowFallback() {
+        return contextWindowFallback;
     }
 
     public int toolResultMaxChars() {
