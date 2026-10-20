@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import type { HttpAgent } from "@ag-ui/client";
-import { Bot, ChevronDown, Clock, Plus, Send, Square } from "lucide-react";
+import { Bot, ChevronDown, Clock, Files, Plus, Send, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { PendingBubble } from "@/components/chat/PendingBubble";
-import { SourceArtifactPanel } from "@/components/chat/SourceArtifactPanel";
-import { ArtifactBox, ArtifactPreviewDrawer } from "@/components/chat/ArtifactBox";
+import { ArtifactBrowserPopover } from "@/components/chat/ArtifactBrowserPopover";
+import { ArtifactBox } from "@/components/chat/ArtifactBox";
+import { ArtifactPreviewPanel } from "@/components/chat/ArtifactPreviewPanel";
 import { isImageArtifact, listArtifacts, type ArtifactInfo } from "@/api/artifacts";
+import { canPreviewArtifact } from "@/lib/artifacts/previewKind";
+import { PREVIEW_PANEL_DEFAULT } from "@/lib/chat/previewPanelWidth";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import {
   SkillMentionInput,
@@ -130,17 +133,66 @@ export default function ChatPage() {
   const [quota, setQuota] = useState<QuotaStatus | null>(null);
   /** 正在后台跑、需要盯着结束的会话（id → 标题）。 */
   const watchingRuns = useRef<Map<number, string>>(new Map());
-  // Phase 10：`/` 选技能（D21）、上传中状态、右侧栏刷新信号
+  // Phase 10：`/` 选技能（D21）、上传中状态、产物清单刷新信号
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [artifactRefresh, setArtifactRefresh] = useState(0);
   /**
    * 本会话的产物（用于**气泡下方**的产物框）。
    *
-   * <p>与右侧栏各自取一份数据：那边是"整个会话的清单"，这边要按 `runId` 精确挂到产出它的那一轮。
+   * <p>与清单弹窗各自取一份数据：那边是"整个会话的清单"，这边要按 `runId` 精确挂到产出它的那一轮。
    */
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
-  /** 右侧预览抽屉里正在看的产物（点气泡下方的预览打开） */
-  const [previewArtifact, setPreviewArtifact] = useState<ArtifactInfo | null>(null);
+  /**
+   * 右侧预览面板：打开的产物做成 tab（点气泡图片、产物框、清单弹窗都能往这里加）。
+   *
+   * <p>面板是**内联挤压**聊天区的（不是遮罩抽屉），可以整体关闭，也可以逐个关 tab。
+   * 开关状态**不持久化**（刷新回默认）：出现可预览产物就自动打开。
+   */
+  const [previewTabs, setPreviewTabs] = useState<ArtifactInfo[]>([]);
+  const [activePreviewId, setActivePreviewId] = useState<number | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  /**
+   * 预览面板宽度（px）：**拖左边界**调整它和聊天区的比例（用户要求）。
+   *
+   * <p>默认 448px，不持久化（刷新回默认，与面板开关一致）。
+   */
+  const [previewWidth, setPreviewWidth] = useState(PREVIEW_PANEL_DEFAULT);
+  /** 已经“自动打开过”的产物 id：同一条产物刷新时不要再抢焦点 */
+  const seenPreviewIds = useRef<Set<number>>(new Set());
+
+  /** 在右侧面板里打开一个产物（已在 tab 里就只切过去）。 */
+  const openPreview = useCallback((item: ArtifactInfo) => {
+    setPreviewTabs((prev) => (prev.some((tab) => tab.id === item.id) ? prev : [...prev, item]));
+    setActivePreviewId(item.id);
+    setPreviewOpen(true);
+  }, []);
+
+  /**
+   * 关掉一个 tab。
+   *
+   * <p>关掉**当前**这个时把选中项交给相邻的 tab（否则内容区会空着但面板还在），
+   * 全关光了才把面板一起收起来。
+   */
+  const closePreviewTab = useCallback(
+    (id: number) => {
+      const index = previewTabs.findIndex((tab) => tab.id === id);
+      const next = previewTabs.filter((tab) => tab.id !== id);
+      setPreviewTabs(next);
+      // 关最后一个 → 面板一起收起（否则会剩一个空壳面板）
+      if (next.length === 0) {
+        setPreviewOpen(false);
+      }
+      setActivePreviewId((current) =>
+        current === id
+          ? (next[Math.min(Math.max(index, 0), next.length - 1)]?.id ?? null)
+          : current,
+      );
+    },
+    [previewTabs],
+  );
+
+  /** 面板是否真的可见（开着且有 tab 才算） */
+  const panelVisible = previewOpen && previewTabs.length > 0;
   const [uploading, setUploading] = useState(false);
   // Phase 13：拖拽进聊天区时高亮提示
   const [dragging, setDragging] = useState(false);
@@ -208,6 +260,38 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView?.({ behavior: "smooth" });
   }, [chat.items]);
 
+  // 换会话：预览面板整个清空（tab 是「这条会话的产物」，跨会话留着只会指错东西）
+  useEffect(() => {
+    setPreviewTabs([]);
+    setActivePreviewId(null);
+    setPreviewOpen(false);
+    seenPreviewIds.current = new Set();
+  }, [session?.id]);
+
+  /**
+   * 「来源文件与产物」清单的触发按钮（**两个入口共用一个组件**：页头一个，面板左上角一个）。
+   *
+   * <p>弹窗紧贴着**自己身下的按钮**弹出，所以触发按钮必须由弹窗组件包裹（Radix 靠这层关系锚定）。
+   */
+  const browserTrigger = (testId: string) => (
+    <ArtifactBrowserPopover
+      sessionId={session?.id ?? null}
+      refreshKey={artifactRefresh}
+      onError={setError}
+      onPreview={openPreview}
+    >
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0"
+        title="来源文件与产物"
+        data-testid={testId}
+      >
+        <Files className="size-4" />
+      </Button>
+    </ArtifactBrowserPopover>
+  );
+
   // 取本会话产物：换会话、以及每轮结束（artifactRefresh 自增）时刷新，供气泡下方展示
   useEffect(() => {
     if (session?.id == null) {
@@ -230,6 +314,34 @@ export default function ChatPage() {
       cancelled = true;
     };
   }, [session?.id, artifactRefresh]);
+
+  /**
+   * 本会话出现**新的可预览产物**时自动打开面板。
+   *
+   * <p>“新”按 id 记在 `seenPreviewIds` 里：每轮结束都会重拉产物列表，同一个文件不该反复抢焦点；
+   * 面板已经被用户关掉时也不再自动弹（用户关它就是要别看）。
+   *
+   * <p>还必须限住 `sessionId`：换会话那一帧里 `artifacts` 还是**上一条会话**的旧值，
+   * 不筛就会把上一条会话的产物自动开到新会话上。
+   */
+  useEffect(() => {
+    if (session?.id == null) {
+      return;
+    }
+    const fresh = artifacts.filter(
+      (item) =>
+        item.sessionId === session.id &&
+        canPreviewArtifact(item) &&
+        !seenPreviewIds.current.has(item.id),
+    );
+    if (fresh.length === 0) {
+      return;
+    }
+    fresh.forEach((item) => seenPreviewIds.current.add(item.id));
+    if (!previewOpen) {
+      openPreview(fresh[0]);
+    }
+  }, [artifacts, previewOpen, openPreview, session?.id]);
 
   /**
    * 接续正在跑的 run（Phase 14）。
@@ -987,7 +1099,7 @@ export default function ChatPage() {
             streaming={item.streaming}
             stopped={item.stopped}
             artifacts={item.role === "assistant" ? own : undefined}
-            onOpenArtifact={setPreviewArtifact}
+            onOpenArtifact={openPreview}
           />,
         );
         if (ownFiles.length > 0) {
@@ -995,7 +1107,7 @@ export default function ChatPage() {
             <ArtifactBox
               key={`${item.id}-artifacts`}
               items={ownFiles}
-              onOpen={setPreviewArtifact}
+              onOpen={openPreview}
             />,
           );
         }
@@ -1064,6 +1176,8 @@ export default function ChatPage() {
         )}
         <header className="border-b p-3">
           <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
+            {/* 来源/产物清单的入口（面板没开时也能从这里进去） */}
+            {browserTrigger("open-artifact-browser")}
             <span className="text-sm font-medium">聊天</span>
             {chat.status === "running" && <Badge variant="secondary">生成中…</Badge>}
             {chat.status === "error" && <Badge variant="destructive">出错</Badge>}
@@ -1324,14 +1438,19 @@ export default function ChatPage() {
         {isEmptyState && <div className="flex-1" />}
       </section>
 
-      <SourceArtifactPanel
-        sessionId={session?.id ?? null}
-        refreshKey={artifactRefresh}
-        onError={setError}
-      />
-
-      {/* 点击气泡下方的预览 → 从右侧滑出完整预览 */}
-      <ArtifactPreviewDrawer item={previewArtifact} onClose={() => setPreviewArtifact(null)} />
+      {/* 预览面板：内联挤压聊天区（不是遮罩），多产物用 tab 分开 */}
+      {panelVisible && (
+        <ArtifactPreviewPanel
+          tabs={previewTabs}
+          activeId={activePreviewId}
+          onSelect={setActivePreviewId}
+          onCloseTab={closePreviewTab}
+          onClose={() => setPreviewOpen(false)}
+          width={previewWidth}
+          onWidthChange={setPreviewWidth}
+          browserTrigger={browserTrigger("open-artifact-browser-panel")}
+        />
+      )}
     </div>
   );
 }

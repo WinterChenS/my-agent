@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canPreview, INLINE_IMAGE_MAX_BYTES, isImageArtifact, type ArtifactInfo } from "./artifacts";
+import { INLINE_IMAGE_MAX_BYTES, isImageArtifact, type ArtifactInfo } from "./artifacts";
 
 function artifact(partial: Partial<ArtifactInfo>): ArtifactInfo {
   return {
@@ -30,14 +30,6 @@ describe("isImageArtifact", () => {
     expect(isImageArtifact(artifact({ mime: "application/octet-stream" }))).toBe(false);
     expect(isImageArtifact(null)).toBe(false);
     expect(isImageArtifact(undefined)).toBe(false);
-  });
-});
-
-describe("canPreview", () => {
-  it("文本类可预览，图片类也可预览", () => {
-    expect(canPreview(artifact({ previewable: true }))).toBe(true);
-    expect(canPreview(artifact({ mime: "image/png", previewable: false }))).toBe(true);
-    expect(canPreview(artifact({ mime: "application/zip", previewable: false }))).toBe(false);
   });
 });
 

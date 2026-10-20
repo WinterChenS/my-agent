@@ -5,7 +5,7 @@ import { INLINE_IMAGE_MAX_BYTES, type ArtifactInfo } from "@/api/artifacts";
 
 /*
  * 把「取字节」换掉：组件测试不联网（真实请求要带 Bearer，jsdom 里也没法真解码图片）。
- * 其余导出（isImageArtifact / canPreview / 常量）保持真实实现 —— 被测的正是它们与组件的配合。
+ * 其余导出（isImageArtifact / 常量）保持真实实现 —— 被测的正是它们与组件的配合。
  */
 vi.mock("@/api/artifacts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/artifacts")>();

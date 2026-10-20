@@ -67,19 +67,19 @@ test.describe("产物交付（官方 deliver_artifact）", () => {
       );
       expect(boxBox.y, "产物框应在气泡下方").toBeGreaterThanOrEqual(bubble.y + bubble.height - 2);
 
-      // ④ 预览：文本可预览 → 点它在右侧抽屉里打开完整内容
+      // ④ 预览：文本可预览 → 点它在**右侧预览面板**里打开完整内容（内联挤压，无遮罩）
       const inline = page.getByTestId("artifact-preview-inline").first();
       await expect(inline).toBeVisible();
       console.log(`[产物] 行内预览文本 = ${JSON.stringify((await inline.innerText()).slice(0, 40))}`);
       await inline.click();
-      const drawer = page.getByTestId("artifact-drawer");
-      await expect(drawer).toBeVisible({ timeout: 15_000 });
+      const panel = page.getByTestId("preview-panel");
+      await expect(panel).toBeVisible({ timeout: 15_000 });
       await expect(page.getByTestId("artifact-preview-full")).toContainText("季度报告");
-      console.log("[产物] 点预览 → 右侧抽屉已打开且正文完整 ✓");
-      await page.screenshot({ path: "../docs/acceptance/task-39-artifact-drawer.png" });
-      await page.getByTestId("artifact-drawer-close").click();
-      await expect(drawer).toHaveCount(0);
-      console.log("[产物] 关闭抽屉 ✓");
+      console.log("[产物] 点预览 → 右侧预览面板已打开且正文完整 ✓");
+      await page.screenshot({ path: "../docs/acceptance/task-10.7-artifact-preview-panel.png" });
+      await page.getByTestId("preview-panel-close").click();
+      await expect(panel).toHaveCount(0);
+      console.log("[产物] 关闭预览面板 ✓");
     } finally {
       const sessions = await (await request.get(`${API}/api/sessions`, { headers })).json();
       for (const s of sessions.data as { id: number; agentId: number | null }[]) {

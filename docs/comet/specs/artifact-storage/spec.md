@@ -2,7 +2,8 @@
 
 ## Purpose
 
-用**一张统一的表**记录会话相关的「来源文件」与「产物」，并按内容类型分别落地到 MinIO 或数据库；在会话页右侧以侧边栏分区展示。
+用**一张统一的表**记录会话相关的「来源文件」与「产物」，并按内容类型分别落地到 MinIO 或数据库；
+在会话页**按类型渲染预览**（右侧内联预览面板 + tab），清单本身收进一个**弹窗**，不常驻占位置。
 
 ## 数据模型
 
@@ -51,14 +52,21 @@
 
 权限：仅会话属主可读/删；`ADMIN` 不默认跨用户读取会话产物。
 
-## 右侧栏（前端）
+## 清单入口与弹窗（前端）
 
-- 会话页右侧新增侧边栏（可折叠），**两个分区**：
+> 变更（2026-10-20，用户要求）：清单不再是**常驻**的一列侧边栏（它把聊天区挤得很窄）。
+
+- 入口是**一个按钮**：`open-artifact-browser-panel`（预览面板**左上角**，用户要求的位置）
+  与 `open-artifact-browser`（聊天页头部，面板没开时也能进）。
+- 点击打开一个**贴着该按钮下方**弹出的浮层 `ArtifactBrowserPopover`（Radix Popover，`side=bottom`/`align=start`），
+  **竖长条**形状：`w-80`（320px）、高 `24rem`（比宽高，列表本来就是竖着长的），超出滚动。两个分栏：
   - **来源文件**：`role=SOURCE` 的条目；
   - **产物**：`role=ARTIFACT` 的条目。
-- 每条显示：文件名、大小、类型图标、时间；点击可下载/预览（**文本类看正文；图片类型看图片**）。
-- 空状态给出提示（如「对话中上传文件或让 Agent 生成文件后会出现在这里」）。
-- 侧边栏与消息区/输入框同一视觉体系；不遮挡主内容（宽度固定，可折叠）。
+- **分栏只在有内容时出现**（用户要求）：某类一条都没有就整栏不渲染，不留空列表/空提示；
+  两类都空时只给一句「这个会话还没有来源文件或产物」。
+- 每条显示：文件名、大小、存储位置（对象存储/数据库）、失败原因；操作：预览 / 下载 / 删除。
+- 点「预览」→ 关闭弹窗，在**右侧预览面板**里打开（弹窗只是“选东西的地方”，不是看内容的地方）。
+- 非模态（不抢焦点、不遮罩）：弹窗开着也不影响继续在聊天里输入；点外部/`Esc` 关闭。
 
 ## 与 Agent 的关系（D22，用户确认「自动全收」）
 
@@ -67,7 +75,7 @@
 > 实测修正（2026-10-11）：HarnessAgent 的工作目录是 `.myagent-workspace/<owner>/`（owner 为调用方身份，本项目即 `userId`），**不是** `.myagent-workspace/<threadId>/`。所以快照/比对都按 `<workspaceRoot>/<userId>` 递归，排除 `agents/`、`default/`、`memory/`、`.skills-cache/`、`uploads/` 这些框架内部目录；本次 run 的变更归到当前会话。
 
 - 判定方式：run 开始前记录工作区文件快照（路径 → mtime+size），run 结束后对比；新增或 mtime/size 变化者即为产物。
-- **排除框架内部状态**（否则侧边栏会被框架文件淹没）：
+- **排除框架内部状态**（否则产物清单会被框架文件淹没）：
   - `agents/**/sessions/**`（会话转录 jsonl）
   - `memory/**`（记忆文件）
   - `.skills-cache/**`（技能缓存）
@@ -80,27 +88,73 @@
   去重规则（同 `sha256` 返回既有行）会让**先登记**的那条胜出：交付在 run **中**、扫描在 run **末**，
   所以交付那条（带 `runId`）优先，扫描命中去重不会把 `run_id` 抹掉。
 
-## 图片：气泡内渲染与预览（Task 10.6）
+## 产物预览：按类型渲染 + 统一右侧面板（Task 10.7）
 
-同一张图可能出现在三个位置，但**只有一份数据源**（`artifact` 表）：
+### 一个渲染体，一个类型判定
 
-| 位置 | 内容 | 条件 |
+| 文件 | 职责 |
+|---|---|
+| `src/lib/artifacts/previewKind.ts` | **唯一**的 MIME/扩展名 → 渲染类型判定：`image \| pdf \| html \| markdown \| text \| sheet \| docx \| none`，外加 `canPreviewArtifact()`。带扩展名兜底（历史数据有 `octet-stream`，如 xlsx/docx 走上传时未带 MIME 的情况）。 |
+| `src/components/chat/ArtifactPreviewBody.tsx` | **唯一**的按类型渲染体（见下表）。三个入口全部复用它。 |
+| `src/components/chat/ArtifactPreviewPanel.tsx` | 右侧**内联挤压**面板：tab 行 + 整体关闭 + 文件名/大小/下载 + 内容区。 |
+| `src/components/chat/ArtifactBrowserDialog.tsx` | 「来源文件与产物」清单弹窗（入口见上节）。 |
+
+| 类型 | 渲染方式 | 代价 / 范围 |
 |---|---|---|
-| 气泡**内**（助手气泡正文下方） | `image/*` 且 ≤ `INLINE_IMAGE_MAX_BYTES` 的产物，渲染成图片本身 | 该产物 `run_id` = 这条助手消息的 `runId` |
-| 气泡**下方**产物框 | 非图片产物（文件名 + 大小 + 文本类前几行） | 同上 |
-| 右侧栏「产物 / 来源文件」 | 全部条目 | `canPreview(item)` 为真时给预览按钮 |
+| `image` | 鉴权下载 → blob URL → `<img>` | — |
+| `pdf` | 鉴权下载 → blob URL（**带 `application/pdf`**）→ iframe，交给浏览器内置阅读器 | 依赖浏览器；不引 pdf.js |
+| `html` | `<iframe sandbox="allow-scripts" srcDoc>` | 见下节安全策略 |
+| `markdown` | `react-markdown` + `remark-gfm`（复用已有依赖） | — |
+| `text` | `<pre>`（正文来自 `item.content`） | — |
+| `sheet`（xlsx/xls） | **动态** `import("xlsx")`（SheetJS 0.18.5）→ `sheet_to_json` 二维数组 → React 表格；多 sheet 出 tab | 只在打开表格预览时下载该 chunk（429 kB），不进首屏包；最多画前 200 行 |
+| `docx` | **零依赖**自己解 zip（见下） | 只提取文字：**无版式、无表格结构、无图片** |
+| `none` | 「不支持在线预览，可下载」 | 包含老式 `.doc`（OLE 二进制）——**只给下载** |
 
-**判定只有一处（不得各写一份、不得按扩展名另立清单）**：
-`isImageArtifact(item) = (item.mime ?? "").startsWith("image/")`；
-`canPreview(item) = item.previewable || isImageArtifact(item)`。两者都放 `src/api/artifacts.ts`。
+**判定/取字节都只有一处**：`previewKind()` / `canPreviewArtifact()` 供面板、气泡产物框、清单弹窗共用；
+`fetchArtifactBytes(id)`（鉴权 fetch → `Uint8Array`）是唯一的取字节实现，`fetchArtifactBlobUrl(id, mime)` 建在它之上，
+由 `useArtifactBlobUrl(item, { anyMime })`（图片/PDF）与 `useArtifactBytes(item)`（Excel/Word）两个 hook 复用，切换/卸载即 `revokeObjectURL`。
 
-**取字节只有一条路**：产物下载接口要带 `Authorization`，所以 `<img src>` 不能直连 —— 统一走已有的
-`fetchArtifactBlobUrl(id)`（fetch → blob URL），并由唯一的 hook `useArtifactBlobUrl(item)` 复用（含 `revokeObjectURL`）。
-**四个**位置全用它：气泡内图片、产物缩略图、右侧**抽屉**、右侧栏**预览弹窗**、正文 Markdown 图片。
+### 面板行为
 
-> 实测修正（2026-10-20）：预览入口其实有**两处** —— 右侧栏条目点开的弹窗（`SourceArtifactPanel` 自己的 Dialog，
-> 原本只认文本：`<pre>{content}</pre>`）与气泡点开的抽屉（`ArtifactPreviewDrawer`）。两者都要认得图片，
-> 但只共用同一个 hook，不各写一套取字节逻辑；文本分支保持原样（`artifact-preview` 这个 testid 有既有用例依赖）。
+- 位置：聊天区**右侧**、**内联挤压**聊天区（不是遮罩抽屉）。
+- **宽度可拖拽**（用户要求）：左边界是一条 `cursor-col-resize` 的分隔线（`preview-resize-handle`），
+  向左拖宽、向右拖窄；限位逻辑是纯函数 `lib/chat/previewPanelWidth.ts`
+  （默认 448px；下限 320px；上限 = min(896, 窗口宽 × 70%)）。双击分隔线回默认宽度。
+  拖拽用 pointer capture，鼠标快了也不会“跑出”把手。宽度不持久化（刷新回默认）。
+- 多产物 → 上方 tab（`preview-tab`），每个 tab 可单独关（`preview-tab-close`）；关掉当前 tab 时选中项交给相邻 tab。
+- 关掉**最后一个** tab（或点整体关闭 `preview-panel-close`）→ 面板消失。
+- **自动打开**：本会话出现新的可预览产物（`role=ARTIFACT`）时自动打开面板并显示它；同一个产物只抢一次焦点（按 id 记“已自动打开过”），用户手动关掉后不再自动弹。
+- 开关**不持久化**（刷新回默认）；换会话清空所有 tab。
+- 气泡内图片、产物框、清单弹窗三处点击都进同一个面板（不再有“窄栏弹窗 + 右侧抽屉”两套 UI）。
+
+### HTML 沙箱策略（决策 2B，含残余风险）
+
+`sandbox="allow-scripts"`，**不给** `allow-same-origin`：
+
+- 能跑脚本 → 图表/交互式报告可用；
+- 拿不到本站的 origin → 读不到 `localStorage`/cookie/本站 token，也改不了本站 DOM；
+- **残余风险（用户已确认接受）**：脚本仍能**自行发起外部请求**（把内容外发）。所以只对**本会话产物**启用，
+  且不把任何凭据注入 `srcDoc`。若以后要收紧，唯一办法是不给 `allow-scripts`（图表就没法跑）。
+
+### Word（.docx）：零依赖抽文字（决策 1C）
+
+用户明确**不引 `mammoth`**。`.docx` 本质是 zip，`src/lib/artifacts/docxText.ts` 自己解：
+
+1. 从尾部找 EOCD → 读中央目录 → 找 `word/document.xml`（`listZipEntries` 单测覆盖）；
+2. method 8 → `DecompressionStream("deflate-raw")`（读写**并发**进行，避免大文件互等）；method 0 → 直接用（stored，测试最好造）；
+3. `DOMParser` 解析 XML，按 `<w:p>` 分段取 `<w:t>`，`<w:tab/>`→制表符、`<w:br/>`→换行，表格单元格里的段落同样能读到；
+4. 失败（不是 zip / 没有 `document.xml` / 压缩方式不支持 / XML 坏）→ 界面上「无法解析这个 Word 文件，请下载后查看」。
+
+**代价**：无版式、无表格结构、无图片；`.doc`（老 OLE 二进制）不在范围内 → 走 `none` 只给下载。
+
+### 大文件保护
+
+Excel / Word 超过 `INLINE_IMAGE_MAX_BYTES`（8MB）不解析，只提示下载（`preview-too-large`）；
+表格最多渲染前 200 行（超出提示「完整内容请下载」）。
+
+### 正文里的 Markdown 图片（不改）
+
+同上节的既有约定（`data:`/`blob:`/`http(s)` 原样；否则按 basename 在本会话产物里找 `image/*`；找不到给提示）。
 
 **正文里的 Markdown 图片**（模型可能写 `![](xxx.png)`）：复用 react-markdown 已有的 `components` 覆盖加一个 `img`：
 
@@ -124,16 +178,22 @@
 ## 验收标准
 
 - 上传一个文件后，`artifact` 中出现 `role=SOURCE` 行；文本类 `storage=DB` 且 `content` 有值，二进制类 `storage=MINIO` 且对象存在于 bucket。
-- 右侧栏「来源文件」能列出刚上传的文件并可下载。
-- Agent 生成文件后，`artifact` 出现 `role=ARTIFACT` 行，右侧栏「产物」可列出并下载。
+- 清单弹窗的「来源文件」能列出刚上传的文件并可下载。
+- Agent 生成文件后，`artifact` 出现 `role=ARTIFACT` 行，清单弹窗「产物」可列出并下载。
 - **框架内部文件不得出现在产物区**：跑一轮对话后，`artifact(role=ARTIFACT)` 中不应包含 `memory/**`、`agents/**/sessions/**`、`.skills-cache/**`、`uploads/**` 等路径。
 - 同一 run 未改动任何文件时，不产生新的产物行。
 - 同内容重复上传不产生重复行。
 - MinIO 不可用时上传返回明确业务错误，对话主链路仍可用。
 - 非属主访问 `/api/artifacts?sessionId=` 返回 403。
 - **只写文件（未显式交付）的一轮**，其产物 `run_id` 非空且与该轮 assistant 消息的 `aguiMeta.runId` 一致 ——
-  于是它出现在对应气泡下方（此前扫描路径 `run_id` 为 null，只能出现在右侧栏）。
-- 助手气泡**内**能直接看到本轮图片产物（真解码，非破图），点击打开右侧抽屉看大图。
-- 右侧栏「产物」「来源文件」里**图片类型都有预览按钮**，点开是图片（而不是“不支持在线预览”）。
+  于是它出现在对应气泡下方（此前扫描路径 `run_id` 为 null，只能出现在产物清单里）。
+- 助手气泡**内**能直接看到本轮图片产物（真解码，非破图），点击在右侧预览面板看大图。
+- 清单弹窗里 **图片 / PDF / Excel / Word 都有预览按钮**（`canPreviewArtifact`），zip 等没有。
 - 正文写 `![](本会话已有图片文件名)` 能在气泡内渲染；写不存在的文件名时给提示而不是破图。
-- 超过 `INLINE_IMAGE_MAX_BYTES` 的图片不在气泡内内联，但可点开抽屉。
+- 超过 `INLINE_IMAGE_MAX_BYTES` 的图片不在气泡内内联，但可点开预览面板。
+- **按类型渲染**：html 走沙箱 iframe（脚本可跑、读不到本站存储）、pdf 走内置阅读器、markdown 渲染成标题/表格、
+  纯文本走 `<pre>`、xlsx 出表格且多 sheet 可切、docx 能抽到文字。
+- **面板**：多产物出多个 tab、逐个可关、关完最后一个面板消失；出现可预览产物时**自动打开**；
+  面板是内联挤压（在聊天区右侧），不是遮罩抽屉；**左边界可拖拽调整宽度**（双击回默认 448px）。
+- **清单**：只在对应类型有内容时才出现该分栏；点预览后弹窗自动关闭、右侧面板打开；
+  弹窗贴着触发按钮**下方**弹出，且**高 > 宽**（竖长条）。

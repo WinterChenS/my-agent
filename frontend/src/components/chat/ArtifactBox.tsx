@@ -1,13 +1,13 @@
-import { Download, FileText, Image as ImageIcon, Package, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FileText, Image as ImageIcon, Package } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { downloadArtifact, formatSize, isImageArtifact, type ArtifactInfo } from "@/api/artifacts";
+import { formatSize, isImageArtifact, type ArtifactInfo } from "@/api/artifacts";
 import { useArtifactBlobUrl } from "./useArtifactBlobUrl";
 
 /**
  * 产物方框：展示在**对话气泡下方**（Agent 主动交付的产物挂到产出它的那一轮）。
  *
- * <p>可预览的直接给预览（文本显示开头若干行、图片显示缩略图），点预览在**右侧抽屉**里看完整内容。
+ * <p>可预览的直接给预览（文本显示开头若干行、图片显示缩略图），点预览在**右侧预览面板**里
+ * 看完整内容（面板由 ChatPage 统一渲染，这里只回调）。
  * 数据来自 artifact 表，按 `runId` 与本轮 assistant 消息对应（见 ChatPage 的 runId 关联）。
  */
 export function ArtifactBox({
@@ -38,7 +38,7 @@ export function ArtifactBox({
   );
 }
 
-/** 文本类可预览时最多显示几行（点开抽屉看全文） */
+/** 文本类可预览时最多显示几行（点开右侧面板看全文） */
 const PREVIEW_LINES = 6;
 
 function ArtifactPreview({ item, onOpen }: { item: ArtifactInfo; onOpen: () => void }) {
@@ -104,83 +104,3 @@ function ArtifactPreview({ item, onOpen }: { item: ArtifactInfo; onOpen: () => v
   );
 }
 
-/**
- * 右侧预览抽屉：点击气泡下方的预览时从右边滑出。
- *
- * <p>文本直接显示正文；图片显示大图；其它类型提示下载。
- */
-export function ArtifactPreviewDrawer({
-  item,
-  onClose,
-}: {
-  item: ArtifactInfo | null;
-  onClose: () => void;
-}) {
-  const { url: blobUrl, failed } = useArtifactBlobUrl(item);
-
-  if (!item) {
-    return null;
-  }
-  const image = isImageArtifact(item);
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" data-testid="artifact-drawer">
-      {/* 遮罩：点击关闭 */}
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <aside className="bg-background relative flex h-full w-[min(760px,92vw)] flex-col border-l shadow-xl">
-        <div className="flex items-center gap-2 border-b p-3">
-          <FileText className="text-muted-foreground size-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium" title={item.fileName}>
-            {item.fileName}
-          </span>
-          <span className="text-muted-foreground shrink-0 text-xs">
-            {formatSize(item.sizeBytes)}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="下载"
-            data-testid="artifact-download"
-            onClick={() => void downloadArtifact(item.id, item.fileName)}
-          >
-            <Download className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="关闭"
-            data-testid="artifact-drawer-close"
-            onClick={onClose}
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto p-3">
-          {image ? (
-            failed ? (
-              <p className="text-muted-foreground text-sm">图片加载失败，可点右上角下载。</p>
-            ) : blobUrl ? (
-              <img src={blobUrl} alt={item.fileName} className="mx-auto max-w-full rounded" />
-            ) : (
-              <p className="text-muted-foreground text-sm">加载中…</p>
-            )
-          ) : item.previewable && typeof item.content === "string" ? (
-            <pre
-              data-testid="artifact-preview-full"
-              className="bg-muted/40 rounded-md border p-3 text-xs whitespace-pre-wrap"
-            >
-              {item.content || "（空内容）"}
-            </pre>
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              这种类型不支持在线预览，可点右上角下载后查看。
-            </p>
-          )}
-        </div>
-      </aside>
-    </div>
-  );
-}

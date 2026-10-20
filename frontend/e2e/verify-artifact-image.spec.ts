@@ -62,7 +62,7 @@ async function cleanup(
   await deleteStubAgent(request, headers, agentDbId);
 }
 
-test.describe("产物图片：右侧栏可预览", () => {
+test.describe("产物图片：清单弹窗里可预览", () => {
   test("上传的图片在「来源文件」里有预览按钮，点开是图片", async ({ page, request }) => {
     const stamp = Date.now();
     const { agentName, agentDbId, headers } = await createStubAgent(request, stamp);
@@ -78,19 +78,26 @@ test.describe("产物图片：右侧栏可预览", () => {
       await input.fill("带张图发一条");
       await input.press("Enter");
 
-      const row = page.locator('[data-testid="panel-sources-item"]', { hasText: pngName });
+      // 清单在弹窗里（预览面板左上角 / 页头按钮打开）
+      await page.getByTestId("open-artifact-browser").click();
+      const browser = page.getByTestId("artifact-browser");
+      await expect(browser).toBeVisible();
+      const row = browser.locator('[data-testid="panel-sources-item"]', { hasText: pngName });
       await expect(row).toBeVisible({ timeout: 30_000 });
 
       // 关键断言：图片也有预览按钮（修复前只有文本类才有）
-      await row.hover();
       const preview = row.getByTestId("artifact-preview-button");
       await expect(preview).toBeVisible({ timeout: 10_000 });
       await preview.click();
+      // 选完预览 → 清单弹窗自动关掉
+      await expect(browser).toHaveCount(0);
 
+      // 预览现在发生在右侧面板里（先等面板出来，再断言里面的图）
+      await expect(page.getByTestId("preview-panel")).toBeVisible({ timeout: 20_000 });
       const img = page.locator('[data-testid="artifact-preview-image"]');
       await expect(img).toBeVisible({ timeout: 20_000 });
       expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
-      console.log("[图片] 右侧栏图片预览：naturalWidth > 0 ✓");
+      console.log("[图片] 清单弹窗 → 预览面板图片：naturalWidth > 0 ✓");
     } finally {
       await cleanup(request, headers, agentDbId);
     }
@@ -143,10 +150,14 @@ test.describe("产物图片：气泡内显示", () => {
       await expect(page.getByTestId("markdown-image-missing")).toBeVisible({ timeout: 10_000 });
       console.log("[图片] 正文图片文件名不存在 → 给提示 ✓");
 
-      // ⑤ 点击产物图 → 复用右侧抽屉看大图
+      // ⑤ 点击产物图 → 在右侧预览面板里看大图（面板内由 ArtifactPreviewBody 统一渲染）
       await page.getByTestId("bubble-image").first().click();
-      await expect(page.getByTestId("artifact-drawer")).toBeVisible({ timeout: 20_000 });
-      console.log("[图片] 气泡内点击 → 抽屉打开 ✓");
+      const panel = page.getByTestId("preview-panel");
+      await expect(panel).toBeVisible({ timeout: 20_000 });
+      const bigImg = panel.getByTestId("artifact-preview-image");
+      await expect(bigImg).toBeVisible({ timeout: 20_000 });
+      expect(await bigImg.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+      console.log("[图片] 气泡内点击 → 右侧预览面板打开且大图可渲染 ✓");
     } finally {
       await cleanup(request, headers, agentDbId);
     }

@@ -40,7 +40,7 @@ export function MessageBubble({
   stopped?: boolean;
   /** 本轮的产物：图片进气泡内，正文 Markdown 图片也按文件名在这里找 */
   artifacts?: ArtifactInfo[];
-  /** 点击图片 → 打开右侧抽屉（复用 ChatPage 已有的 previewArtifact） */
+  /** 点击图片 → 在右侧预览面板里打开（由 ChatPage 统一管理 tab） */
   onOpenArtifact?: (item: ArtifactInfo) => void;
 }) {
   const isUser = role === "user";

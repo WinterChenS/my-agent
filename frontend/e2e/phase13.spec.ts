@@ -141,8 +141,11 @@ test("把文件拖进聊天区即成为待发送附件", async ({ page, request 
   const chips = page.locator('[data-testid="attachment-chip"]');
   await expect(chips).toHaveCount(1);
   await expect(chips.first()).toContainText("拖拽测试.md");
-  // 仍是暂存（发送前不产生来源文件记录）
+  // 仍是暂存（发送前不产生来源文件记录）——清单弹窗里还是空的
+  await page.getByTestId("open-artifact-browser").click();
+  await expect(page.getByTestId("artifact-browser-empty")).toBeVisible();
   await expect(page.locator('[data-testid="panel-sources-item"]')).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   await page.screenshot({ path: "../docs/acceptance/task-13-drag-drop.png", fullPage: true });
 });

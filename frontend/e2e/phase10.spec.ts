@@ -158,18 +158,22 @@ async function loginAndSelectAgent(page: Page, agentName: string) {
   return page.getByPlaceholder("输入消息，回车发送");
 }
 
-test("附件暂存 + 发送时上传：暂存区、右侧栏与预览", async ({ page, request }) => {
+test("附件暂存 + 发送时上传：暂存区、清单弹窗与预览", async ({ page, request }) => {
   const stamp = Date.now();
   const { agentId, agentDbId, headers } = await createStubAgent(request, stamp);
   const input = await loginAndSelectAgent(page, agentId);
 
-  // 两区都在（Phase 10 / Task 10.4）
-  await expect(page.locator('[data-testid="panel-sources"]')).toBeVisible();
-  await expect(page.locator('[data-testid="panel-artifacts"]')).toBeVisible();
-  await expect(page.locator('[data-testid="panel-sources"]')).toContainText("来源文件");
-  await expect(page.locator('[data-testid="panel-artifacts"]')).toContainText("产物");
+  // 清单现在是**弹窗**（不常驻一列）：空会话两个分栏都不出现，只给一句空提示
+  await page.getByTestId("open-artifact-browser").click();
+  const browser = page.getByTestId("artifact-browser");
+  await expect(browser).toBeVisible();
+  await expect(browser.getByTestId("artifact-browser-empty")).toBeVisible();
+  await expect(browser.getByTestId("panel-sources")).toHaveCount(0);
+  await expect(browser.getByTestId("panel-artifacts")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(browser).toHaveCount(0);
 
-  // 选文件 → 只进「输入框上方暂存区」，此时右侧栏还没有（D24：暂存期间不写库）
+  // 选文件 → 只进「输入框上方暂存区」，此时清单里还没有（D24：暂存期间不写库）
   await page.setInputFiles('[data-testid="file-input"]', {
     name: "e2e-note.md",
     mimeType: "text/markdown",
@@ -178,14 +182,18 @@ test("附件暂存 + 发送时上传：暂存区、右侧栏与预览", async ({
   const chips = page.locator('[data-testid="attachment-chip"]');
   await expect(chips).toHaveCount(1);
   await expect(chips.first()).toContainText("e2e-note.md");
-  await expect(page.locator('[data-testid="panel-sources-item"]')).toHaveCount(0);
+  await page.getByTestId("open-artifact-browser").click();
+  await expect(page.getByTestId("artifact-browser-empty")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("artifact-browser")).toHaveCount(0);
 
   // 输入框仍可用，带着附件发送
   await input.fill("带着附件发一条");
   await input.press("Enter");
 
-  // 发送后才上传：右侧栏出现、暂存区清空
-  const sourceItem = page.locator('[data-testid="panel-sources-item"]');
+  // 发送后才上传：清单里出现来源文件、暂存区清空
+  await page.getByTestId("open-artifact-browser").click();
+  const sourceItem = page.getByTestId("artifact-browser").locator('[data-testid="panel-sources-item"]');
   await expect(sourceItem).toHaveCount(1, { timeout: 30_000 });
   await expect(sourceItem.first()).toContainText("e2e-note.md");
   await expect(sourceItem.first()).toContainText("数据库");
@@ -214,14 +222,18 @@ test("附件暂存 + 发送时上传：暂存区、右侧栏与预览", async ({
   expect(String(lastUser?.content)).toContain("[已上传附件]");
   expect(String(lastUser?.content)).toContain("uploads/e2e-note.md");
 
-  // 产物区此时还是空的（Agent 没写文件）
-  await expect(page.locator('[data-testid="panel-artifacts-item"]')).toHaveCount(0);
+  // 产物区此时还是空的（Agent 没写文件）→ 整个分栏不出现，而不是一个空列表
+  await expect(page.getByTestId("panel-artifacts")).toHaveCount(0);
 
-  // 文本类可在线预览
-  await sourceItem.first().hover();
-  await page.locator('[data-testid="artifact-preview-button"]').first().click();
-  await expect(page.locator('[data-testid="artifact-preview"]')).toContainText("e2e note");
-  await page.keyboard.press("Escape");
+  // 文本类可在线预览：点击后在**右侧预览面板**里打开（弹窗自动关闭）
+  await sourceItem.first().getByTestId("artifact-preview-button").click();
+  await expect(page.getByTestId("artifact-browser")).toHaveCount(0);
+  const previewPanel = page.getByTestId("preview-panel");
+  await expect(previewPanel).toBeVisible();
+  // `.md` 走 markdown 渲染（同一个 testid，断言不用跟着变）
+  await expect(previewPanel.getByTestId("artifact-preview-full")).toContainText("e2e note");
+  await page.getByTestId("preview-panel-close").click();
+  await expect(previewPanel).toHaveCount(0);
 
   await page.screenshot({ path: "../docs/acceptance/task-11-attachment-staging.png", fullPage: true });
 });
@@ -270,7 +282,11 @@ test("附件：多选与追加、移除后库里不留记录、发送时只上�
 
   // 发送 → 只上传保留的两条，被移除的那条不会出现（A51/A52）
   await input.press("Enter");
-  const sourceItems = page.locator('[data-testid="panel-sources-item"]');
+  // 清单在弹窗里：打开后才能核对上传了几条
+  await page.getByTestId("open-artifact-browser").click();
+  const sourceItems = page
+    .getByTestId("artifact-browser")
+    .locator('[data-testid="panel-sources-item"]');
   await expect(sourceItems).toHaveCount(2, { timeout: 30_000 });
   const texts = await sourceItems.allTextContents();
   expect(texts.join(" ")).toContain("e2e-a.txt");
@@ -287,8 +303,12 @@ test("产物区：Agent 写出的文件在 run 结束后自动出现", async ({ 
   await input.fill("帮我写一个文件");
   await input.press("Enter");
 
+  // 清单在弹窗里；打开着等（每次 run 结束 refreshKey 会 +1，弹窗会自己刷新）
+  await page.getByTestId("open-artifact-browser").click();
   // run 结束后才登记产物（D22 自动登记）
-  const artifactItem = page.locator('[data-testid="panel-artifacts-item"]');
+  const artifactItem = page
+    .getByTestId("artifact-browser")
+    .locator('[data-testid="panel-artifacts-item"]');
   await expect(artifactItem).toHaveCount(1, { timeout: 90_000 });
   await expect(artifactItem.first()).toContainText(WRITE_STUB_FILE);
   // 框架内部状态文件不能混进来

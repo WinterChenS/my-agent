@@ -67,12 +67,12 @@ export async function downloadArtifact(id: number, fileName: string) {
 }
 
 /**
- * 取产物字节并转成 blob URL（图片等二进制预览用）。
+ * 取产物**原始字节**（PDF / Excel / Word 这类必须自己解的类型用）。
  *
- * <p>不能直接把 `/api/artifacts/{id}/download` 塞进 `<img src>`：它要带 Authorization 头。
- * 用完记得 `URL.revokeObjectURL`。
+ * <p>下载接口要带 Authorization，所以不能直接把 URL 交给 `<iframe src>` / 解压库。
+ * 图片另走 {@link fetchArtifactBlobUrl}（同样从这份字节转 blob URL）。
  */
-export async function fetchArtifactBlobUrl(id: number): Promise<string> {
+export async function fetchArtifactBytes(id: number): Promise<Uint8Array> {
   const token = useAuthStore.getState().token;
   const response = await fetch(`/api/artifacts/${id}/download`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -80,10 +80,22 @@ export async function fetchArtifactBlobUrl(id: number): Promise<string> {
   if (!response.ok) {
     throw new Error(`加载产物失败（HTTP ${response.status}）`);
   }
-  return URL.createObjectURL(await response.blob());
+  return new Uint8Array(await response.arrayBuffer());
 }
 
-/** 人类可读大小，用于右侧栏展示。 */
+/**
+ * 取产物字节并转成 blob URL（图片/PDF 等二进制预览用）。
+ *
+ * <p>不能直接把 `/api/artifacts/{id}/download` 塞进 `<img src>`：它要带 Authorization 头。
+ * 用完记得 `URL.revokeObjectURL`。
+ */
+export async function fetchArtifactBlobUrl(id: number, mime?: string | null): Promise<string> {
+  const bytes = await fetchArtifactBytes(id);
+  // 必须带上 MIME：否则 PDF 在 iframe 里不会走浏览器内置阅读器（"没有正确的 Content-Type 就下载"）
+  return URL.createObjectURL(new Blob([bytes], { type: mime || "application/octet-stream" }));
+}
+
+/** 人类可读大小，用于产物清单与预览面板展示。 */
 export function formatSize(bytes: number): string {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -101,15 +113,15 @@ export function isImageArtifact(
   return (item?.mime ?? "").startsWith("image/");
 }
 
-/** 能否在线预览：文本类正文已在手；图片走鉴权下载转 blob。 */
-export function canPreview(item: ArtifactInfo): boolean {
-  return item.previewable || isImageArtifact(item);
-}
+/*
+ * 「能不能预览」不再在这里判断：那是 `@/lib/artifacts/previewKind` 的 `canPreviewArtifact()` 的事
+ * （以前这里有 `canPreview`，与预览面板/气泡产物框各写一套，已经删掉 —— 只允许一处）。
+ */
 
 /**
  * 气泡内**内联**渲染图片的大小上限。
  *
  * <p>产物最大可达 50MB（`myagent.minio.max-file-size-mb`），无上限内联会把页面拖死；
- * 超限不在气泡内渲染，给一个可点开右侧抽屉的占位。
+ * 超限不在气泡内渲染，给一个可点开右侧预览面板的占位。
  */
 export const INLINE_IMAGE_MAX_BYTES = 8 * 1024 * 1024;

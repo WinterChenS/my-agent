@@ -51,7 +51,7 @@ export function hasStaged(current: StagedAttachment[]): boolean {
   return current.length > 0;
 }
 
-/** 人类可读大小（与右侧栏展示保持一致）。 */
+/** 人类可读大小（与产物清单/预览面板保持一致）。 */
 export function formatAttachmentSize(bytes: number): string {
   if (bytes < 1024) {
     return `${bytes} B`;
