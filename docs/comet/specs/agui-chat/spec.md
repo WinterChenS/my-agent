@@ -60,6 +60,8 @@ interface MappingCardData { title: string; columns: {key: string; label: string}
 
 - `lib/agui/`：基于 `@ag-ui/client` 的 HttpAgent（fetch 注入 Bearer）+ 事件→消息树 reducer + 断线处理。
 - `ChatPage`：左侧会话列表（`/api/sessions`），右侧气泡流与卡片、底部输入框；历史经消息接口回放。
+- 助手气泡内的**图片**（本轮图片产物、以及正文里按文件名引用的图片）按 `artifact-storage` 的
+  「图片：气泡内渲染与预览」一节渲染；判定与取字节都复用那里的唯一实现，不另立一套。
 - 后端不可用 / 网络断开时显示错误态并可重试，页面不白屏。
 
 ## 边界
