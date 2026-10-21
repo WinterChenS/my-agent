@@ -13,6 +13,8 @@ import {
   saveMemoryFile,
   type MemoryFileInfo,
 } from "@/api/memory";
+import { listUsers, type UserRow } from "@/api/users";
+import { useAuthStore } from "@/stores/auth";
 import { fileLabel, isDirty, sortMemoryFiles, summarizeMemory } from "@/lib/memory/files";
 
 /**
@@ -24,8 +26,18 @@ import { fileLabel, isDirty, sortMemoryFiles, summarizeMemory } from "@/lib/memo
  *
  * <p>注意：`MEMORY.md` 是框架 consolidation 合并出来的“精华”，人工改完它不会阻止后续合并；
  * 每日台账是追加写入的账本，删掉某天的文件就等于删掉那天的原始记录。
+ *
+ * <p>谁能看谁的记忆：**默认就是自己**。`ADMIN` 另外有一个「用户」下拉框，可以切到别人
+ * （排查“Agent 记了错东西”这类问题时要看得到对方到底记了什么）；普通用户没有这个下拉框，
+ * 后端也会把“传别人 id”的请求 403 掉。
  */
 export default function MemoryPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const isAdmin = currentUser?.role === "ADMIN";
+  /** 查看谁的记忆；null = 自己（ADMIN 才会切成别人） */
+  const [viewUserId, setViewUserId] = useState<number | null>(null);
+  /** ADMIN 的用户下拉框数据源（普通用户不拉，也没有这个框） */
+  const [users, setUsers] = useState<UserRow[]>([]);
   const [files, setFiles] = useState<MemoryFileInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   /** 已加载的正文（服务器上的版本） */
@@ -42,17 +54,39 @@ export default function MemoryPage() {
 
   const loadList = useCallback(async () => {
     try {
-      const list = sortMemoryFiles(await listMemoryFiles());
+      const list = sortMemoryFiles(await listMemoryFiles(viewUserId));
       setFiles(list);
-      setSelected((prev) => prev ?? list[0]?.name ?? null);
+      // 换了用户 / 刷新之后，尽量留在原来那份上；那份没了就退回第一份
+      setSelected((prev) =>
+        prev && list.some((file) => file.name === prev) ? prev : (list[0]?.name ?? null),
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载记忆清单失败");
     }
-  }, []);
+  }, [viewUserId]);
 
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  // ADMIN 才有「看别人的记忆」这个选项：下拉框的数据来自用户管理接口
+  useEffect(() => {
+    if (!isAdmin) {
+      setUsers([]);
+      return;
+    }
+    let cancelled = false;
+    listUsers({ size: 200 })
+      .then((page) => {
+        if (!cancelled) setUsers(page.records ?? []);
+      })
+      .catch(() => {
+        // 拉不到用户列表不影响看自己的记忆，静默降级
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
 
   // 选中哪份就读哪份（草稿重置为服务器版本）
   useEffect(() => {
@@ -63,7 +97,7 @@ export default function MemoryPage() {
     }
     let cancelled = false;
     setLoading(true);
-    getMemoryFile(selected)
+    getMemoryFile(selected, viewUserId)
       .then((doc) => {
         if (cancelled) return;
         const content = doc.content ?? "";
@@ -86,7 +120,8 @@ export default function MemoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [selected]);
+    // viewUserId 也要在依赖里：换了用户之后哪怕选中的还是同名文件，正文也得重新取
+  }, [selected, viewUserId]);
 
   /** 切换文件：有未保存改动先问一句（避免静默丢编辑）。 */
   function selectFile(name: string) {
@@ -99,13 +134,27 @@ export default function MemoryPage() {
     setSelected(name);
   }
 
+  /** 切换用户（仅 ADMIN）：同样先问一句，然后清空选中，让清单重新加载。 */
+  function switchUser(next: number | null) {
+    if (next === viewUserId) {
+      return;
+    }
+    if (dirty && !window.confirm("当前修改还没保存，确定切换到其他用户吗？")) {
+      return;
+    }
+    setViewUserId(next);
+    setSelected(null);
+    setOriginal("");
+    setDraft("");
+  }
+
   async function save() {
     if (!selected || saving) {
       return;
     }
     setSaving(true);
     try {
-      const saved = await saveMemoryFile(selected, draft);
+      const saved = await saveMemoryFile(selected, draft, viewUserId);
       setOriginal(draft);
       setFiles((prev) =>
         prev.map((file) =>
@@ -130,7 +179,7 @@ export default function MemoryPage() {
       return;
     }
     try {
-      await deleteMemoryFile(selected);
+      await deleteMemoryFile(selected, viewUserId);
       toast.success("已删除");
       setSelected(null);
       setOriginal("");
@@ -152,21 +201,51 @@ export default function MemoryPage() {
         <span className="text-muted-foreground text-xs">
           长期记忆与每日台账，可直接编辑；保存后下一轮对话立即生效
         </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="ml-auto"
-          title="刷新"
-          data-testid="memory-refresh"
-          onClick={() => void loadList()}
-        >
-          <RefreshCw className="size-3.5" />
-        </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {isAdmin && (
+            <select
+              id="memory-user"
+              data-testid="memory-user-select"
+              aria-label="查看谁的记忆"
+              className="border-input h-7 rounded-md border bg-transparent px-2 text-xs"
+              value={viewUserId ?? ""}
+              onChange={(event) =>
+                switchUser(event.target.value ? Number(event.target.value) : null)
+              }
+            >
+              <option value="">我自己</option>
+              {users
+                .filter((row) => row.id !== currentUser?.id)
+                .map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.displayName || row.username}
+                  </option>
+                ))}
+            </select>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="刷新"
+            data-testid="memory-refresh"
+            onClick={() => void loadList()}
+          >
+            <RefreshCw className="size-3.5" />
+          </Button>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1">
         {/* 左：清单 */}
         <aside className="w-64 shrink-0 overflow-y-auto border-r p-2">
+          {viewUserId != null && currentUser?.id !== viewUserId && (
+            <p
+              className="text-muted-foreground px-2 py-2 text-[11px]"
+              data-testid="memory-viewing-other"
+            >
+              正在查看用户 #{viewUserId} 的记忆（编辑/删除都会改到对方的记忆）
+            </p>
+          )}
           {files.length === 0 && (
             <p className="text-muted-foreground px-2 py-4 text-xs" data-testid="memory-empty">
               还没有任何记忆。跟 Agent 聊几轮、让它记住点东西，这里就会出现。

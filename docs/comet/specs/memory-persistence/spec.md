@@ -103,12 +103,12 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/memory` | 清单（`MEMORY.md` 在前，台账按日期倒序；**不带正文**） |
-| GET | `/api/memory/{name}` | 单份正文；`name` 只能是 `MEMORY.md` 或**真实日期**的 `YYYY-MM-DD.md` |
-| PUT | `/api/memory/{name}` | 整份覆盖保存 |
-| DELETE | `/api/memory/{name}` | 删台账；`MEMORY.md` 拒绝（只能清空正文后保存） |
+| GET | `/api/memory[?userId=]` | 清单（`MEMORY.md` 在前，台账按日期倒序；**不带正文**） |
+| GET | `/api/memory/{name}[?userId=]` | 单份正文；`name` 只能是 `MEMORY.md` 或**真实日期**的 `YYYY-MM-DD.md` |
+| PUT | `/api/memory/{name}[?userId=]` | 整份覆盖保存 |
+| DELETE | `/api/memory/{name}[?userId=]` | 删台账；`MEMORY.md` 拒绝（只能清空正文后保存） |
 
-- 只操作**当前登录用户**的记忆（`userId` 取自 JWT，不接受前端传参）。
+- **默认只操作当前登录用户**的记忆（`userId` 取自 JWT）。`?userId=` 只给 `ADMIN` 用（见下节“谁的记忆”）。
 - 文件名白名单 + `LocalDate.parse` 校验，挡掉 `../x`、`2026-13-99.md` 这类路径穿越/垃圾 key。
 - 写 `MEMORY.md` 用「临时文件 + 原子移动」；写台账沿用框架 payload 形状（`content`/`encoding`/`created_at`/`modified_at`），
   `created_at` 保留原值、`modified_at` 刷新 —— 这样框架读取与后续 consolidation 都不会被格式差异搞坏。
@@ -134,6 +134,32 @@
   有未保存改动时显示「未保存」徽标，切换文件会二次确认，支持 `Ctrl/Cmd+S` 保存；台账可删除（二次确认）。
 - 单测：`src/lib/memory/files.test.ts` 7 项（排序/汇总/未保存判定/标签）；e2e：`verify-memory-page.spec.ts`
   （造假日期台账 → 清单 → 预览 → 编辑 → 保存 → **接口复查存储已变** → 删除，全程不碰真实记忆）。
+
+## 谁的记忆：默认自己，超管可看别人（Task 11.5，2026-10-21）
+
+用户要求：「超管可以检索其他用户的，默认展示自己的；别的用户只能看自己的」。
+
+**判定规则（`MemoryController.resolveTargetUser`，单一闸口）**
+
+| 调用者 | 请求 | 结果 |
+|---|---|---|
+| 任何人 | 不传 `userId` / 传自己的 id | 自己的记忆 |
+| `ADMIN` | 传别人的 id | 别人的记忆（读 / 写 / 删都一样） |
+| 普通 `USER` | 传别人的 id | **403**「只能查看自己的记忆」 |
+
+- 为什么权限判定必须写在控制器里：`/api/memory/**` **不在** `SecurityConfig.CONFIG_PATHS`
+  （那条只管配置类接口的写操作），安全配置兜不住跨用户读写。
+- 为什么普通用户不回退成“静默改成自己”：那样前端会以为展示的是别人的记忆，属于更隐蔽的错误；明确 403 更诚实。
+- 存储侧不用改：`MemoryAdminService` 本来就是“传谁的 userId 就操作谁的记忆”
+  （`<workspaceRoot>/<userId>/MEMORY.md` 与 `memory_store` 的 `namespace_path=user/<userId>`），
+  所以跨用户只是把目标 id 传下去。
+- 前端：只有 `role === "ADMIN"` 才渲染「用户」下拉框（数据源 `GET /api/users`，默认第一项「我自己」）；
+  切到别人时左侧出现提示「正在查看用户 #id 的记忆（编辑/删除都会改到对方的记忆）」，
+  切换用户与切换文件一样有未保存二次确认。普通用户看不到这个下拉框。
+- 取证：`MemoryControllerTest` 5 项（默认自己 / 传自己 / 超管跨用户 / 普通用户 403 / 角色缺失按普通用户）；
+  `src/api/memory.test.ts` 3 项（四个接口的 `?userId=` 拼装，漏拼会导致“选了别人却拿回自己的”）；
+  e2e `verify-memory-cross-user.spec.ts`（临时 USER + 台账 → 普通用户越权 403 → 超管跨用户 200 →
+  页面下拉框切到对方并看到其记忆 → 切回自己 → 清场；截图 `docs/acceptance/task-11.5-memory-admin-cross-user.png`）。
 
 ## 验收标准
 
