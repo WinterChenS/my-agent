@@ -42,13 +42,25 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    /** 列表（分页 + 名称/角色/状态筛选）。 */
+    /**
+     * 列表（分页 + 名称/ID/角色/状态筛选）。
+     *
+     * <p>`keyword` 除了模糊匹配用户名/显示名，**纯数字时还会精确匹配用户 ID**：
+     * 排查问题时经常只拿得到“用户 #37”这种 id（日志、审计、工单里都是 id），
+     * 光靠用户名搜不到。写成 `#37` 也认（前端列表里就是这么显示的）。
+     */
     public PageResult<UserResponse> list(
             long current, long size, String keyword, String role, String status) {
         var query = Wrappers.<SysUser>lambdaQuery().orderByAsc(SysUser::getId);
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
-            query.and(w -> w.like(SysUser::getUsername, kw).or().like(SysUser::getDisplayName, kw));
+            Long asId = parseId(kw);
+            query.and(w -> {
+                w.like(SysUser::getUsername, kw).or().like(SysUser::getDisplayName, kw);
+                if (asId != null) {
+                    w.or().eq(SysUser::getId, asId);
+                }
+            });
         }
         if (StringUtils.hasText(role)) {
             query.eq(SysUser::getRole, role.trim().toUpperCase());
@@ -62,6 +74,27 @@ public class UserService {
                 page.getTotal(),
                 page.getCurrent(),
                 page.getSize());
+    }
+
+    /**
+     * 把 `keyword` 当成用户 ID 解析（`37` 或 `#37` 都认）。
+     *
+     * <p>不是数字、或位数超出 long 的范围就返回 null —— 千万不要在这里抛异常：
+     * 用户搜“abc”或者搜很长的串都是正常操作，不该报错。
+     */
+    public static Long parseId(String keyword) {
+        String raw = keyword == null ? "" : keyword.trim();
+        if (raw.startsWith("#")) {
+            raw = raw.substring(1);
+        }
+        if (!raw.matches("\\d{1,18}")) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     /** 新建用户。 */

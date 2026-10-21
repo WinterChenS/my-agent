@@ -13,7 +13,8 @@ import {
   saveMemoryFile,
   type MemoryFileInfo,
 } from "@/api/memory";
-import { listUsers, type UserRow } from "@/api/users";
+import type { UserRow } from "@/api/users";
+import { MemoryUserSearch } from "@/components/memory/MemoryUserSearch";
 import { useAuthStore } from "@/stores/auth";
 import { fileLabel, isDirty, sortMemoryFiles, summarizeMemory } from "@/lib/memory/files";
 
@@ -27,17 +28,16 @@ import { fileLabel, isDirty, sortMemoryFiles, summarizeMemory } from "@/lib/memo
  * <p>注意：`MEMORY.md` 是框架 consolidation 合并出来的“精华”，人工改完它不会阻止后续合并；
  * 每日台账是追加写入的账本，删掉某天的文件就等于删掉那天的原始记录。
  *
- * <p>谁能看谁的记忆：**默认就是自己**。`ADMIN` 另外有一个「用户」下拉框，可以切到别人
- * （排查“Agent 记了错东西”这类问题时要看得到对方到底记了什么）；普通用户没有这个下拉框，
+ * <p>谁能看谁的记忆：**默认就是自己**。`ADMIN` 另外有一个搜索框，按**用户名或用户 ID**
+ * 精确找到别人（排查“Agent 记了错东西”时需要看对方到底记了什么）；普通用户没有这个框，
  * 后端也会把“传别人 id”的请求 403 掉。
  */
 export default function MemoryPage() {
   const currentUser = useAuthStore((state) => state.user);
   const isAdmin = currentUser?.role === "ADMIN";
   /** 查看谁的记忆；null = 自己（ADMIN 才会切成别人） */
-  const [viewUserId, setViewUserId] = useState<number | null>(null);
-  /** ADMIN 的用户下拉框数据源（普通用户不拉，也没有这个框） */
-  const [users, setUsers] = useState<UserRow[]>([]);
+  const [viewUser, setViewUser] = useState<UserRow | null>(null);
+  const viewUserId = viewUser?.id ?? null;
   const [files, setFiles] = useState<MemoryFileInfo[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   /** 已加载的正文（服务器上的版本） */
@@ -68,25 +68,6 @@ export default function MemoryPage() {
   useEffect(() => {
     void loadList();
   }, [loadList]);
-
-  // ADMIN 才有「看别人的记忆」这个选项：下拉框的数据来自用户管理接口
-  useEffect(() => {
-    if (!isAdmin) {
-      setUsers([]);
-      return;
-    }
-    let cancelled = false;
-    listUsers({ size: 200 })
-      .then((page) => {
-        if (!cancelled) setUsers(page.records ?? []);
-      })
-      .catch(() => {
-        // 拉不到用户列表不影响看自己的记忆，静默降级
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdmin]);
 
   // 选中哪份就读哪份（草稿重置为服务器版本）
   useEffect(() => {
@@ -135,14 +116,14 @@ export default function MemoryPage() {
   }
 
   /** 切换用户（仅 ADMIN）：同样先问一句，然后清空选中，让清单重新加载。 */
-  function switchUser(next: number | null) {
-    if (next === viewUserId) {
+  function switchUser(next: UserRow | null) {
+    if ((next?.id ?? null) === viewUserId) {
       return;
     }
     if (dirty && !window.confirm("当前修改还没保存，确定切换到其他用户吗？")) {
       return;
     }
-    setViewUserId(next);
+    setViewUser(next);
     setSelected(null);
     setOriginal("");
     setDraft("");
@@ -202,27 +183,7 @@ export default function MemoryPage() {
           长期记忆与每日台账，可直接编辑；保存后下一轮对话立即生效
         </span>
         <div className="ml-auto flex items-center gap-2">
-          {isAdmin && (
-            <select
-              id="memory-user"
-              data-testid="memory-user-select"
-              aria-label="查看谁的记忆"
-              className="border-input h-7 rounded-md border bg-transparent px-2 text-xs"
-              value={viewUserId ?? ""}
-              onChange={(event) =>
-                switchUser(event.target.value ? Number(event.target.value) : null)
-              }
-            >
-              <option value="">我自己</option>
-              {users
-                .filter((row) => row.id !== currentUser?.id)
-                .map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {row.displayName || row.username}
-                  </option>
-                ))}
-            </select>
-          )}
+          {isAdmin && <MemoryUserSearch selected={viewUser} onSelect={switchUser} />}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -238,12 +199,13 @@ export default function MemoryPage() {
       <div className="flex min-h-0 flex-1">
         {/* 左：清单 */}
         <aside className="w-64 shrink-0 overflow-y-auto border-r p-2">
-          {viewUserId != null && currentUser?.id !== viewUserId && (
+          {viewUser && currentUser?.id !== viewUser.id && (
             <p
               className="text-muted-foreground px-2 py-2 text-[11px]"
               data-testid="memory-viewing-other"
             >
-              正在查看用户 #{viewUserId} 的记忆（编辑/删除都会改到对方的记忆）
+              正在查看 {viewUser.displayName || viewUser.username}（#{viewUser.id}）的记忆
+              —— 编辑/删除都会改到对方的记忆
             </p>
           )}
           {files.length === 0 && (

@@ -158,4 +158,35 @@ class UserServiceTest {
         assertThat(userMapper.selectById(created.id()).getPasswordHash()).isEqualTo(before);
         assertThat(userMapper.selectById(created.id()).getDisplayName()).isEqualTo("改个显示名");
     }
+
+    @Test
+    void 关键字是纯数字或井号数字时_按用户ID精确匹配() {
+        // 场景：排查问题时手里通常只有“用户 #37”这种 id（日志/审计/工单里都是 id）
+        String name = "u-id-" + System.nanoTime();
+        UserResponse created = userService.create(request(name, "Passw0rd!"));
+
+        assertThat(userService.list(1, 20, String.valueOf(created.id()), null, null).records())
+                .extracting(UserResponse::id)
+                .contains(created.id());
+        // 前端列表里显示成 #37，照着抄也能搜到
+        assertThat(userService.list(1, 20, "#" + created.id(), null, null).records())
+                .extracting(UserResponse::id)
+                .contains(created.id());
+        // 用户名仍然能搜到（模糊）
+        assertThat(userService.list(1, 20, name.substring(0, 8), null, null).records())
+                .extracting(UserResponse::username)
+                .contains(name);
+    }
+
+    @Test
+    void parseId_只认数字和井号数字_其余当普通关键字() {
+        assertThat(UserService.parseId("37")).isEqualTo(37L);
+        assertThat(UserService.parseId(" #37 ")).isEqualTo(37L);
+        // 不是数字、空、或超出 long 范围 → 不当成 id（否则会抛异常或误命中）
+        assertThat(UserService.parseId("张三")).isNull();
+        assertThat(UserService.parseId("37abc")).isNull();
+        assertThat(UserService.parseId("")).isNull();
+        assertThat(UserService.parseId(null)).isNull();
+        assertThat(UserService.parseId("999999999999999999999")).isNull();
+    }
 }

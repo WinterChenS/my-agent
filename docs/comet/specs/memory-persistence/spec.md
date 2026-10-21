@@ -153,13 +153,48 @@
 - 存储侧不用改：`MemoryAdminService` 本来就是“传谁的 userId 就操作谁的记忆”
   （`<workspaceRoot>/<userId>/MEMORY.md` 与 `memory_store` 的 `namespace_path=user/<userId>`），
   所以跨用户只是把目标 id 传下去。
-- 前端：只有 `role === "ADMIN"` 才渲染「用户」下拉框（数据源 `GET /api/users`，默认第一项「我自己」）；
-  切到别人时左侧出现提示「正在查看用户 #id 的记忆（编辑/删除都会改到对方的记忆）」，
-  切换用户与切换文件一样有未保存二次确认。普通用户看不到这个下拉框。
-- 取证：`MemoryControllerTest` 5 项（默认自己 / 传自己 / 超管跨用户 / 普通用户 403 / 角色缺失按普通用户）；
-  `src/api/memory.test.ts` 3 项（四个接口的 `?userId=` 拼装，漏拼会导致“选了别人却拿回自己的”）；
-  e2e `verify-memory-cross-user.spec.ts`（临时 USER + 台账 → 普通用户越权 403 → 超管跨用户 200 →
-  页面下拉框切到对方并看到其记忆 → 切回自己 → 清场；截图 `docs/acceptance/task-11.5-memory-admin-cross-user.png`）。
+- 前端：只有 `role === "ADMIN"` 才渲染「搜用户」框（`MemoryUserSearch`），**默认就是自己**；
+  切到别人时左侧提示「正在查看 X（#id）的记忆 —— 编辑/删除都会改到对方的记忆」，
+  切换用户与切换文件一样有未保存二次确认。普通用户看不到这个框。
+
+**为什么是搜索框而不是用户下拉框（用户当场纠正）**
+
+第一版做成了「把用户列表一次拉下来塞进 `<select>`」，被用户否掉：下拉框里只看到几个显示名
+（「我自己 / 内部用户 / 外部用户」），既不能搜也不能翻，而排查问题的人手里通常只有
+「用户 #37」这种 id（日志、审计、工单里都是 id）。现在的做法：
+
+- 输入即搜（250ms 防抖），走 `GET /api/users?keyword=&size=8`，结果列表点一下即选中；
+- 支持三种输入：用户名（模糊）、显示名（模糊，真实数据里常为中文）、用户 ID（`37` 或 `#37`，**精确**）；
+- 搜不到就明说「没找到匹配的用户」，不假装选中；已选中的用户在输入框左侧显示为 chip，点 × 回到自己。
+- 后端配合：`UserService.list` 的 `keyword` 在**纯数字（或 `#` + 数字）**时额外加 `id = ?` 条件
+  （`UserService.parseId`，非数字/超长一律当普通关键字，不抛异常）。
+
+**取证**
+
+- 后端：`MemoryControllerTest` 5 项（默认自己 / 传自己 / 超管跨用户 / 普通用户 403 / 角色缺失按普通用户）；
+  `UserServiceTest` 新增“纯数字 / `#37` 按 ID 精确匹配”与 `parseId` 边界（`张三`、`37abc`、空、超长）。
+- 前端单测：`src/api/memory.test.ts` 3 项（四个接口的 `?userId=` 拼装，漏拼会导致“选了别人却拿回自己的”）；
+  `MemoryUserSearch.test.tsx` 4 项（防抖只打一次、点结果回调并清空、空结果、chip 清除）。
+- e2e `verify-memory-cross-user.spec.ts`（**真实浏览器、真实第二个账号**）：
+  对端账号在浏览器里登录它自己 → 跟 Agent 聊一轮 → 模型调 `memory_save` 写进**它自己的** `MEMORY.md`
+  → 普通用户越权 403 → 超管在页面上按**中文显示名 / 用户名 / ID** 分别搜到它并看到那份记忆
+  → 对端自己进记忆页只看到自己的且没有搜人入口；
+  截图 `docs/acceptance/task-11.5-memory-admin-cross-user.png`。
+
+**实测踩到的坑（已处理，别再重踩）**
+
+1. **Vite dev server 会端着旧模块不放**：改了 `MemoryPage.tsx` 但 `:5173` 一直返回旧的
+   `<select>` 版本（`curl :5173/src/pages/memory/MemoryPage.tsx` 能直接看出新旧），
+   于是 e2e 在“找不到 `memory-user-search-input`”上卡到超时。改完前端后**重启 dev server** 再跑 e2e。
+2. **`actionTimeout` 没配 = 动作永远等**：Playwright 默认只限制用例时长与断言，点击/输入卡住会
+   静默吃掉全部预算（实测 600s 全花在一个永远等不到的元素上）。用例里显式 `test.use({ actionTimeout })`。
+3. **`npm run dev` 可能用到别的 Node**：本机 PATH 先命中微信开发者工具的 node v16，vite 直接崩
+   （`node:fs/promises does not provide an export named 'constants'`）。`scripts/run-frontend.cmd`
+   已优先使用 `C:\Program Files\nodejs`。
+4. **桩要每轮独占端口**：上一轮崩在收尾前会留下“僵尸桩”，它带着**上一轮的** `STUB_TOOL_ARGS` 继续监听，
+   用例就会拿到旧数据并以“内容不对超时”的形式假红。`startToolStub` 现已不复用占用端口，自动往后找。
+5. **有对话的用户删不掉**：`token_usage_user_id_fkey` 拦住（审计数据按设计保留），
+   所以 e2e 的“对端账号”用固定账号 `e2e-mem-peer` 复用，每轮只清它的记忆与会话，不删账号。
 
 ## 验收标准
 
