@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { INLINE_IMAGE_MAX_BYTES, formatSize, type ArtifactInfo } from "@/api/artifacts";
+import { CSV_MAX_ROWS, delimiterLabel, parseCsv } from "@/lib/artifacts/csv";
 import { extractDocxText } from "@/lib/artifacts/docxText";
 import { previewKind } from "@/lib/artifacts/previewKind";
 import { useArtifactBlobUrl } from "./useArtifactBlobUrl";
@@ -20,6 +21,7 @@ import { useArtifactBytes } from "./useArtifactBytes";
  *   <li>高度：HTML/PDF/图片都**占满面板可用高度**（`h-full`）—— 以前写死 `70vh`，
  *       窗口下方白白空出一块、内容还被截断（用户实测指出）；</li>
  *   <li>Markdown / 纯文本：正文已在 `item.content` 里，直接渲染；</li>
+ *   <li>CSV / TSV：同样拿 `item.content`，按表格画（不再是一坨逗号分隔的纯文本）；</li>
  *   <li>PDF / 图片：走鉴权下载 → blob URL；</li>
  *   <li>Excel：`xlsx`（SheetJS）**动态 import**，按 sheet 出表格；</li>
  *   <li>Word（`.docx`）：**零依赖**自己解 zip 抽文字（无版式/无表格结构/无图片）。</li>
@@ -33,6 +35,8 @@ export function ArtifactPreviewBody({ item }: { item: ArtifactInfo }) {
       return <MarkdownPreview item={item} />;
     case "text":
       return <TextPreview item={item} />;
+    case "csv":
+      return <CsvPreview item={item} />;
     case "pdf":
       return <PdfPreview item={item} />;
     case "image":
@@ -83,6 +87,107 @@ function TextPreview({ item }: { item: ArtifactInfo }) {
     >
       {item.content || "（空内容）"}
     </pre>
+  );
+}
+
+/**
+ * CSV / TSV：按表格画（用户要求「CSV 格式需要支持显示」）。
+ *
+ * <p>正文一般已经在 `item.content` 里（文本类存 DB）；万一没有（历史数据/存储被标成 MINIO），
+ * 再回退到取字节按 UTF-8 解码 —— 预览宁可多下一次，也不要空白。
+ *
+ * <p>解析规则见 `lib/artifacts/csv.ts`：引号内逗号/换行算内容，`""` 是转义，自动认分隔符。
+ */
+function CsvPreview({ item }: { item: ArtifactInfo }) {
+  const needsBytes = item.content == null;
+  const tooLarge = needsBytes && item.sizeBytes > INLINE_IMAGE_MAX_BYTES;
+  const { bytes, failed } = useArtifactBytes(tooLarge ? null : needsBytes ? item : null);
+  const [decoded, setDecoded] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!bytes) {
+      return;
+    }
+    let cancelled = false;
+    try {
+      const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      if (!cancelled) {
+        setDecoded(text);
+      }
+    } catch {
+      if (!cancelled) {
+        setDecoded("");
+      }
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [bytes]);
+
+  if (tooLarge) {
+    return (
+      <p className="text-muted-foreground text-sm" data-testid="preview-too-large">
+        文件较大（{formatSize(item.sizeBytes)}），不在这里解析，请点右上角下载后查看。
+      </p>
+    );
+  }
+  const text = needsBytes ? decoded : (item.content ?? "");
+  if (failed) {
+    return (
+      <p className="text-muted-foreground text-sm" data-testid="preview-csv-failed">
+        表格内容加载失败，可点右上角下载。
+      </p>
+    );
+  }
+  if (text === null) {
+    return <p className="text-muted-foreground text-sm">加载中…</p>;
+  }
+  if (text.trim() === "") {
+    return <p className="text-muted-foreground text-sm">（空文件）</p>;
+  }
+
+  const table = parseCsv(text);
+  if (table.header.length === 0 && table.rows.length === 0) {
+    return <p className="text-muted-foreground text-sm">（没有可显示的行）</p>;
+  }
+
+  return (
+    <div data-testid="preview-csv" className="space-y-2">
+      <div className="overflow-auto rounded-md border">
+        <table data-testid="preview-csv-table" className="w-full text-left text-xs">
+          <thead>
+            <tr className="bg-muted/60 border-b">
+              {table.header.map((cell, index) => (
+                <th
+                  key={index}
+                  className="border-r px-2 py-1 font-medium whitespace-nowrap last:border-r-0"
+                >
+                  {cell}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, rowIndex) => (
+              <tr key={rowIndex} className="border-b last:border-b-0">
+                {row.map((cell, cellIndex) => (
+                  <td
+                    key={cellIndex}
+                    className="border-r px-2 py-1 whitespace-pre-wrap last:border-r-0"
+                  >
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-muted-foreground text-[11px]">
+        共 {table.rows.length} 行（表头之外），按「{delimiterLabel(table.delimiter)}」分列。
+        {table.truncated && `内容较大，只显示前 ${CSV_MAX_ROWS} 行 / ${table.header.length} 列，完整内容请下载后查看。`}
+      </p>
+    </div>
   );
 }
 

@@ -93,6 +93,36 @@ describe("ArtifactPreviewBody", () => {
     expect(frame.getAttribute("srcdoc")).toContain("<h1>hi</h1>");
   });
 
+  it("CSV：按表格渲染（表头 + 数据行），不是一坨纯文本", () => {
+    const item = artifact({
+      id: 6,
+      fileName: "报表.csv",
+      mime: "text/csv",
+      content: '名称,数量\n"上海, 浦东",3\n香蕉,5\n',
+    });
+    render(<ArtifactPreviewBody item={item} />);
+    const table = screen.getByTestId("preview-csv-table");
+    expect(table.querySelectorAll("th").length).toBe(2);
+    expect(table.textContent).toContain("名称");
+    // 引号里的逗号算一个单元格，不被拆成两列
+    expect(table.textContent).toContain("上海, 浦东");
+    expect(table.querySelectorAll("tbody tr").length).toBe(2);
+  });
+
+  it("CSV：正文缺失时取字节解码（历史数据/存储被标成 MINIO）", async () => {
+    const item = artifact({
+      id: 7,
+      fileName: "报表.csv",
+      mime: "text/csv",
+      previewable: false,
+      content: null,
+    });
+    bytesByArtifact.set(7, new TextEncoder().encode("a,b\n1,2\n"));
+    render(<ArtifactPreviewBody item={item} />);
+    await waitFor(() => expect(screen.getByTestId("preview-csv-table")).toBeTruthy());
+    expect(screen.getByTestId("preview-csv-table").textContent).toContain("1");
+  });
+
   it("Excel：动态读 xlsx，多 sheet 出 tab，单元格以文本渲染", async () => {
     const item = artifact({
       id: 3,

@@ -10,6 +10,7 @@ export type PreviewKind =
   | "html"
   | "markdown"
   | "text"
+  | "csv"
   | "sheet"
   | "docx"
   | "none";
@@ -18,6 +19,8 @@ const SHEET_MIMES = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-excel",
 ]);
+/** CSV / TSV 走**表格**预览（用户要求：CSV 要能显示，而不是一坨逗号分隔的纯文本）。 */
+const CSV_MIMES = new Set(["text/csv", "application/csv", "text/tab-separated-values", "text/tsv"]);
 const DOCX_MIMES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
@@ -44,13 +47,17 @@ export function previewKind(
   if (DOCX_MIMES.has(mime) || ext === "docx") {
     return "docx";
   }
+  // 必须排在「其余文本类」之前：`text/csv` 也以 `text/` 开头，晚一步就被纯文本截走了
+  if (CSV_MIMES.has(mime) || ext === "csv" || ext === "tsv") {
+    return "csv";
+  }
   if (mime === "text/html" || ext === "html" || ext === "htm") {
     return "html";
   }
   if (mime === "text/markdown" || ext === "md" || ext === "markdown") {
     return "markdown";
   }
-  // 其余「后端说正文已在手」的文本类（txt/csv/json/xml/yaml/代码…）走纯文本
+  // 其余「后端说正文已在手」的文本类（txt/json/xml/yaml/代码…）走纯文本
   if (
     item.previewable ||
     mime.startsWith("text/") ||

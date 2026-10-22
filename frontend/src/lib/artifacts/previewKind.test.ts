@@ -32,9 +32,16 @@ describe("previewKind", () => {
     expect(previewKind(item("application/octet-stream", "文档.docx"))).toBe("docx");
   });
 
+  it("CSV / TSV 走表格渲染（用户要求 CSV 要能显示，而不是纯文本）", () => {
+    expect(previewKind(item("text/csv", "报表.csv"))).toBe("csv");
+    expect(previewKind(item("text/tab-separated-values", "报表.tsv"))).toBe("csv");
+    // 后端 MIME 缺失时按扩展名兜底
+    expect(previewKind(item("application/octet-stream", "报表.csv"))).toBe("csv");
+    expect(previewKind(item(null, "报表.tsv"))).toBe("csv");
+  });
+
   it("其它文本类走纯文本；二进制走 none", () => {
     expect(previewKind(item("text/plain", "a.txt"))).toBe("text");
-    expect(previewKind(item("text/csv", "a.csv"))).toBe("text");
     expect(previewKind(item("application/json", "a.json"))).toBe("text");
     expect(previewKind(item(null, "a.log", true))).toBe("text");
     expect(previewKind(item("application/zip", "a.zip"))).toBe("none");

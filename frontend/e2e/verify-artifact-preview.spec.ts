@@ -141,6 +141,8 @@ const HTML_BODY = `<!doctype html>
 const MD_BODY = "## 标题二\n\n| 列 | 值 |\n|---|---|\n| a | 1 |\n";
 const TXT_BODY = "纯文本内容\n第二行\n";
 const DOCX_TEXT = "Word 正文第一段";
+// 故意带引号内逗号与中文：验证按表格画、且不把 "上海, 浦东" 拆成两列
+const CSV_BODY = '名称,数量\n"上海, 浦东",3\n香蕉,5\n';
 
 /* ---------------------------------------------------------------- 用例 */
 
@@ -194,9 +196,10 @@ test("按类型渲染：html/pdf/markdown/纯文本/Excel/Word 各走各的，�
       pdf: `e2e-view-${stamp}.pdf`,
       xlsx: `e2e-view-${stamp}.xlsx`,
       docx: `e2e-view-${stamp}.docx`,
+      csv: `e2e-view-${stamp}.csv`,
     };
 
-    // 一次选齐 6 个文件（附件在**发送时**才上传，D24）
+    // 一次选齐 7 个文件（附件在**发送时**才上传，D24）
     await page.setInputFiles('[data-testid="file-input"]', [
       { name: names.html, mimeType: "text/html", buffer: Buffer.from(HTML_BODY, "utf-8") },
       { name: names.md, mimeType: "text/markdown", buffer: Buffer.from(MD_BODY, "utf-8") },
@@ -212,14 +215,15 @@ test("按类型渲染：html/pdf/markdown/纯文本/Excel/Word 各走各的，�
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         buffer: makeDocx([DOCX_TEXT, "第二段"]),
       },
+      { name: names.csv, mimeType: "text/csv", buffer: Buffer.from(CSV_BODY, "utf-8") },
     ]);
-    await expect(page.locator('[data-testid="attachment-chip"]')).toHaveCount(6);
+    await expect(page.locator('[data-testid="attachment-chip"]')).toHaveCount(7);
     await input.fill("把这几个文件都预览一下");
     await input.press("Enter");
 
     // 清单弹窗里能看到 6 条来源文件；**产物栏不出现**（Agent 没写文件）
     const browser = await openBrowser(page);
-    await expect(browser.locator('[data-testid="panel-sources-item"]')).toHaveCount(6, {
+    await expect(browser.locator('[data-testid="panel-sources-item"]')).toHaveCount(7, {
       timeout: 60_000,
     });
     await expect(browser.getByTestId("panel-artifacts")).toHaveCount(0);
@@ -259,6 +263,15 @@ test("按类型渲染：html/pdf/markdown/纯文本/Excel/Word 各走各的，�
     panel = await openPreview(page, names.txt);
     await expect(panel.getByTestId("artifact-preview-full")).toContainText("纯文本内容");
 
+    // ④b CSV：按表格画（表头 + 数据行），不是一坨逗号分隔的纯文本
+    panel = await openPreview(page, names.csv);
+    const csvTable = panel.getByTestId("preview-csv-table");
+    await expect(csvTable).toBeVisible({ timeout: 20_000 });
+    await expect(csvTable).toContainText("名称");
+    await expect(csvTable).toContainText("上海, 浦东");
+    await expect(csvTable.locator("tbody tr")).toHaveCount(2);
+    console.log("[预览] csv → 表格（表头 + 2 行；引号内逗号不拆列）✓");
+
     // ⑤ Excel：两页 → 两个 sheet tab；单元格文本进表格
     panel = await openPreview(page, names.xlsx);
     const sheetTable = panel.getByTestId("preview-sheet-table");
@@ -276,8 +289,8 @@ test("按类型渲染：html/pdf/markdown/纯文本/Excel/Word 各走各的，�
     });
     console.log("[预览] docx → 抽到文字 ✓");
 
-    // ⑦ 多产物：6 个 tab；点第一个能把内容切回去
-    await expect(page.getByTestId("preview-tab")).toHaveCount(6);
+    // ⑦ 多产物：7 个 tab；点第一个能把内容切回去
+    await expect(page.getByTestId("preview-tab")).toHaveCount(7);
     await page.getByTestId("preview-tab").filter({ hasText: names.html }).first().click();
     await expect(page.frameLocator('[data-testid="preview-html"]').locator("h1")).toHaveText(
       "html-script-ok",
