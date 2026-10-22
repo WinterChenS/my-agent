@@ -130,7 +130,7 @@ class SkillArchiveTest {
     }
 
     @Test
-    void 单个文件超过上限直接报错() {
+    void 技能自己的资源超过单文件上限时报错_避免装进来是残的() {
         Map<String, byte[]> files = new LinkedHashMap<>();
         files.put("repo-main/SKILL.md", text(SKILL_MD.formatted("a", "a", "A")));
         files.put("repo-main/big.txt", new byte[2048]);
@@ -138,7 +138,22 @@ class SkillArchiveTest {
         SkillArchive.Limits tiny = new SkillArchive.Limits(1024 * 1024, 100, 1024, 1024 * 1024, 100);
         assertThatThrownBy(() -> SkillArchive.read(zip(files), tiny))
                 .isInstanceOf(BizException.class)
-                .hasMessageContaining("超过上限");
+                .hasMessageContaining("单文件上限");
+    }
+
+    @Test
+    void 技能目录外的超大文件直接忽略_不影响安装() {
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        files.put("repo-main/skills/pdf/SKILL.md", text(SKILL_MD.formatted("pdf", "PDF", "PDF")));
+        files.put("repo-main/skills/pdf/scripts/a.py", text("print(1)"));
+        // 仓库门面图：1.1MB 截图，跟技能无关
+        files.put("repo-main/screenshots/website.png", new byte[1200 * 1024]);
+
+        SkillArchive.Limits tight = new SkillArchive.Limits(20 * 1024 * 1024, 1000, 1024 * 1024, 40 * 1024 * 1024, 100);
+        List<SkillArchive.Bundle> bundles = SkillArchive.read(zip(files), tight);
+
+        assertThat(bundles).hasSize(1);
+        assertThat(bundles.get(0).resources()).containsOnlyKeys("scripts/a.py");
     }
 
     @Test

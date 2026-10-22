@@ -256,6 +256,30 @@ class SkillImportServiceTest {
     }
 
     @Test
+    void 同一仓库里多份同名技能只留一份() {
+        String name = unique("dup");
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        // 实测 nextlevelbuilder 的排布：.claude/skills/x 与 cli/assets/skills/x 各一份
+        files.put("repo-main/.claude/skills/" + name + "/SKILL.md", text(skillMd(name, "原始", "正文")));
+        files.put("repo-main/.claude/skills/" + name + "/scripts/a.py", text("print(1)"));
+        files.put("repo-main/cli/assets/skills/" + name + "/SKILL.md", text(skillMd(name, "副本", "正文")));
+        when(repoFetcher.fetch(any(), any()))
+                .thenReturn(new SkillRepoFetcher.Fetched(zip(files), "https://example.com/x.zip"));
+
+        SkillImportResult preview = importService.preview(
+                new SkillImportRequest("https://example.com/dup.zip", null, true, List.of(), true, false));
+
+        assertThat(preview.candidates()).hasSize(1);
+        assertThat(preview.candidates().get(0).root()).isEqualTo(".claude/skills/" + name);
+        assertThat(preview.notes()).anySatisfy(note -> assertThat(note).contains("同名技能"));
+
+        SkillImportResult result = importService.install(
+                new SkillImportRequest("https://example.com/dup.zip", null, false, List.of(), true, false));
+        assertThat(result.installed()).hasSize(1);
+        assertThat(skillResourceMapper.findBySkillId(findByName(name).getId())).hasSize(1);
+    }
+
+    @Test
     void 非标准SKILL_md给出明确错误() {
         Map<String, byte[]> files = Map.of("repo-main/SKILL.md", text("# 没有 frontmatter 的正文"));
         when(repoFetcher.fetch(any(), any()))

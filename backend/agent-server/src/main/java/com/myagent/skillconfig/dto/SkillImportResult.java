@@ -11,6 +11,7 @@ import java.util.List;
  * @param candidates 仓库里发现的技能
  * @param installed 本次安装/更新的技能（预览时为空）
  * @param skipped 本次跳过的技能及原因（预览时为空）
+ * @param notes 仓库层面的提示（如「多份同名技能，只取其中一份」）
  */
 public record SkillImportResult(
         String downloadUrl,
@@ -18,7 +19,18 @@ public record SkillImportResult(
         boolean preview,
         List<SkillImportCandidate> candidates,
         List<Installed> installed,
-        List<Skipped> skipped) {
+        List<Skipped> skipped,
+        List<String> notes) {
+
+    public SkillImportResult(
+            String downloadUrl,
+            String ref,
+            boolean preview,
+            List<SkillImportCandidate> candidates,
+            List<Installed> installed,
+            List<Skipped> skipped) {
+        this(downloadUrl, ref, preview, candidates, installed, skipped, List.of());
+    }
 
     /** 已落库的技能。 */
     public record Installed(Long id, String name, String root, Integer version, String action, int resourceCount) {}

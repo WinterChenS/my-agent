@@ -41,8 +41,17 @@ myagent:
     max-file-size-mb: ${MINIO_MAX_FILE_MB:50}
   # 从仓库链接导入标准 Skill（管理页 / 聊天 install_skill 共用）
   skill-import:
-    # 归档下载上限（MB）；同时作为解压后单文件与总量的上限基础
+    # 归档下载上限（MB）
     max-archive-mb: ${SKILL_IMPORT_MAX_ARCHIVE_MB:20}
+    # 单个资源文件上限（KB）。技能目录内超限会明确报错（残技能不如不装）；
+    # 技能目录外的超大文件（README 截图、演示视频）直接忽略，不拖垮整个导入。
+    max-file-kb: ${SKILL_IMPORT_MAX_FILE_KB:2048}
+    # 解压后总大小上限（MB）
+    max-total-mb: ${SKILL_IMPORT_MAX_TOTAL_MB:64}
+    # 归档条目上限
+    max-entries: ${SKILL_IMPORT_MAX_ENTRIES:4000}
+    # 单个技能的资源文件数量上限
+    max-resources-per-skill: ${SKILL_IMPORT_MAX_RESOURCES:300}
     # 下载超时（秒）
     timeout-seconds: ${SKILL_IMPORT_TIMEOUT_SECONDS:60}
     # 私有仓库 / 私有制品库的 token（可选，不配按匿名访问）

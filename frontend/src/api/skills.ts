@@ -97,6 +97,8 @@ export interface SkillImportResult {
     resourceCount: number;
   }[];
   skipped: { name: string; root: string; reason: string }[];
+  /** 仓库层面的提示（如「多份同名技能，只取其中一份」）。 */
+  notes?: string[];
 }
 
 export interface SkillImportPayload {

@@ -93,6 +93,7 @@ export default function SkillsPage() {
   const [importEnable, setImportEnable] = useState(false);
   const [importForce, setImportForce] = useState(false);
   const [importSource, setImportSource] = useState<{ url: string; ref: string } | null>(null);
+  const [importNotes, setImportNotes] = useState<string[]>([]);
   /** 候选里出现的技能包（去重后，用于「只选某包」快捷键）。 */
   const importPacks = Array.from(
     new Set(importCandidates.map((c) => c.pack).filter((pack): pack is string => !!pack)),
@@ -162,6 +163,7 @@ export default function SkillsPage() {
       });
       setImportCandidates(result.candidates);
       setImportSource({ url: result.downloadUrl, ref: result.ref });
+      setImportNotes(result.notes ?? []);
       // 默认勾选：安全的、且不是「已存在」的（已存在的必须由人明确勾）
       setImportSelected(
         result.candidates
@@ -657,6 +659,13 @@ export default function SkillsPage() {
                     );
                   })}
                 </div>
+                {importNotes.length > 0 && (
+                  <ul className="text-muted-foreground list-inside list-disc space-y-0.5 text-xs">
+                    {importNotes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                )}
                 <div className="divide-y rounded-md border">
                   {importCandidates.map((c) => {
                     const disabled = c.verdict === "DANGEROUS";

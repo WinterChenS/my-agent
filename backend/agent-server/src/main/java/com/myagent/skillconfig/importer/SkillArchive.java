@@ -112,32 +112,35 @@ public final class SkillArchive {
         if (archiveBytes.length > limits.maxArchiveBytes()) {
             throw BizException.badRequest("归档超过上限 " + (limits.maxArchiveBytes() / 1024 / 1024) + "MB");
         }
-        List<Entry> entries = unpack(archiveBytes, limits);
+        List<String> oversized = new ArrayList<>();
+        List<Entry> entries = unpack(archiveBytes, limits, oversized);
         entries = stripSingleRoot(entries);
-        entries = unpackNested(entries, limits);
+        entries = unpackNested(entries, limits, oversized);
         String prefix = normalizeSubPath(subPath);
         if (!prefix.isEmpty()) {
             entries = filterBySubPath(entries, prefix);
         }
-        Map<String, String> packs = readPackManifest(entries);
-        return toBundles(entries, limits, packs);
+        List<PluginSpec> plugins = readPackManifest(entries);
+        List<Bundle> bundles = toBundles(entries, limits, plugins);
+        rejectOversizedSkillResources(oversized, bundles, limits);
+        return bundles;
     }
 
     // ------------------------------------------------------------------ 解包（zip / tar.gz / tar）
 
-    private static List<Entry> unpack(byte[] bytes, Limits limits) {
+    private static List<Entry> unpack(byte[] bytes, Limits limits, List<String> oversized) {
         if (isZip(bytes)) {
-            return unzip(new ZipInputStream(new ByteArrayInputStream(bytes)), limits);
+            return unzip(new ZipInputStream(new ByteArrayInputStream(bytes)), limits, oversized);
         }
         if (isGzip(bytes)) {
             try (InputStream in = new GZIPInputStream(new ByteArrayInputStream(bytes))) {
-                return readTar(in, limits);
+                return readTar(in, limits, oversized);
             } catch (IOException ex) {
                 throw BizException.badRequest("tar.gz 解压失败：" + ex.getMessage());
             }
         }
         if (isTar(bytes)) {
-            return readTar(new ByteArrayInputStream(bytes), limits);
+            return readTar(new ByteArrayInputStream(bytes), limits, oversized);
         }
         throw BizException.badRequest("无法识别的归档格式（支持 zip / tar.gz / tar）");
     }
@@ -155,7 +158,7 @@ public final class SkillArchive {
                 && new String(bytes, 257, 5, StandardCharsets.US_ASCII).equals("ustar");
     }
 
-    private static List<Entry> unzip(ZipInputStream in, Limits limits) {
+    private static List<Entry> unzip(ZipInputStream in, Limits limits, List<String> oversized) {
         List<Entry> entries = new ArrayList<>();
         long total = 0;
         try (in) {
@@ -169,7 +172,13 @@ public final class SkillArchive {
                 if (path == null || isJunk(path)) {
                     continue;
                 }
-                byte[] content = readLimited(in, limits.maxFileBytes(), path);
+                byte[] content = readUpTo(in, limits.maxFileBytes());
+                if (content == null) {
+                    // 超限：先记下路径，等确定技能根目录后再判定要不要报错
+                    // （仓库里的截图/演示视频等大文件不该拖垮整个导入）
+                    oversized.add(path);
+                    continue;
+                }
                 total = accumulate(total, content.length, limits);
                 entries.add(new Entry(path, content));
                 if (entries.size() > limits.maxEntries()) {
@@ -183,8 +192,9 @@ public final class SkillArchive {
         return entries;
     }
 
+
     /** 最小 ustar 解析（技能仓库的 tar 都是普通文件，够用；不支持稀疏文件/长名扩展）。 */
-    private static List<Entry> readTar(InputStream in, Limits limits) {
+    private static List<Entry> readTar(InputStream in, Limits limits, List<String> oversized) {
         List<Entry> entries = new ArrayList<>();
         long total = 0;
         try {
@@ -230,8 +240,8 @@ public final class SkillArchive {
                     continue;
                 }
                 if (content.length > limits.maxFileBytes()) {
-                    throw BizException.badRequest(
-                            "文件超过上限 " + (limits.maxFileBytes() / 1024) + "KB：" + path);
+                    oversized.add(path);
+                    continue;
                 }
                 total = accumulate(total, content.length, limits);
                 entries.add(new Entry(path, content));
@@ -286,8 +296,14 @@ public final class SkillArchive {
         }
     }
 
-    /** 读单个条目，超限直接报错（不静默截断，否则装进来的技能是残的）。 */
-    private static byte[] readLimited(InputStream in, long maxFileBytes, String path) throws IOException {
+    /**
+     * 读单个条目；超过 {@code maxFileBytes} 返回 {@code null}（调用方记录后跳过）。
+     *
+     * <p>不在这里抛异常：一个仓库里的 README 截图动辄 1MB+，不该让「装技能」整体失败；
+     * 真正属于某个技能的资源超限，会在技能根目录确定后由 {@link #rejectOversizedSkillResources}
+     * 精确报错（那时才知道是哪个技能缺了文件）。
+     */
+    private static byte[] readUpTo(InputStream in, long maxFileBytes) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         long count = 0;
@@ -295,7 +311,7 @@ public final class SkillArchive {
         while ((read = in.read(buffer)) != -1) {
             count += read;
             if (count > maxFileBytes) {
-                throw BizException.badRequest("文件超过上限 " + (maxFileBytes / 1024) + "KB：" + path);
+                return null;
             }
             out.write(buffer, 0, read);
         }
@@ -306,7 +322,7 @@ public final class SkillArchive {
      * 包内再套包：仓库里分发 {@code dist/foo.zip} / {@code foo.skill} 时解开一层，
      * 让里面的 SKILL.md 也能被识别（前缀用归档名，避免与仓库里的同名文件撞路径）。
      */
-    private static List<Entry> unpackNested(List<Entry> entries, Limits limits) {
+    private static List<Entry> unpackNested(List<Entry> entries, Limits limits, List<String> oversized) {
         List<Entry> expanded = new ArrayList<>(entries.size());
         for (Entry entry : entries) {
             if (!isNestedArchive(entry.content())) {
@@ -315,7 +331,7 @@ public final class SkillArchive {
             }
             List<Entry> inner;
             try {
-                inner = unpack(entry.content(), limits);
+                inner = unpack(entry.content(), limits, oversized);
             } catch (RuntimeException ex) {
                 // 包里的 .zip 可能只是普通二进制附件：解不开就按普通文件处理，不因此整体失败
                 expanded.add(entry);
@@ -440,11 +456,46 @@ public final class SkillArchive {
     }
 
     /**
-     * 读技能包的插件清单 {@code .claude-plugin/marketplace.json}：{@code plugins[].skills} 里的每个目录
-     * 归到该插件名下。清单缺失或格式不认识时返回空表（不影响安装，只是没有包名）。
+     * 一个技能包（插件）的声明。
+     *
+     * @param name 包名
+     * @param explicit 清单里明确列出的技能目录（{@code plugins[].skills}），相对仓库根
+     * @param conventionBases 没写 skills 列表时，按约定目录归属的基路径（{@code <source>/.claude/skills}、
+     *     {@code <source>/skills}）
      */
-    private static Map<String, String> readPackManifest(List<Entry> entries) {
-        Map<String, String> byRoot = new LinkedHashMap<>();
+    private record PluginSpec(String name, List<String> explicit, List<String> conventionBases) {
+
+        /** 清单里明确声明了这个技能目录（优先级最高）。 */
+        boolean declares(String root) {
+            return explicit.contains(root);
+        }
+
+        /** 没有显式声明技能列表时，按约定目录推断归属。 */
+        boolean claimsByConvention(String root) {
+            if (!explicit.isEmpty()) {
+                return false;
+            }
+            for (String base : conventionBases) {
+                String prefix = base.isEmpty() ? "" : base + "/";
+                if (root.startsWith(prefix)) {
+                    String rest = root.substring(prefix.length());
+                    // 只认「约定目录下的一级子目录」= 一个技能
+                    if (!rest.isEmpty() && !rest.contains("/")) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * 读技能包的插件清单 {@code .claude-plugin/marketplace.json}：{@code plugins[].skills} 里的每个目录
+     * 归到该插件名下；插件没写 skills 列表时（实测 nextlevelbuilder 就是这种），按约定
+     * {@code <source>/.claude/skills/*}、{@code <source>/skills/*} 归属。清单缺失或格式不认识时返回空表。
+     */
+    private static List<PluginSpec> readPackManifest(List<Entry> entries) {
+        List<PluginSpec> specs = new ArrayList<>();
         for (Entry entry : entries) {
             String path = entry.path();
             if (!path.equals(".claude-plugin/marketplace.json") && !path.endsWith("/.claude-plugin/marketplace.json")) {
@@ -461,28 +512,57 @@ public final class SkillArchive {
                         : path.substring(0, path.length() - "/.claude-plugin/marketplace.json".length());
                 for (JsonNode plugin : plugins) {
                     String name = plugin.path("name").asText("");
-                    JsonNode skills = plugin.get("skills");
-                    if (name.isEmpty() || skills == null || !skills.isArray()) {
+                    if (name.isEmpty()) {
                         continue;
                     }
-                    for (JsonNode skill : skills) {
-                        String dir = normalizeSubPath(skill.asText(""));
-                        if (dir.isEmpty()) {
-                            continue;
+                    List<String> explicit = new ArrayList<>();
+                    JsonNode skills = plugin.get("skills");
+                    if (skills != null && skills.isArray()) {
+                        for (JsonNode skill : skills) {
+                            String dir = normalizeSubPath(skill.asText(""));
+                            if (!dir.isEmpty()) {
+                                explicit.add(base.isEmpty() ? dir : base + "/" + dir);
+                            }
                         }
-                        String rootPath = base.isEmpty() ? dir : base + "/" + dir;
-                        byRoot.put(normalizeSubPath(rootPath), name);
                     }
+                    String source = normalizeSubPath(plugin.path("source").asText("./"));
+                    String sourceBase = base.isEmpty() ? source : (source.isEmpty() ? base : base + "/" + source);
+                    List<String> conventionBases = new ArrayList<>();
+                    for (String dir : new String[] {".claude/skills", "skills", ".claude-plugin/skills"}) {
+                        String candidate = sourceBase.isEmpty() ? dir : sourceBase + "/" + dir;
+                        if (entries.stream().anyMatch(e -> e.path().startsWith(candidate + "/"))) {
+                            conventionBases.add(candidate);
+                        }
+                    }
+                    specs.add(new PluginSpec(name, explicit, conventionBases));
                 }
             } catch (IOException ex) {
                 // 清单坏了不影响装技能：只是没有包名
-                return Map.of();
+                return List.of();
             }
         }
-        return byRoot;
+        return specs;
     }
 
-    private static List<Bundle> toBundles(List<Entry> entries, Limits limits, Map<String, String> packs) {
+    /**
+     * 技能属于哪个包：**先**看清单里有没有显式声明这个目录（多插件共存时以声明为准），
+     * 都没有再按约定目录推断 —— 否则一个「没写 skills 列表」的插件会把所有 `skills/*` 都算成自己的。
+     */
+    private static String packOf(String root, List<PluginSpec> plugins) {
+        for (PluginSpec plugin : plugins) {
+            if (plugin.declares(root)) {
+                return plugin.name();
+            }
+        }
+        for (PluginSpec plugin : plugins) {
+            if (plugin.claimsByConvention(root)) {
+                return plugin.name();
+            }
+        }
+        return null;
+    }
+
+    private static List<Bundle> toBundles(List<Entry> entries, Limits limits, List<PluginSpec> plugins) {
         // 先定位所有技能根目录（SKILL.md 的父目录，可能是空串=归档顶层）
         List<String> roots = new ArrayList<>();
         for (Entry entry : entries) {
@@ -529,12 +609,37 @@ public final class SkillArchive {
             if (markdown == null) {
                 continue;
             }
-            bundles.add(new Bundle(root, packs.get(root), markdown, resources));
+            bundles.add(new Bundle(root, packOf(root, plugins), markdown, resources));
         }
         if (bundles.isEmpty()) {
             throw BizException.badRequest("归档里没有找到可用的 SKILL.md");
         }
         return bundles;
+    }
+
+    /**
+     * 真正属于某个技能的资源超限 → 精确报错（否则装进来的是残技能，模型调用脚本会失败）。
+     * 不在任何技能目录下的超大文件（README 截图、演示视频、构建产物）直接忽略。
+     */
+    private static void rejectOversizedSkillResources(
+            List<String> oversized, List<Bundle> bundles, Limits limits) {
+        if (oversized.isEmpty()) {
+            return;
+        }
+        List<String> problems = new ArrayList<>();
+        for (String path : oversized) {
+            for (Bundle bundle : bundles) {
+                if (underRoot(path, bundle.root())) {
+                    String relative = bundle.root().isEmpty() ? path : path.substring(bundle.root().length() + 1);
+                    problems.add(bundle.root().isEmpty() ? "(根目录)/" + relative : bundle.root() + "/" + relative);
+                    break;
+                }
+            }
+        }
+        if (!problems.isEmpty()) {
+            throw BizException.badRequest("技能资源超过单文件上限 " + (limits.maxFileBytes() / 1024)
+                    + "KB，装进来会是残缺技能：" + String.join("、", problems));
+        }
     }
 
     private static boolean isSkillMarkdown(String path) {

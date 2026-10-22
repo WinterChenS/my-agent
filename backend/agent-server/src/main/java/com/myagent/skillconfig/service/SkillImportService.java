@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -78,6 +79,13 @@ public class SkillImportService {
     private final SkillSecurityCheck securityCheck;
     private final SkillRepoFetcher repoFetcher;
 
+    // 解包限制（可配，见 application.yml 的 myagent.skill-import.*）
+    private final long maxArchiveBytes;
+    private final int maxEntries;
+    private final long maxFileBytes;
+    private final long maxTotalBytes;
+    private final int maxResourcesPerSkill;
+
     /** 预览缓存：token → 已解析好的待装技能（含完整正文与资源）。 */
     private final Map<String, CachedPreview> previewCache = new ConcurrentHashMap<>();
 
@@ -88,7 +96,12 @@ public class SkillImportService {
             ObjectProvider<AgentCacheInvalidator> agentCacheInvalidator,
             SkillMarkdownParser markdownParser,
             SkillSecurityCheck securityCheck,
-            SkillRepoFetcher repoFetcher) {
+            SkillRepoFetcher repoFetcher,
+            @Value("${myagent.skill-import.max-archive-mb:20}") int maxArchiveMb,
+            @Value("${myagent.skill-import.max-file-kb:2048}") int maxFileKb,
+            @Value("${myagent.skill-import.max-total-mb:64}") int maxTotalMb,
+            @Value("${myagent.skill-import.max-entries:4000}") int maxEntries,
+            @Value("${myagent.skill-import.max-resources-per-skill:300}") int maxResourcesPerSkill) {
         this.skillMapper = skillMapper;
         this.skillResourceMapper = skillResourceMapper;
         this.skillSyncTrigger = skillSyncTrigger;
@@ -96,6 +109,17 @@ public class SkillImportService {
         this.markdownParser = markdownParser;
         this.securityCheck = securityCheck;
         this.repoFetcher = repoFetcher;
+        this.maxArchiveBytes = Math.max(1, maxArchiveMb) * 1024L * 1024L;
+        this.maxFileBytes = Math.max(1, maxFileKb) * 1024L;
+        this.maxTotalBytes = Math.max(1, maxTotalMb) * 1024L * 1024L;
+        this.maxEntries = Math.max(1, maxEntries);
+        this.maxResourcesPerSkill = Math.max(1, maxResourcesPerSkill);
+    }
+
+    /** 解包限制（配置驱动）。 */
+    private SkillArchive.Limits limits() {
+        return new SkillArchive.Limits(
+                maxArchiveBytes, maxEntries, maxFileBytes, maxTotalBytes, maxResourcesPerSkill);
     }
 
     // ------------------------------------------------------------------ 预览 / 安装
@@ -123,7 +147,8 @@ public class SkillImportService {
                     existing == null ? null : existing.getVersion()));
         }
         cache(loaded);
-        return new SkillImportResult(loaded.downloadUrl(), loaded.ref(), true, candidates, List.of(), List.of());
+        return new SkillImportResult(
+                loaded.downloadUrl(), loaded.ref(), true, candidates, List.of(), List.of(), loaded.notes());
     }
 
     /**
@@ -190,7 +215,8 @@ public class SkillImportService {
                                 null))
                         .toList(),
                 installed,
-                skipped);
+                skipped,
+                loaded.notes());
     }
 
     // ------------------------------------------------------------------ 落库
@@ -248,7 +274,8 @@ public class SkillImportService {
     // ------------------------------------------------------------------ 下载 + 解析
 
     /** 可复用的「已装好」中间结果。 */
-    private record Loaded(String url, String ref, String subPath, String downloadUrl, List<Prepared> skills) {}
+    private record Loaded(
+            String url, String ref, String subPath, String downloadUrl, List<Prepared> skills, List<String> notes) {}
 
     /** 一个解析完成的技能。 */
     private record Prepared(
@@ -282,12 +309,15 @@ public class SkillImportService {
         }
         SkillRepoFetcher.Fetched fetched = repoFetcher.fetch(request.url(), request.ref());
         List<SkillArchive.Bundle> bundles =
-                SkillArchive.read(fetched.bytes(), resolved.subPath(), SkillArchive.Limits.defaults());
+                SkillArchive.read(fetched.bytes(), resolved.subPath(), limits());
         List<Prepared> prepared = new ArrayList<>();
         for (SkillArchive.Bundle bundle : bundles) {
             prepared.add(prepare(bundle));
         }
-        return new Loaded(request.url().trim(), resolved.ref(), resolved.subPath(), fetched.downloadUrl(), prepared);
+        List<String> notes = new ArrayList<>();
+        List<Prepared> deduped = dedupeByName(prepared, notes);
+        return new Loaded(
+                request.url().trim(), resolved.ref(), resolved.subPath(), fetched.downloadUrl(), deduped, notes);
     }
 
     private Prepared prepare(SkillArchive.Bundle bundle) {
@@ -306,6 +336,43 @@ public class SkillImportService {
                 parsed.content(),
                 bundle.resources(),
                 scan);
+    }
+
+    /**
+     * 同一个仓库里常有**多份同名技能**（实测 nextlevelbuilder/ui-ux-pro-max-skill：
+     * {@code .claude/skills/x} 与 {@code cli/assets/skills/x} 各一份）。
+     * 平台按 name 唯一，全装会互相覆盖，所以只保留一份：
+     * 优先「在技能包清单里声明过的」→ 其次路径层级最浅的 → 再按字典序。
+     */
+    private List<Prepared> dedupeByName(List<Prepared> prepared, List<String> notes) {
+        Map<String, Prepared> byName = new LinkedHashMap<>();
+        for (Prepared candidate : prepared) {
+            Prepared existing = byName.get(candidate.name());
+            if (existing == null) {
+                byName.put(candidate.name(), candidate);
+                continue;
+            }
+            Prepared better = prefer(candidate, existing);
+            Prepared dropped = better == candidate ? existing : candidate;
+            byName.put(candidate.name(), better);
+            notes.add("仓库里有多份同名技能「" + candidate.name() + "」：" + dropped.root()
+                    + " 已忽略，使用 " + better.root());
+        }
+        return new ArrayList<>(byName.values());
+    }
+
+    private static Prepared prefer(Prepared a, Prepared b) {
+        boolean aPacked = a.pack() != null;
+        boolean bPacked = b.pack() != null;
+        if (aPacked != bPacked) {
+            return aPacked ? a : b;
+        }
+        int aDepth = a.root().split("/").length;
+        int bDepth = b.root().split("/").length;
+        if (aDepth != bDepth) {
+            return aDepth < bDepth ? a : b;
+        }
+        return a.root().compareTo(b.root()) <= 0 ? a : b;
     }
 
     private void validateName(String name) {
