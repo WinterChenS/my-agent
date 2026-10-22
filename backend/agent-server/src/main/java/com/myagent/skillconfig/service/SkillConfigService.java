@@ -9,7 +9,12 @@ import com.myagent.skillconfig.cache.SkillSyncTrigger;
 import com.myagent.skillconfig.dto.SkillRequest;
 import com.myagent.skillconfig.dto.SkillResponse;
 import com.myagent.skillconfig.entity.Skill;
+import com.myagent.skillconfig.entity.SkillResourceCount;
 import com.myagent.skillconfig.mapper.SkillMapper;
+import com.myagent.skillconfig.mapper.SkillResourceMapper;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -23,14 +28,17 @@ public class SkillConfigService {
     private static final Set<String> STATUSES = Set.of("ENABLED", "DISABLED");
 
     private final SkillMapper skillMapper;
+    private final SkillResourceMapper skillResourceMapper;
     private final SkillSyncTrigger skillSyncTrigger;
     private final AgentCacheInvalidator agentCacheInvalidator;
 
     public SkillConfigService(
             SkillMapper skillMapper,
+            SkillResourceMapper skillResourceMapper,
             SkillSyncTrigger skillSyncTrigger,
             AgentCacheInvalidator agentCacheInvalidator) {
         this.skillMapper = skillMapper;
+        this.skillResourceMapper = skillResourceMapper;
         this.skillSyncTrigger = skillSyncTrigger;
         this.agentCacheInvalidator = agentCacheInvalidator;
     }
@@ -41,15 +49,32 @@ public class SkillConfigService {
                         status == null ? null : status.trim().toUpperCase())
                 .orderByAsc(Skill::getId);
         Page<Skill> page = skillMapper.selectPage(new Page<>(current, size), query);
+        Map<Long, Integer> resourceCounts = resourceCounts(
+                page.getRecords().stream().map(Skill::getId).toList());
         return PageResult.of(
-                page.getRecords().stream().map(SkillConfigService::toResponse).toList(),
+                page.getRecords().stream()
+                        .map(skill -> toResponse(skill, resourceCounts.getOrDefault(skill.getId(), 0)))
+                        .toList(),
                 page.getTotal(),
                 page.getCurrent(),
                 page.getSize());
     }
 
     public SkillResponse get(Long id) {
-        return toResponse(requireSkill(id));
+        Skill skill = requireSkill(id);
+        return toResponse(skill, skillResourceMapper.countBySkillId(id));
+    }
+
+    /** 批量取资源计数（列表页一次查完，避免每个 Skill 各查一次）。 */
+    private Map<Long, Integer> resourceCounts(List<Long> skillIds) {
+        if (skillIds == null || skillIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Integer> counts = new HashMap<>();
+        for (SkillResourceCount row : skillResourceMapper.countBySkillIds(skillIds)) {
+            counts.put(row.getSkillId(), row.getResourceCount() == null ? 0 : row.getResourceCount());
+        }
+        return counts;
     }
 
     @Transactional
@@ -64,7 +89,7 @@ public class SkillConfigService {
         skill.setStatus(normalizeStatus(request.status()));
         skillMapper.insert(skill);
         afterChange();
-        return toResponse(skill);
+        return toResponse(skill, 0);
     }
 
     @Transactional
@@ -83,7 +108,7 @@ public class SkillConfigService {
         skill.setStatus(normalizeStatus(request.status()));
         skillMapper.updateById(skill);
         afterChange();
-        return toResponse(skill);
+        return toResponse(skill, skillResourceMapper.countBySkillId(id));
     }
 
     @Transactional
@@ -139,7 +164,7 @@ public class SkillConfigService {
         return StringUtils.hasText(status) ? status.trim().toUpperCase() : "ENABLED";
     }
 
-    private static SkillResponse toResponse(Skill skill) {
+    private static SkillResponse toResponse(Skill skill, int resourceCount) {
         return new SkillResponse(
                 skill.getId(),
                 skill.getName(),
@@ -147,6 +172,9 @@ public class SkillConfigService {
                 skill.getContent(),
                 skill.getVersion(),
                 skill.getStatus(),
+                skill.getSourceUrl(),
+                skill.getSourceRef(),
+                resourceCount,
                 skill.getCreatedAt(),
                 skill.getUpdatedAt());
     }

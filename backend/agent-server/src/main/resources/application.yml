@@ -39,6 +39,14 @@ myagent:
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
     bucket: ${MINIO_BUCKET:agent-platform}
     max-file-size-mb: ${MINIO_MAX_FILE_MB:50}
+  # 从仓库链接导入标准 Skill（管理页 / 聊天 install_skill 共用）
+  skill-import:
+    # 归档下载上限（MB）；同时作为解压后单文件与总量的上限基础
+    max-archive-mb: ${SKILL_IMPORT_MAX_ARCHIVE_MB:20}
+    # 下载超时（秒）
+    timeout-seconds: ${SKILL_IMPORT_TIMEOUT_SECONDS:60}
+    # 私有仓库 / 私有制品库的 token（可选，不配按匿名访问）
+    token: ${SKILL_IMPORT_TOKEN:}
   jwt:
     secret: ${JWT_SECRET:dev-only-jwt-secret-change-me-0123456789abcdef}
     expire-minutes: 720

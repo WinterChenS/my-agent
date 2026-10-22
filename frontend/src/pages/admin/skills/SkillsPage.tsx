@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Trash2, Pencil, Sparkles } from "lucide-react";
+import { Plus, RefreshCw, Trash2, Pencil, Sparkles, Download, PackagePlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,8 +24,10 @@ import {
   createSkill,
   deleteSkill,
   generateSkill,
+  importSkills,
   listSkills,
   updateSkill,
+  type SkillImportCandidate,
   type SkillInfo,
 } from "@/api/skills";
 import { listTools, type ToolEntry } from "@/api/tools";
@@ -81,6 +83,21 @@ export default function SkillsPage() {
   /** 编辑器句柄：MDXEditor 的 markdown 只当初始值，AI 生成后要用 setMarkdown 回填。 */
   const editorHandle = useRef<SkillMdxEditorHandle | null>(null);
 
+  // 「从仓库导入」弹窗：先预览仓库里有哪些技能，再挑要装的
+  const [importOpen, setImportOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState("");
+  const [importRef, setImportRef] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importCandidates, setImportCandidates] = useState<SkillImportCandidate[]>([]);
+  const [importSelected, setImportSelected] = useState<string[]>([]);
+  const [importEnable, setImportEnable] = useState(false);
+  const [importForce, setImportForce] = useState(false);
+  const [importSource, setImportSource] = useState<{ url: string; ref: string } | null>(null);
+  /** 候选里出现的技能包（去重后，用于「只选某包」快捷键）。 */
+  const importPacks = Array.from(
+    new Set(importCandidates.map((c) => c.pack).filter((pack): pack is string => !!pack)),
+  );
+
   useEffect(() => {
     void (async () => {
       try {
@@ -125,6 +142,75 @@ export default function SkillsPage() {
       toast.error(err instanceof Error ? err.message : "生成失败");
     } finally {
       setAiBusy(false);
+    }
+  }
+
+  /** 预览仓库：只下载 + 拆包 + 扫描，不落库。 */
+  async function runImportPreview() {
+    if (!importUrl.trim()) {
+      toast.error("先填仓库链接");
+      return;
+    }
+    setImportBusy(true);
+    setImportCandidates([]);
+    setImportSelected([]);
+    try {
+      const result = await importSkills({
+        url: importUrl.trim(),
+        ref: importRef.trim() || null,
+        preview: true,
+      });
+      setImportCandidates(result.candidates);
+      setImportSource({ url: result.downloadUrl, ref: result.ref });
+      // 默认勾选：安全的、且不是「已存在」的（已存在的必须由人明确勾）
+      setImportSelected(
+        result.candidates
+          .filter((c) => c.verdict !== "DANGEROUS" && c.existingSkillId == null)
+          .map((c) => c.root),
+      );
+      if (result.candidates.length === 0) {
+        toast.error("仓库里没有找到 SKILL.md");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "预览失败");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  /** 安装选中的技能（同一批，后端一个事务）。 */
+  async function runImportInstall() {
+    if (importSelected.length === 0) {
+      toast.error("先勾选要安装的技能");
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const result = await importSkills({
+        url: importUrl.trim(),
+        ref: importRef.trim() || null,
+        preview: false,
+        names: importSelected,
+        overwrite: true,
+        enable: importEnable,
+        force: importForce,
+      });
+      const installed = result.installed.length;
+      const skipped = result.skipped.length;
+      if (installed > 0) {
+        toast.success(`已安装 ${installed} 个技能${skipped > 0 ? `，跳过 ${skipped} 个` : ""}`);
+      } else {
+        toast.error(
+          skipped > 0 ? result.skipped.map((s) => s.reason).join("；") : "没有安装任何技能",
+        );
+      }
+      setImportOpen(false);
+      setImportCandidates([]);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "安装失败");
+    } finally {
+      setImportBusy(false);
     }
   }
 
@@ -192,6 +278,17 @@ export default function SkillsPage() {
         </div>
         <Button
           className="ml-auto"
+          variant="outline"
+          data-testid="skill-import-open"
+          onClick={() => {
+            setImportCandidates([]);
+            setImportSelected([]);
+            setImportOpen(true);
+          }}
+        >
+          <PackagePlus className="size-4" /> 从仓库导入
+        </Button>
+        <Button
           onClick={() => {
             setForm(EMPTY);
             setDialogOpen(true);
@@ -222,7 +319,22 @@ export default function SkillsPage() {
             <TableBody>
               {skills.map((s) => (
                 <TableRow key={s.id}>
-                  <TableCell className="font-medium">{s.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span>{s.name}</span>
+                      {(s.resourceCount ?? 0) > 0 && (
+                        <Badge variant="outline" title="资源文件数量">
+                          {s.resourceCount} 文件
+                        </Badge>
+                      )}
+                      {s.sourceUrl && (
+                        <Badge variant="secondary" title={`来源：${s.sourceUrl}`}>
+                          <Download className="mr-1 size-3" />
+                          仓库
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
                   <TableCell className="max-w-[360px] truncate text-xs">
                     {s.description ?? "-"}
                   </TableCell>
@@ -469,6 +581,171 @@ export default function SkillsPage() {
               取消
             </Button>
             <Button onClick={() => void save()}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 从仓库导入：预览 → 勾选 → 安装（与聊天里的 install_skill 走同一个后端服务） */}
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent
+          data-testid="skill-import-dialog"
+          className="max-h-[88vh] overflow-y-auto sm:max-w-3xl"
+        >
+          <DialogHeader>
+            <DialogTitle>从仓库导入 Skill</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex-1 space-y-1 text-sm">
+                仓库链接
+                <Input
+                  data-testid="skill-import-url"
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  placeholder="https://github.com/anthropics/skills 或某个 .zip 直链"
+                />
+              </label>
+              <label className="w-36 space-y-1 text-sm">
+                分支/标签
+                <Input
+                  data-testid="skill-import-ref"
+                  value={importRef}
+                  onChange={(e) => setImportRef(e.target.value)}
+                  placeholder="默认分支"
+                />
+              </label>
+              <Button
+                variant="outline"
+                data-testid="skill-import-preview"
+                disabled={importBusy}
+                onClick={() => void runImportPreview()}
+              >
+                {importBusy ? "处理中…" : "预览"}
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              支持 GitHub / GitLab 仓库地址（一个仓库可以有多个技能）或 .zip 直链。安装前会做安全扫描，
+              危险内容会被拒绝；导入的技能默认<b>停用</b>，确认无误后再启用。
+            </p>
+
+            {importCandidates.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+                  <span>
+                    发现 {importCandidates.length} 个技能
+                    {importPacks.length > 0 && `（${importPacks.length} 个技能包）`}
+                  </span>
+                  {importSource && (
+                    <span>
+                      ref <code>{importSource.ref}</code>
+                    </span>
+                  )}
+                  {importPacks.map((pack) => {
+                    const roots = importCandidates
+                      .filter((c) => c.pack === pack && c.verdict !== "DANGEROUS")
+                      .map((c) => c.root);
+                    return (
+                      <Button
+                        key={pack}
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-xs"
+                        onClick={() => setImportSelected(roots)}
+                      >
+                        只选「{pack}」（{roots.length}）
+                      </Button>
+                    );
+                  })}
+                </div>
+                <div className="divide-y rounded-md border">
+                  {importCandidates.map((c) => {
+                    const disabled = c.verdict === "DANGEROUS";
+                    const checked = importSelected.includes(c.root);
+                    return (
+                      <label
+                        key={c.root}
+                        className={cn(
+                          "flex cursor-pointer items-start gap-2 p-2 text-sm",
+                          disabled && !importForce && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          disabled={disabled && !importForce}
+                          checked={checked}
+                          onChange={(e) =>
+                            setImportSelected((prev) =>
+                              e.target.checked
+                                ? [...prev, c.root]
+                                : prev.filter((root) => root !== c.root),
+                            )
+                          }
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium">{c.name}</span>
+                            <Badge variant="outline">{c.root || "(根目录)"}</Badge>
+                            {c.pack && <Badge variant="secondary">包 · {c.pack}</Badge>}
+                            <Badge variant="outline">{c.resourceCount} 文件</Badge>
+                            <Badge variant={c.verdict === "SAFE" ? "secondary" : "destructive"}>
+                              {c.verdict}
+                            </Badge>
+                            {c.existingSkillId != null && (
+                              <Badge variant="outline">已存在 v{c.existingVersion}，将更新</Badge>
+                            )}
+                          </div>
+                          <p className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
+                            {c.description}
+                          </p>
+                          {c.findings.length > 0 && (
+                            <ul className="mt-1 list-inside list-disc text-xs text-amber-600">
+                              {c.findings.slice(0, 3).map((f) => (
+                                <li key={f}>{f}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      data-testid="skill-import-enable"
+                      checked={importEnable}
+                      onChange={(e) => setImportEnable(e.target.checked)}
+                    />
+                    安装后立即启用（默认停用，人工确认后再启用）
+                  </label>
+                  {importCandidates.some((c) => c.verdict === "DANGEROUS") && (
+                    <label className="flex items-center gap-2 text-xs text-amber-600">
+                      <input
+                        type="checkbox"
+                        data-testid="skill-import-force"
+                        checked={importForce}
+                        onChange={(e) => setImportForce(e.target.checked)}
+                      />
+                      允许安装被判定为 DANGEROUS 的技能（我已看过上面的命中项）
+                    </label>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportOpen(false)}>
+              取消
+            </Button>
+            <Button
+              data-testid="skill-import-install"
+              disabled={importBusy || importSelected.length === 0}
+              onClick={() => void runImportInstall()}
+            >
+              安装选中（{importSelected.length}）
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

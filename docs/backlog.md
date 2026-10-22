@@ -6,6 +6,7 @@
 
 | 日期 | 来源 | 需求 | 备注 |
 |---|---|---|---|
+| 2026-10-22 | Phase 15 技能包导入 | 需要先构建才能产出技能的仓库（`npm run build` / `make` 才生成 dist/SKILL.md）、技能市场发现协议（GitHub 搜索 / marketplace API）、SSH 或交互式凭据的私有仓库 | 目前只装仓库里已存在的文件；构建与发现属于 CI/市场范畴，先把「给链接就能装」做稳 |
 | 2026-10-10 | Phase 5 实测 | Skill 内容**按需加载**（渐进式披露）：如需让模型总是看到完整 Skill 内容，需评估 `SkillCurator` / `SkillUsageStore` 或自定义 prompt provider | 当前行为是官方设计，不是缺陷 |
 | 2026-10-10 | Phase 6 实测 | MCP 工具目前以**裸工具名**注册；若两个 MCP Server 暴露同名工具，需要评估命名冲突策略（官方 `Toolkit.createToolGroup`） | 当前未做冲突处理 |
 | 2026-10-10 | Phase 9 实测 | `AguiSseSanitizer` 目前无差别去掉所有 null 字段；若后续某字段确实需要显式 null 语义，需改为白名单式 | 当前与官方客户端 `omitOptionalNulls` 行为一致 |

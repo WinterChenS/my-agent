@@ -2,9 +2,12 @@ package com.myagent.skillconfig.controller;
 
 import com.myagent.common.PageResult;
 import com.myagent.common.Result;
+import com.myagent.skillconfig.dto.SkillImportRequest;
+import com.myagent.skillconfig.dto.SkillImportResult;
 import com.myagent.skillconfig.dto.SkillRequest;
 import com.myagent.skillconfig.dto.SkillResponse;
 import com.myagent.skillconfig.service.SkillConfigService;
+import com.myagent.skillconfig.service.SkillImportService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,11 +25,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class SkillController {
 
     private final SkillConfigService service;
+    private final SkillImportService skillImportService;
     private final com.myagent.agui.SkillGeneratorService skillGeneratorService;
 
     public SkillController(
-            SkillConfigService service, com.myagent.agui.SkillGeneratorService skillGeneratorService) {
+            SkillConfigService service,
+            SkillImportService skillImportService,
+            com.myagent.agui.SkillGeneratorService skillGeneratorService) {
         this.service = service;
+        this.skillImportService = skillImportService;
         this.skillGeneratorService = skillGeneratorService;
     }
 
@@ -42,6 +49,22 @@ public class SkillController {
     public Result<com.myagent.agui.SkillGeneratorService.Draft> generate(
             @RequestBody GenerateSkillRequest request) {
         return Result.ok(skillGeneratorService.generate(request.requirement(), request.modelId()));
+    }
+
+    /**
+     * 从仓库链接导入标准 Skill（默认只预览，不落库）。
+     *
+     * <p>POST /api/skills/** 需要 ADMIN：导入会下载外部仓库、写入技能库，属于配置写操作。
+     * 两段式：先 {@code preview=true} 看仓库里有哪些技能 + 安全结论，再带 {@code names} 安装选中的。
+     */
+    @PostMapping("/import")
+    public Result<SkillImportResult> importFromRepo(@RequestBody SkillImportRequest request) {
+        if (request == null || !org.springframework.util.StringUtils.hasText(request.url())) {
+            throw com.myagent.common.BizException.badRequest("请填写 Skill 仓库链接");
+        }
+        return Result.ok(request.isPreview()
+                ? skillImportService.preview(request)
+                : skillImportService.install(request));
     }
 
     @GetMapping
