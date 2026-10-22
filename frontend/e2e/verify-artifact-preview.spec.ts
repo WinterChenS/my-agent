@@ -270,6 +270,7 @@ test("按类型渲染：html/pdf/markdown/纯文本/Excel/Word 各走各的，�
     await expect(csvTable).toContainText("名称");
     await expect(csvTable).toContainText("上海, 浦东");
     await expect(csvTable.locator("tbody tr")).toHaveCount(2);
+    await page.screenshot({ path: "../docs/acceptance/task-10.7-preview-csv.png" });
     console.log("[预览] csv → 表格（表头 + 2 行；引号内逗号不拆列）✓");
 
     // ⑤ Excel：两页 → 两个 sheet tab；单元格文本进表格
