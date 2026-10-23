@@ -342,7 +342,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 "3. 用户消息里出现 `[[skill:xxx]]` 时，`xxx` 是**技能名**：到 `<available_skills>` 找同名 `<name>`，",
                 "   再用它的 `<skill-id>` 加载；找不到就先按第 4 条处理，不要猜 id。",
                 "4. `<available_skills>` 里**没有**的技能 = 未绑定到本 Agent 或已停用。这时直接告诉用户：",
-                "   「该技能没有绑定到当前 Agent」并给出两条路——到「Agent 配置」里绑定，或在对话输入框用 `/` 选择技能；",
+                "   「该技能没有绑定到当前 Agent」，请到「Agent 配置」里把它绑定上（绑定后本会话即可用）；",
                 "   不要反复尝试不同的 id，也不要说「技能文件不存在」。",
                 "5. 技能的正文与 `references/` `scripts/` 都在数据库里，**磁盘上不会有 SKILL.md**：",
                 "   不要用 `list_files` / `glob **/SKILL.md` 判断技能是否存在，只能看 `<available_skills>` 或调工具加载。");

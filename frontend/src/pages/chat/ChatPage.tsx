@@ -243,13 +243,27 @@ export default function ChatPage() {
       });
   }, []);
 
+  /**
+   * `/` 候选技能 = **当前 Agent 绑定的**启用技能。
+   *
+   * <p>为什么按 Agent 过滤（2026-10-23 用户反馈）：模型的 `<available_skills>` 只含绑定的技能，
+   * 未绑定的在对话里根本调不到。以前这里拉的是全平台 ENABLED 技能，用户选了没绑定的，
+   * 模型只会回一句"技能加载失败"。
+   *
+   * <p>会话已有 agentId 时以会话为准（下拉框只影响新会话）。
+   */
+  const skillsForAgent = session?.agentId ?? agentId;
   useEffect(() => {
-    listSkills(1, 100, "ENABLED")
+    if (skillsForAgent == null) {
+      setSkills([]);
+      return;
+    }
+    listSkills(1, 100, "ENABLED", skillsForAgent)
       .then((page) => setSkills(page.records))
       .catch(() => {
         /* 技能拉取失败不影响聊天 */
       });
-  }, []);
+  }, [skillsForAgent]);
 
   // 兜底：会话状态一变就同步 ref（openSession/startNewSession 里还会同步设一次，避免时序空档）
   useEffect(() => {

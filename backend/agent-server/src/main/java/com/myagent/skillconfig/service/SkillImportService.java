@@ -199,7 +199,7 @@ public class SkillImportService {
         for (SkillImportResult.Installed item : installed) {
             if (agentSkillMapper.countAgentsBySkillId(item.id()) == 0) {
                 notes.add("技能「" + item.name() + "」还没绑定到任何 Agent，对话里暂时用不了："
-                        + "到「Agent 配置」里绑定它，或在对话输入框用 / 选择");
+                        + "到「Agent 配置」里绑定它（绑定后对话里才看得到，输入框的 / 候选也只列绑定的）");
             }
         }
         log.info(

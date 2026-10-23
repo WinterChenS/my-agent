@@ -27,8 +27,17 @@ export interface SkillPayload {
   status?: "ENABLED" | "DISABLED";
 }
 
-export function listSkills(current = 1, size = 100, status?: string) {
-  const query = status ? `&status=${status}` : "";
+/**
+ * 技能列表。
+ *
+ * @param agentId 传了就只返回该 Agent **绑定**的技能。聊天输入框的 `/` 候选必须传：
+ *   模型只认得绑定到当前 Agent 的技能，列出未绑定的等于骗用户（点了也调不到）。
+ */
+export function listSkills(current = 1, size = 100, status?: string, agentId?: number | null) {
+  const query = [
+    status ? `&status=${status}` : "",
+    agentId != null ? `&agentId=${agentId}` : "",
+  ].join("");
   return apiFetch<PageResult<SkillInfo>>(`/api/skills?current=${current}&size=${size}${query}`);
 }
 

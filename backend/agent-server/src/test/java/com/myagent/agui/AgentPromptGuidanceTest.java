@@ -65,10 +65,11 @@ class AgentPromptGuidanceTest {
         // ③ 技能正文不落盘，别用 list_files / glob 找 SKILL.md
         assertThat(out).contains("磁盘上不会有 SKILL.md");
         assertThat(out).contains("glob");
-        // ④ 清单里没有 = 未绑定，要告诉用户怎么绑，而不是猜 id
+        // ④ 清单里没有 = 未绑定，要告诉用户去绑定，而不是猜 id
         assertThat(out).contains("未绑定");
         assertThat(out).contains("Agent 配置");
-        assertThat(out).contains("/` 选择");
+        // ⑤ 不要再引导用 / 选技能：/ 的候选现在只列本 Agent 绑定的技能，对未绑定技能没有出口
+        assertThat(out).doesNotContain("输入框用 `/`");
     }
 
     @Test

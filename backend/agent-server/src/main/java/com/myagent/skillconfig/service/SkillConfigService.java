@@ -50,11 +50,25 @@ public class SkillConfigService {
     }
 
     public PageResult<SkillResponse> list(long current, long size, String status) {
-        var query = Wrappers.<Skill>lambdaQuery()
-                .eq(StringUtils.hasText(status), Skill::getStatus,
-                        status == null ? null : status.trim().toUpperCase())
-                .orderByAsc(Skill::getId);
-        Page<Skill> page = skillMapper.selectPage(new Page<>(current, size), query);
+        return list(current, size, status, null);
+    }
+
+    /**
+     * 技能列表。
+     *
+     * @param agentId 非空时**只返回该 Agent 绑定的技能**——聊天输入框的 `/` 候选必须用它：
+     *     模型只认得绑定到当前 Agent 的技能，列出未绑定的等于骗用户（点了也调不到）
+     */
+    public PageResult<SkillResponse> list(long current, long size, String status, Long agentId) {
+        String normalizedStatus = StringUtils.hasText(status) ? status.trim().toUpperCase() : null;
+        Page<Skill> page = agentId == null
+                ? skillMapper.selectPage(
+                        new Page<>(current, size),
+                        Wrappers.<Skill>lambdaQuery()
+                                .eq(normalizedStatus != null, Skill::getStatus, normalizedStatus)
+                                .orderByAsc(Skill::getId))
+                : (Page<Skill>) skillMapper.selectBoundByAgent(
+                        new Page<Skill>(current, size), agentId, normalizedStatus);
         List<Long> ids = page.getRecords().stream().map(Skill::getId).toList();
         Map<Long, Integer> resourceCounts = resourceCounts(ids);
         Map<Long, Integer> boundCounts = boundAgentCounts(ids);

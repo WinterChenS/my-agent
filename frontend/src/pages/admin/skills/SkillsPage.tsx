@@ -439,7 +439,7 @@ export default function SkillsPage() {
                         <Badge
                           variant="outline"
                           className="border-amber-400 text-amber-700"
-                          title="没有 Agent 绑定它：模型在对话里看不到这个技能。到「Agent 配置」绑定，或在对话输入框用 / 选择"
+                          title="没有 Agent 绑定它：模型在对话里看不到这个技能（输入框的 / 候选也只列绑定的）。到「Agent 配置」里绑定"
                           data-testid="skill-unbound"
                         >
                           未绑定 Agent

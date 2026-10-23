@@ -69,12 +69,19 @@ public class SkillController {
                 : skillImportService.install(request));
     }
 
+    /**
+     * 技能列表。
+     *
+     * @param agentId 传了就只返回该 Agent **绑定**的技能（聊天输入框的 `/` 候选用它，
+     *     避免列出模型根本调不到的技能）
+     */
     @GetMapping
     public Result<PageResult<SkillResponse>> list(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "20") long size,
-            @RequestParam(required = false) String status) {
-        return Result.ok(service.list(current, size, status));
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long agentId) {
+        return Result.ok(service.list(current, size, status, agentId));
     }
 
     @GetMapping("/{id}")
