@@ -14,6 +14,8 @@ export interface SkillInfo {
   sourceRef?: string | null;
   /** 资源文件数量（标准 Skill 的 scripts/ references/ assets/ …）。 */
   resourceCount?: number;
+  /** 绑定该技能的 Agent 数量；0 = 对话里用不了（模型看不到这个技能）。 */
+  boundAgentCount?: number;
   createdAt?: string;
   updatedAt?: string;
 }

@@ -3,6 +3,7 @@ package com.myagent.skillconfig.service;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.myagent.agentconfig.cache.AgentCacheInvalidator;
+import com.myagent.agentconfig.mapper.AgentSkillMapper;
 import com.myagent.common.BizException;
 import com.myagent.common.PageResult;
 import com.myagent.skillconfig.cache.SkillSyncTrigger;
@@ -31,16 +32,19 @@ public class SkillConfigService {
 
     private final SkillMapper skillMapper;
     private final SkillResourceMapper skillResourceMapper;
+    private final AgentSkillMapper agentSkillMapper;
     private final SkillSyncTrigger skillSyncTrigger;
     private final AgentCacheInvalidator agentCacheInvalidator;
 
     public SkillConfigService(
             SkillMapper skillMapper,
             SkillResourceMapper skillResourceMapper,
+            AgentSkillMapper agentSkillMapper,
             SkillSyncTrigger skillSyncTrigger,
             AgentCacheInvalidator agentCacheInvalidator) {
         this.skillMapper = skillMapper;
         this.skillResourceMapper = skillResourceMapper;
+        this.agentSkillMapper = agentSkillMapper;
         this.skillSyncTrigger = skillSyncTrigger;
         this.agentCacheInvalidator = agentCacheInvalidator;
     }
@@ -51,11 +55,15 @@ public class SkillConfigService {
                         status == null ? null : status.trim().toUpperCase())
                 .orderByAsc(Skill::getId);
         Page<Skill> page = skillMapper.selectPage(new Page<>(current, size), query);
-        Map<Long, Integer> resourceCounts = resourceCounts(
-                page.getRecords().stream().map(Skill::getId).toList());
+        List<Long> ids = page.getRecords().stream().map(Skill::getId).toList();
+        Map<Long, Integer> resourceCounts = resourceCounts(ids);
+        Map<Long, Integer> boundCounts = boundAgentCounts(ids);
         return PageResult.of(
                 page.getRecords().stream()
-                        .map(skill -> toResponse(skill, resourceCounts.getOrDefault(skill.getId(), 0)))
+                        .map(skill -> toResponse(
+                                skill,
+                                resourceCounts.getOrDefault(skill.getId(), 0),
+                                boundCounts.getOrDefault(skill.getId(), 0)))
                         .toList(),
                 page.getTotal(),
                 page.getCurrent(),
@@ -64,7 +72,10 @@ public class SkillConfigService {
 
     public SkillResponse get(Long id) {
         Skill skill = requireSkill(id);
-        return toResponse(skill, skillResourceMapper.countBySkillId(id));
+        return toResponse(
+                skill,
+                skillResourceMapper.countBySkillId(id),
+                (int) agentSkillMapper.countAgentsBySkillId(id));
     }
 
     /**
@@ -104,6 +115,27 @@ public class SkillConfigService {
         return resource.getResourceContent() != null && resource.getResourceContent().startsWith("base64:");
     }
 
+    /**
+     * 批量取「有多少 Agent 绑定了这个技能」。
+     *
+     * <p>为什么要在列表里露出：导入成功后如果没绑定任何 Agent，模型在对话里**根本看不到**这个技能
+     * （SkillFilter 只放行绑定的），用户会以为"装了但用不了"甚至"没装"。0 必须显眼。
+     */
+    private Map<Long, Integer> boundAgentCounts(List<Long> skillIds) {
+        if (skillIds == null || skillIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Integer> counts = new HashMap<>();
+        for (Map<String, Object> row : agentSkillMapper.countAgentsBySkillIds(skillIds)) {
+            Object id = row.get("skill_id");
+            Object cnt = row.get("cnt");
+            if (id instanceof Number idNum && cnt instanceof Number cntNum) {
+                counts.put(idNum.longValue(), cntNum.intValue());
+            }
+        }
+        return counts;
+    }
+
     /** 批量取资源计数（列表页一次查完，避免每个 Skill 各查一次）。 */
     private Map<Long, Integer> resourceCounts(List<Long> skillIds) {
         if (skillIds == null || skillIds.isEmpty()) {
@@ -128,7 +160,7 @@ public class SkillConfigService {
         skill.setStatus(normalizeStatus(request.status()));
         skillMapper.insert(skill);
         afterChange();
-        return toResponse(skill, 0);
+        return toResponse(skill, 0, 0);
     }
 
     @Transactional
@@ -155,7 +187,10 @@ public class SkillConfigService {
         skill.setStatus(normalizeStatus(request.status()));
         skillMapper.updateById(skill);
         afterChange();
-        return toResponse(skill, skillResourceMapper.countBySkillId(id));
+        return toResponse(
+                skill,
+                skillResourceMapper.countBySkillId(id),
+                (int) agentSkillMapper.countAgentsBySkillId(id));
     }
 
     @Transactional
@@ -218,7 +253,7 @@ public class SkillConfigService {
         return StringUtils.hasText(status) ? status.trim().toUpperCase() : "ENABLED";
     }
 
-    private static SkillResponse toResponse(Skill skill, int resourceCount) {
+    private static SkillResponse toResponse(Skill skill, int resourceCount, int boundAgentCount) {
         return new SkillResponse(
                 skill.getId(),
                 skill.getName(),
@@ -229,6 +264,7 @@ public class SkillConfigService {
                 skill.getSourceUrl(),
                 skill.getSourceRef(),
                 resourceCount,
+                boundAgentCount,
                 skill.getCreatedAt(),
                 skill.getUpdatedAt());
     }

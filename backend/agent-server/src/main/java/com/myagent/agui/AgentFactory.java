@@ -50,6 +50,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(AgentFactory.class);
 
+    /** 占位中间件：{@code HarnessAgent.Builder.middleware} 不接受 null，诊断关闭时用它顶位。 */
+    private static final io.agentscope.core.middleware.MiddlewareBase NOOP_MIDDLEWARE =
+            new io.agentscope.core.middleware.MiddlewareBase() {};
+
     private final AgentMapper agentMapper;
     private final LlmModelMapper llmModelMapper;
     private final LlmProviderMapper llmProviderMapper;
@@ -68,7 +72,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     /** 官方「Agent 主动交付产物」的接收端（见 PlatformArtifactDeliveryTarget）。 */
     private final com.myagent.artifact.PlatformArtifactDeliveryTarget artifactDeliveryTarget;
 
-        /** 缓存键：{@code "12"} 或 {@code "12|3,5"}（含会话级技能时），见 build(Long, List)。 */
+        /** 是否把最终系统提示打到日志（诊断用，默认关）。 */
+    private final boolean promptDebugEnabled;
+
+    /** 缓存键：{@code "12"} 或 {@code "12|3,5"}（含会话级技能时），见 build(Long, List)。 */
     private final Map<String, HarnessAgent> cache = new ConcurrentHashMap<>();
 
     public AgentFactory(
@@ -86,7 +93,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             McpToolkitFactory mcpToolkitFactory,
             com.myagent.agui.memory.PgAgentStateStore pgAgentStateStore,
             io.agentscope.harness.agent.filesystem.remote.RemoteFilesystem memoryRemoteFilesystem,
-            com.myagent.artifact.PlatformArtifactDeliveryTarget artifactDeliveryTarget) {
+            com.myagent.artifact.PlatformArtifactDeliveryTarget artifactDeliveryTarget,
+            @org.springframework.beans.factory.annotation.Value("${myagent.agui.debug-system-prompt:false}")
+                    boolean promptDebugEnabled) {
         this.agentMapper = agentMapper;
         this.llmModelMapper = llmModelMapper;
         this.llmProviderMapper = llmProviderMapper;
@@ -102,6 +111,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         this.pgAgentStateStore = pgAgentStateStore;
         this.memoryRemoteFilesystem = memoryRemoteFilesystem;
         this.artifactDeliveryTarget = artifactDeliveryTarget;
+        this.promptDebugEnabled = promptDebugEnabled;
     }
 
     /** 按 Agent 主键构建（带缓存）。 */
@@ -253,7 +263,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 // 每个 Agent 都知道自己手上有卡片工具、以及什么时候该用（用户反馈"不会主动用卡片"）
                 // 再追加「长期记忆用法」指引：框架的 memory_search 是字面量整串匹配，
                 // 模型传整句问句必然 0 命中（用户反馈"永久记忆不生效"）
-                .sysPrompt(withMemoryGuidance(withCardGuidance(agent.getSysPrompt())))
+                .sysPrompt(withSkillGuidance(
+                        withMemoryGuidance(withCardGuidance(agent.getSysPrompt()))))
                 // 官方产物交付：配了它，框架会向 Agent 注册内置工具 deliverArtifact，
                 // Agent 主动交付的成果会进 artifact 表（并记下所属 run，供气泡下方展示）
                 .artifactDeliveryTarget(artifactDeliveryTarget)
@@ -271,6 +282,12 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 // 而后者是整串字面量匹配（整句/多词 → 0 命中）→ 模型就说“没有记录”。
                 .middleware(new com.myagent.agui.middleware.MemoryHintMiddleware(
                         java.nio.file.Path.of(aguiProperties.workspaceRoot())))
+                // 诊断开关（默认关）：把最终系统提示的形态打日志。
+                // 技能清单没渲染出来时框架是**静默**的，模型只会说「没有可用技能」——
+                // 实测排查这类问题只能靠它（见 PromptDebugMiddleware 注释）。
+                .middleware(promptDebugEnabled
+                        ? new com.myagent.agui.middleware.PromptDebugMiddleware()
+                        : NOOP_MIDDLEWARE)
                 // 上下文治理（官方能力）：历史超阈值就压缩；超长工具结果（例如被读进来的大文件正文）
                 // 外置到文件、只留预览。没有这两个配置时，上下文会无上限增长——实测出现过
                 // 1.8MB 的会话状态，向模型请求 127 万 tokens 直接被厂商拒绝（context_length_exceeded）。
@@ -298,6 +315,39 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         return built;
     }
 
+
+    /**
+     * 在系统提示词后面追加一段**技能**使用指引。
+     *
+     * <p>为什么必须写死这几条（2026-10-23 用户实测，代价很大）：
+     *
+     * <ul>
+     *   <li>框架的 skill id 是 {@code <名字>_<source>}（实测 {@code architecture-diagram_myagent}），
+     *       但模型看到用户说"用 architecture-diagram 技能"就直接拿裸名字去调
+     *       {@code load_skill_through_path} → {@code Error: Skill not found}，然后回复"技能加载失败"；
+     *   <li>它还会用 {@code list_files} / {@code glob **&#47;SKILL.md} 去磁盘找技能，找不到就断定"没装"——
+     *       而技能正文本来就不落盘（由工具从数据库读），磁盘上永远没有 SKILL.md；
+     *   <li>技能没绑定到本 Agent 时，模型只能反复猜 id，用户拿到的是"加载失败"这种无用信息。
+     * </ul>
+     *
+     * <p>这三条都不是"模型不够聪明"，而是**平台约定必须讲清楚**。
+     */
+    static String withSkillGuidance(String sysPrompt) {
+        String base = sysPrompt == null ? "" : sysPrompt.trim();
+        String guidance = String.join("\n",
+                "## 技能（Skills）使用规则（重要）",
+                "1. 系统提示里的 `<available_skills>` 列出当前 Agent 已绑定的技能，每个技能有 `<name>` 与 `<skill-id>`。",
+                "2. **加载技能必须用 `<skill-id>`**（格式是「技能名_myagent」，例如 `pdf_myagent`），**不要用 `<name>`**：",
+                "   用 `<name>` 调 `load_skill_through_path` 会返回 `Skill not found`。",
+                "3. 用户消息里出现 `[[skill:xxx]]` 时，`xxx` 是**技能名**：到 `<available_skills>` 找同名 `<name>`，",
+                "   再用它的 `<skill-id>` 加载；找不到就先按第 4 条处理，不要猜 id。",
+                "4. `<available_skills>` 里**没有**的技能 = 未绑定到本 Agent 或已停用。这时直接告诉用户：",
+                "   「该技能没有绑定到当前 Agent」并给出两条路——到「Agent 配置」里绑定，或在对话输入框用 `/` 选择技能；",
+                "   不要反复尝试不同的 id，也不要说「技能文件不存在」。",
+                "5. 技能的正文与 `references/` `scripts/` 都在数据库里，**磁盘上不会有 SKILL.md**：",
+                "   不要用 `list_files` / `glob **/SKILL.md` 判断技能是否存在，只能看 `<available_skills>` 或调工具加载。");
+        return base.isEmpty() ? guidance : base + "\n\n" + guidance;
+    }
 
     /**
      * 在用户自己的系统提示词后面追加一段**交互卡片**使用指引。

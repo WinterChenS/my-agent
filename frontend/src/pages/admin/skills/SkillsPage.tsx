@@ -225,6 +225,11 @@ export default function SkillsPage() {
       const skipped = result.skipped.length;
       if (installed > 0) {
         toast.success(`已安装 ${installed} 个技能${skipped > 0 ? `，跳过 ${skipped} 个` : ""}`);
+        // 关键提醒：装完但没绑定 Agent，模型在对话里看不到它（用户实测踩过）
+        const hint = (result.notes ?? []).find((note) => note.includes("还没绑定"));
+        if (hint) {
+          toast.warning(hint, { duration: 8000 });
+        }
       } else {
         toast.error(
           skipped > 0 ? result.skipped.map((s) => s.reason).join("；") : "没有安装任何技能",
@@ -428,6 +433,16 @@ export default function SkillsPage() {
                         <Badge variant="secondary" title={`来源：${s.sourceUrl}`}>
                           <Download className="mr-1 size-3" />
                           仓库
+                        </Badge>
+                      )}
+                      {s.status === "ENABLED" && (s.boundAgentCount ?? 0) === 0 && (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-400 text-amber-700"
+                          title="没有 Agent 绑定它：模型在对话里看不到这个技能。到「Agent 配置」绑定，或在对话输入框用 / 选择"
+                          data-testid="skill-unbound"
+                        >
+                          未绑定 Agent
                         </Badge>
                       )}
                     </div>

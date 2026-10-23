@@ -74,6 +74,9 @@ export MINIO_ACCESS_KEY='<accessKey>'
 export MINIO_SECRET_KEY='<secretKey>'
 export MINIO_BUCKET='agent-platform'
 
+# 诊断（可选）：把每轮最终系统提示的形态打到日志（技能清单是否注入、注入几个）
+export MYAGENT_AGUI_DEBUG_SYSTEM_PROMPT=true
+
 # 应用自身的密钥（生产必须改）
 export JWT_SECRET='<>=32 字节随机串>'
 export AGENT_CRYPTO_KEY='<AES-GCM 主密钥>'

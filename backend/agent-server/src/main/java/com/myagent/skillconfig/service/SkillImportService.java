@@ -2,6 +2,7 @@ package com.myagent.skillconfig.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.myagent.agentconfig.cache.AgentCacheInvalidator;
+import com.myagent.agentconfig.mapper.AgentSkillMapper;
 import com.myagent.common.BizException;
 import com.myagent.skillconfig.cache.SkillSyncTrigger;
 import com.myagent.skillconfig.dto.SkillImportCandidate;
@@ -66,6 +67,7 @@ public class SkillImportService {
 
     private final SkillMapper skillMapper;
     private final SkillResourceMapper skillResourceMapper;
+    private final AgentSkillMapper agentSkillMapper;
     private final SkillSyncTrigger skillSyncTrigger;
     /**
      * Agent 缓存失效器。
@@ -92,6 +94,7 @@ public class SkillImportService {
     public SkillImportService(
             SkillMapper skillMapper,
             SkillResourceMapper skillResourceMapper,
+            AgentSkillMapper agentSkillMapper,
             SkillSyncTrigger skillSyncTrigger,
             ObjectProvider<AgentCacheInvalidator> agentCacheInvalidator,
             SkillMarkdownParser markdownParser,
@@ -104,6 +107,7 @@ public class SkillImportService {
             @Value("${myagent.skill-import.max-resources-per-skill:300}") int maxResourcesPerSkill) {
         this.skillMapper = skillMapper;
         this.skillResourceMapper = skillResourceMapper;
+        this.agentSkillMapper = agentSkillMapper;
         this.skillSyncTrigger = skillSyncTrigger;
         this.agentCacheInvalidator = agentCacheInvalidator;
         this.markdownParser = markdownParser;
@@ -189,6 +193,15 @@ public class SkillImportService {
                 invalidator.invalidateAll();
             }
         }
+        // 导入 ≠ 能用：技能只对**绑定了它的 Agent** 可见（SkillFilter 只放行绑定的）。
+        // 不提醒的话，用户装完在对话里让模型用，模型只会说"技能加载失败"。
+        List<String> notes = new ArrayList<>(loaded.notes());
+        for (SkillImportResult.Installed item : installed) {
+            if (agentSkillMapper.countAgentsBySkillId(item.id()) == 0) {
+                notes.add("技能「" + item.name() + "」还没绑定到任何 Agent，对话里暂时用不了："
+                        + "到「Agent 配置」里绑定它，或在对话输入框用 / 选择");
+            }
+        }
         log.info(
                 "Skill 导入完成：来源={} ref={} 安装={} 跳过={}",
                 loaded.url(),
@@ -216,7 +229,7 @@ public class SkillImportService {
                         .toList(),
                 installed,
                 skipped,
-                loaded.notes());
+                notes);
     }
 
     // ------------------------------------------------------------------ 落库

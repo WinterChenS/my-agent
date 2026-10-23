@@ -372,6 +372,24 @@ class SkillImportServiceTest {
     }
 
     @Test
+    void 导入后没绑定Agent时会明确提示_且响应里能看到绑定数() {
+        String name = unique("bind");
+        when(repoFetcher.fetch(any(), any()))
+                .thenReturn(new SkillRepoFetcher.Fetched(withResource(name), "https://example.com/x.zip"));
+
+        SkillImportResult result = importService.install(
+                new SkillImportRequest("https://example.com/bind.zip", null, false, List.of(), true, true));
+
+        Long id = result.installed().get(0).id();
+        // 导入 ≠ 能用：没有任何 Agent 绑定时，notes 里必须说清楚（否则用户以为装了就能用）
+        assertThat(result.notes()).anySatisfy(note -> assertThat(note).contains("还没绑定到任何 Agent"));
+        assertThat(skillConfigService.get(id).boundAgentCount()).isZero();
+        assertThat(skillConfigService.list(1, 100, null).records())
+                .filteredOn(row -> row.name().equals(name))
+                .allSatisfy(row -> assertThat(row.boundAgentCount()).isZero());
+    }
+
+    @Test
     void 手工创建的技能仍然可以随便改() {
         String name = unique("manual");
         var created = skillConfigService.create(
