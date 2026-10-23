@@ -2,6 +2,10 @@ package com.myagent.skillconfig.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.myagent.agentconfig.cache.AgentCacheInvalidator;
+import com.myagent.agentconfig.entity.Agent;
+import com.myagent.agentconfig.mapper.AgentMapper;
+import com.myagent.chat.entity.ChatSession;
+import com.myagent.chat.mapper.ChatSessionMapper;
 import com.myagent.agentconfig.mapper.AgentSkillMapper;
 import com.myagent.common.BizException;
 import com.myagent.skillconfig.cache.SkillSyncTrigger;
@@ -68,6 +72,8 @@ public class SkillImportService {
     private final SkillMapper skillMapper;
     private final SkillResourceMapper skillResourceMapper;
     private final AgentSkillMapper agentSkillMapper;
+    private final AgentMapper agentMapper;
+    private final ChatSessionMapper chatSessionMapper;
     private final SkillSyncTrigger skillSyncTrigger;
     /**
      * Agent 缓存失效器。
@@ -95,6 +101,8 @@ public class SkillImportService {
             SkillMapper skillMapper,
             SkillResourceMapper skillResourceMapper,
             AgentSkillMapper agentSkillMapper,
+            AgentMapper agentMapper,
+            ChatSessionMapper chatSessionMapper,
             SkillSyncTrigger skillSyncTrigger,
             ObjectProvider<AgentCacheInvalidator> agentCacheInvalidator,
             SkillMarkdownParser markdownParser,
@@ -108,6 +116,8 @@ public class SkillImportService {
         this.skillMapper = skillMapper;
         this.skillResourceMapper = skillResourceMapper;
         this.agentSkillMapper = agentSkillMapper;
+        this.agentMapper = agentMapper;
+        this.chatSessionMapper = chatSessionMapper;
         this.skillSyncTrigger = skillSyncTrigger;
         this.agentCacheInvalidator = agentCacheInvalidator;
         this.markdownParser = markdownParser;
@@ -230,6 +240,89 @@ public class SkillImportService {
                 installed,
                 skipped,
                 notes);
+    }
+
+    /**
+     * 把刚导入的技能绑定到指定 Agent（按 AgentScope 的 {@code agentId} 字符串定位）。
+     *
+     * <p>为什么需要：聊天里让 Agent 装技能，用户的下一个动作一定是"那你用它画一张"。
+     * 不绑定的话模型只能回一句"该技能没有绑定到当前 Agent"——把本该一步完成的事推给用户去点配置。
+     *
+     * @return 绑定成功的 Agent 显示名；找不到 Agent 时返回 null（不报错：技能已经装好了，绑定失败不该回滚安装）
+     */
+    @Transactional
+    public String bindToAgent(String agentScopeAgentId, List<Long> skillIds) {
+        if (!StringUtils.hasText(agentScopeAgentId) || skillIds == null || skillIds.isEmpty()) {
+            return null;
+        }
+        Agent agent = agentMapper
+                .selectOne(com.baomidou.mybatisplus.core.toolkit.Wrappers.<Agent>lambdaQuery()
+                        .eq(Agent::getAgentId, agentScopeAgentId)
+                        .last("limit 1"));
+        if (agent == null) {
+            log.warn("自动绑定技能失败：找不到 Agent agentId={}", agentScopeAgentId);
+            return null;
+        }
+        return bindToAgentId(agent.getId(), agent.getName(), skillIds);
+    }
+
+    /**
+     * 按**会话**定位 Agent 再绑定。
+     *
+     * <p>为什么需要这条路（实测 2026-10-23）：工具里拿到的 {@code agent.getAgentId()} 是 AgentScope 的
+     * 运行时实例 id（一个 UUID），不是我们配置里的 {@code agent.agent_id}，直接查库必然查不到。
+     * 而 RuntimeContext 里的 {@code sessionId} 就是 AG-UI 的 threadId，与 {@code chat_session.thread_id}
+     * 一一对应，从它能稳定拿到这条会话用的 Agent。
+     */
+    @Transactional
+    public String bindToAgentOfThread(String threadId, Long userId, List<Long> skillIds) {
+        if (!StringUtils.hasText(threadId) || skillIds == null || skillIds.isEmpty()) {
+            return null;
+        }
+        ChatSession session = chatSessionMapper.selectOne(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<ChatSession>lambdaQuery()
+                        .eq(ChatSession::getThreadId, threadId)
+                        .eq(userId != null, ChatSession::getUserId, userId)
+                        .orderByDesc(ChatSession::getId)
+                        .last("limit 1"));
+        if (session == null || session.getAgentId() == null) {
+            log.warn("自动绑定技能失败：按 threadId 找不到会话或会话没绑 Agent。threadId={}", threadId);
+            return null;
+        }
+        Agent agent = agentMapper.selectById(session.getAgentId());
+        if (agent == null) {
+            log.warn("自动绑定技能失败：会话 {} 指向的 Agent {} 不存在", threadId, session.getAgentId());
+            return null;
+        }
+        return bindToAgentId(agent.getId(), agent.getName(), skillIds);
+    }
+
+    /** 绑定到指定主键的 Agent（幂等：已绑定的跳过）。 */
+    @Transactional
+    public String bindToAgentId(Long agentDbId, String agentName, List<Long> skillIds) {
+        if (agentDbId == null || skillIds == null || skillIds.isEmpty()) {
+            return null;
+        }
+        Agent agent = agentMapper.selectById(agentDbId);
+        if (agent == null) {
+            return null;
+        }
+        List<Long> bound = agentSkillMapper.findSkillIds(agentDbId);
+        int added = 0;
+        for (Long skillId : skillIds) {
+            if (!bound.contains(skillId) && agentSkillMapper.countExistingSkill(skillId) > 0) {
+                agentSkillMapper.insertLink(agentDbId, skillId);
+                added++;
+            }
+        }
+        if (added > 0) {
+            AgentCacheInvalidator invalidator = agentCacheInvalidator.getIfAvailable();
+            if (invalidator != null) {
+                invalidator.invalidateAll();
+            }
+            log.info("已把 {} 个技能自动绑定到 Agent {}（id={}）", added, agent.getName(), agentDbId);
+        }
+        return agent.getName();
     }
 
     // ------------------------------------------------------------------ 落库

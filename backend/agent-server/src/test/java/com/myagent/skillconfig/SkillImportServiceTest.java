@@ -45,6 +45,15 @@ class SkillImportServiceTest {
     private com.myagent.skillconfig.service.SkillConfigService skillConfigService;
 
     @Autowired
+    private com.myagent.agentconfig.service.AgentConfigService agentConfigService;
+
+    @Autowired
+    private com.myagent.modelconfig.service.ModelConfigService modelConfigService;
+
+    @Autowired
+    private com.myagent.chat.service.ChatSessionService chatSessionService;
+
+    @Autowired
     private SkillMapper skillMapper;
 
     @Autowired
@@ -387,6 +396,78 @@ class SkillImportServiceTest {
         assertThat(skillConfigService.list(1, 100, null).records())
                 .filteredOn(row -> row.name().equals(name))
                 .allSatisfy(row -> assertThat(row.boundAgentCount()).isZero());
+    }
+
+    @Test
+    void 聊天安装后可以把技能绑定到当前Agent() {
+        String name = unique("autobind");
+        when(repoFetcher.fetch(any(), any()))
+                .thenReturn(new SkillRepoFetcher.Fetched(withResource(name), "https://example.com/x.zip"));
+        SkillImportResult result = importService.install(
+                new SkillImportRequest("https://example.com/autobind.zip", null, false, List.of(), true, true));
+        Long skillId = result.installed().get(0).id();
+
+        // 造一个 Agent（agentScopeId 就是 AgentScope 那边的 agentId 字符串）
+        String scopeId = "autobind-agent-" + System.nanoTime();
+        Long providerId = modelConfigService
+                .createProvider(new com.myagent.modelconfig.dto.ProviderRequest(
+                        "p-" + scopeId, "OPENAI_COMPATIBLE", "http://localhost:8099/v1", "k", "ENABLED"))
+                .id();
+        Long modelId = modelConfigService
+                .createModel(new com.myagent.modelconfig.dto.ModelRequest(
+                        providerId, "m-" + scopeId, null, null, null, null, null, null, null, null, null, null,
+                        "ENABLED", null))
+                .id();
+        Long agentDbId = agentConfigService
+                .create(new com.myagent.agentconfig.dto.AgentRequest(
+                        "a-" + scopeId, scopeId, "p", modelId, null, null, "ALWAYS_ALLOW",
+                        null, null, null, null, "ENABLED", List.of(), List.of()))
+                .id();
+        assertThat(skillConfigService.get(skillId).boundAgentCount()).isZero();
+
+        String agentName = importService.bindToAgent(scopeId, List.of(skillId));
+
+        assertThat(agentName).isEqualTo("a-" + scopeId);
+        assertThat(skillConfigService.get(skillId).boundAgentCount()).isEqualTo(1);
+        // 幂等：再绑一次不会重复插入（也不会报错）
+        importService.bindToAgent(scopeId, List.of(skillId));
+        assertThat(skillConfigService.get(skillId).boundAgentCount()).isEqualTo(1);
+        // 找不到 Agent 时返回 null，不抛异常（技能已经装好了，绑定失败不该回滚安装）
+        assertThat(importService.bindToAgent("no-such-agent", List.of(skillId))).isNull();
+    }
+
+    @Test
+    void 按threadId定位会话的Agent再绑定_这是工具里的真实路径() {
+        // 工具里拿到的是 AgentScope 运行时 UUID，只能靠 RuntimeContext.sessionId(=threadId) 反查会话
+        String scopeId = "thread-agent-" + System.nanoTime();
+        String threadId = "thread-" + System.nanoTime();
+        Long providerId = modelConfigService
+                .createProvider(new com.myagent.modelconfig.dto.ProviderRequest(
+                        "p-" + scopeId, "OPENAI_COMPATIBLE", "http://localhost:8099/v1", "k", "ENABLED"))
+                .id();
+        Long modelId = modelConfigService
+                .createModel(new com.myagent.modelconfig.dto.ModelRequest(
+                        providerId, "m-" + scopeId, null, null, null, null, null, null, null, null, null, null,
+                        "ENABLED", null))
+                .id();
+        Long agentDbId = agentConfigService
+                .create(new com.myagent.agentconfig.dto.AgentRequest(
+                        "a-" + scopeId, scopeId, "p", modelId, null, null, "ALWAYS_ALLOW",
+                        null, null, null, null, "ENABLED", List.of(), List.of()))
+                .id();
+        chatSessionService.createForThread(1L, threadId, agentDbId);
+
+        String name = unique("thread");
+        when(repoFetcher.fetch(any(), any()))
+                .thenReturn(new SkillRepoFetcher.Fetched(withResource(name), "https://example.com/x.zip"));
+        SkillImportResult result = importService.install(
+                new SkillImportRequest("https://example.com/thread.zip", null, false, List.of(), true, true));
+        Long skillId = result.installed().get(0).id();
+
+        assertThat(importService.bindToAgentOfThread(threadId, 1L, List.of(skillId))).isEqualTo("a-" + scopeId);
+        assertThat(skillConfigService.get(skillId).boundAgentCount()).isEqualTo(1);
+        // threadId 不存在时安静返回 null
+        assertThat(importService.bindToAgentOfThread("no-such-thread", 1L, List.of(skillId))).isNull();
     }
 
     @Test

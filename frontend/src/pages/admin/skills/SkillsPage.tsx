@@ -87,6 +87,8 @@ export default function SkillsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
+  /** 名称搜索：技能多了以后（实测 29 个）翻页找不到刚导入的那个。 */
+  const [keyword, setKeyword] = useState("");
 
   /** 可插入的工具（MCP + 本地）：编辑器里输入 `/` 用。加载一次就够。 */
   const [tools, setTools] = useState<ToolEntry[]>([]);
@@ -237,6 +239,11 @@ export default function SkillsPage() {
       }
       setImportOpen(false);
       setImportCandidates([]);
+      // 新建的技能按 id 升序排在最后：不跳页的话用户会以为"没导进来"（实测反馈）
+      if (installed > 0) {
+        setKeyword("");
+        setPage(Math.max(1, Math.ceil((total + installed) / pageSize)));
+      }
       await refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "安装失败");
@@ -308,7 +315,7 @@ export default function SkillsPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await listSkills(page, pageSize);
+      const result = await listSkills(page, pageSize, undefined, null, keyword);
       setSkills(result.records);
       setTotal(result.total);
     } catch (err) {
@@ -316,7 +323,7 @@ export default function SkillsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize]);
+  }, [page, pageSize, keyword]);
 
   useEffect(() => {
     void refresh();
@@ -376,8 +383,17 @@ export default function SkillsPage() {
             内容为 Markdown；内容变化时版本自动 +1。启用的 Skill 会同步到 Agent 运行时仓库。
           </p>
         </div>
+        <Input
+          className="ml-auto h-8 w-48"
+          data-testid="skill-search"
+          value={keyword}
+          placeholder="按名称搜索"
+          onChange={(e) => {
+            setKeyword(e.target.value);
+            setPage(1);
+          }}
+        />
         <Button
-          className="ml-auto"
           variant="outline"
           data-testid="skill-import-open"
           onClick={() => {

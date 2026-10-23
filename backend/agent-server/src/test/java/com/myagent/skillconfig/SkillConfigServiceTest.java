@@ -148,7 +148,7 @@ class SkillConfigServiceTest {
         Long agentDbId = createAgentWithSkill(bound.id());
 
         List<SkillResponse> records = skillConfigService
-                .list(1, 100, "ENABLED", agentDbId)
+                .list(1, 100, "ENABLED", agentDbId, null)
                 .records();
         assertThat(records).extracting(SkillResponse::name).contains(bound.name());
         assertThat(records).extracting(SkillResponse::name).doesNotContain(loose.name());

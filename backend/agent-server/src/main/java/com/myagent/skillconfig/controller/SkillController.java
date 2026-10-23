@@ -80,8 +80,9 @@ public class SkillController {
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "20") long size,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) Long agentId) {
-        return Result.ok(service.list(current, size, status, agentId));
+            @RequestParam(required = false) Long agentId,
+            @RequestParam(required = false) String keyword) {
+        return Result.ok(service.list(current, size, status, agentId, keyword));
     }
 
     @GetMapping("/{id}")

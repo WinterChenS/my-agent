@@ -56,6 +56,7 @@ public class SkillInstallTool implements AgentTool {
                 + "用户给出 GitHub / GitLab 仓库地址或 .zip 链接、让你「装这个技能」时用它。"
                 + "仓库里只有一个技能会直接安装；有多个技能时返回候选清单，先问用户要装哪一个（不要自己挑）。"
                 + "参数 url 必填；names 可指定要装的技能目录名或技能包名（多个用数组）。"
+                + "装完会自动绑定到当前 Agent（bind=false 可关掉），下一轮对话就能用。"
                 + "安全扫描判定为危险的仓库会被拒绝安装。安装成功后告诉用户装了什么、多少个资源文件。";
     }
 
@@ -78,11 +79,16 @@ public class SkillInstallTool implements AgentTool {
         enable.put("type", "boolean");
         enable.put("description", "可选：装完是否立即启用（默认 true）。用户明确要「装好就能用」时保持默认");
 
+        Map<String, Object> bind = new LinkedHashMap<>();
+        bind.put("type", "boolean");
+        bind.put("description", "可选：装完是否绑定到当前 Agent（默认 true）。不绑定的话下一轮对话里你仍然看不到它");
+
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("url", url);
         properties.put("ref", ref);
         properties.put("names", names);
         properties.put("enable", enable);
+        properties.put("bind", bind);
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
@@ -102,15 +108,22 @@ public class SkillInstallTool implements AgentTool {
         String ref = param.getInput().get("ref") == null ? null : String.valueOf(param.getInput().get("ref"));
         List<String> names = toStringList(param.getInput().get("names"));
         boolean enable = !(param.getInput().get("enable") instanceof Boolean b) || b;
+        // 默认装完就绑到当前 Agent：用户说"装这个技能"的下一步一定是"那你用它"，不绑定等于白装
+        boolean bind = !(param.getInput().get("bind") instanceof Boolean b2) || b2;
+        // 定位"当前 Agent"：RuntimeContext 的 sessionId 就是 threadId，能稳定映射到会话用的 Agent。
+        // 不要用 agent.getAgentId()——那是 AgentScope 的运行时实例 id（UUID），跟库里的 agent_id 不是一回事。
+        String threadId = param.getRuntimeContext() == null ? null : param.getRuntimeContext().getSessionId();
+        Long userId = resolveUserId(param.getRuntimeContext());
 
         // 下载 + 解压 + 扫描是阻塞 IO：切到弹性线程池，别占住响应式线程
-        return Mono.fromCallable(() -> run(url, ref, names, enable))
+        return Mono.fromCallable(() -> run(url, ref, names, enable, bind, threadId, userId))
                 .subscribeOn(Schedulers.boundedElastic())
                 .map(text -> result(param, text))
                 .onErrorResume(ex -> Mono.just(result(param, "安装失败：" + message(ex))));
     }
 
-    private String run(String url, String ref, List<String> names, boolean enable) {
+    private String run(
+            String url, String ref, List<String> names, boolean enable, boolean bind, String threadId, Long userId) {
         if (url.isEmpty()) {
             throw BizException.badRequest("缺少 url");
         }
@@ -124,7 +137,27 @@ public class SkillInstallTool implements AgentTool {
         }
         SkillImportResult result = skillImportService.install(
                 new SkillImportRequest(url, ref, false, names, true, enable));
-        return describeInstalled(result);
+        String bindNote = "";
+        if (bind && !result.installed().isEmpty()) {
+            List<Long> ids = result.installed().stream().map(SkillImportResult.Installed::id).toList();
+            String agentName = skillImportService.bindToAgentOfThread(threadId, userId, ids);
+            bindNote = agentName == null
+                    ? "（没能自动绑定到当前 Agent，请在「Agent 配置」里手动绑定后再用）"
+                    : "已绑定到当前 Agent「" + agentName + "」，**下一轮**对话就能用（本轮的系统提示是开跑前生成的）。";
+        }
+        return describeInstalled(result) + bindNote;
+    }
+
+    /** RuntimeContext 里的 userId 是字符串：能转数字就带上，用于更精确地定位会话。 */
+    private static Long resolveUserId(io.agentscope.core.agent.RuntimeContext context) {
+        if (context == null || context.getUserId() == null) {
+            return null;
+        }
+        try {
+            return Long.valueOf(context.getUserId());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private static String describe(List<SkillImportCandidate> candidates) {

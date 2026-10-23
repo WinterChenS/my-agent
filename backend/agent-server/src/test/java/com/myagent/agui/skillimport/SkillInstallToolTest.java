@@ -44,6 +44,20 @@ class SkillInstallToolTest {
         return ToolCallParam.builder().toolUseBlock(block).input(input).build();
     }
 
+    /**
+     * 带运行时上下文的调用参数：自动绑定靠 {@code sessionId}（= threadId）定位会话用的 Agent，
+     * 而不是 {@code agent.getAgentId()}（那是 AgentScope 的实例 UUID，在库里查不到）。
+     */
+    private static ToolCallParam paramWithContext(Map<String, Object> input, String threadId, String userId) {
+        io.agentscope.core.agent.RuntimeContext context = io.agentscope.core.agent.RuntimeContext
+                .builder()
+                .sessionId(threadId)
+                .userId(userId)
+                .build();
+        ToolUseBlock block = new ToolUseBlock("call-1", "install_skill", input);
+        return ToolCallParam.builder().toolUseBlock(block).input(input).runtimeContext(context).build();
+    }
+
     private static String text(ToolResultBlock block) {
         return block.getOutput().stream()
                 .filter(TextBlock.class::isInstance)
@@ -110,6 +124,69 @@ class SkillInstallToolTest {
         verify(importService, never()).preview(any());
         verify(importService).install(argThat(request -> request.names().contains("skills/pdf")));
         assertThat(output).contains("updated").contains("3 个资源文件");
+    }
+
+    @Test
+    void 安装后默认自动绑定到当前Agent_并说明下一轮可用() {
+        when(importService.install(any())).thenReturn(new SkillImportResult(
+                "https://codeload.example/zip/HEAD",
+                "HEAD",
+                false,
+                List.of(),
+                List.of(new SkillImportResult.Installed(7L, "pdf", "skills/pdf", 1, "created", 2)),
+                List.of()));
+        when(importService.bindToAgentOfThread("thread-1", 1L, List.of(7L))).thenReturn("stub-demo-agent");
+
+        String output = text(tool.callAsync(paramWithContext(
+                        new LinkedHashMap<>(Map.of("url", "https://github.com/o/r", "names", List.of("pdf"))),
+                        "thread-1",
+                        "1"))
+                .block());
+
+        verify(importService).bindToAgentOfThread("thread-1", 1L, List.of(7L));
+        assertThat(output).contains("已绑定到当前 Agent").contains("下一轮");
+    }
+
+    @Test
+    void bind设为false时不绑定() {
+        when(importService.install(any())).thenReturn(new SkillImportResult(
+                "https://codeload.example/zip/HEAD",
+                "HEAD",
+                false,
+                List.of(),
+                List.of(new SkillImportResult.Installed(7L, "pdf", "skills/pdf", 1, "created", 2)),
+                List.of()));
+
+        tool.callAsync(paramWithContext(
+                        new LinkedHashMap<>(Map.of(
+                                "url", "https://github.com/o/r",
+                                "names", List.of("pdf"),
+                                "bind", false)),
+                        "thread-1",
+                        "1"))
+                .block();
+
+        verify(importService, never()).bindToAgentOfThread(any(), any(), any());
+    }
+
+    @Test
+    void 找不到Agent时安装仍然成功_只是提示手动绑定() {
+        when(importService.install(any())).thenReturn(new SkillImportResult(
+                "https://codeload.example/zip/HEAD",
+                "HEAD",
+                false,
+                List.of(),
+                List.of(new SkillImportResult.Installed(7L, "pdf", "skills/pdf", 1, "created", 2)),
+                List.of()));
+        when(importService.bindToAgentOfThread(any(), any(), any())).thenReturn(null);
+
+        String output = text(tool.callAsync(paramWithContext(
+                        new LinkedHashMap<>(Map.of("url", "https://github.com/o/r", "names", List.of("pdf"))),
+                        "ghost-thread",
+                        "1"))
+                .block());
+
+        assertThat(output).contains("已安装 1 个技能").contains("没能自动绑定");
     }
 
     @Test

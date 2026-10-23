@@ -38,11 +38,15 @@ public interface SkillMapper extends BaseMapper<Skill> {
         "SELECT s.* FROM skill s JOIN agent_skill ags ON ags.skill_id = s.id",
         "WHERE ags.agent_id = #{agentId}",
         "<if test='status != null and status != \"\"'> AND s.status = #{status}</if>",
+        "<if test='keyword != null and keyword != \"\"'> AND s.name ILIKE CONCAT('%', #{keyword}, '%')</if>",
         "ORDER BY s.id",
         "</script>"
     })
     IPage<Skill> selectBoundByAgent(
-            IPage<Skill> page, @Param("agentId") Long agentId, @Param("status") String status);
+            IPage<Skill> page,
+            @Param("agentId") Long agentId,
+            @Param("status") String status,
+            @Param("keyword") String keyword);
 
     /** 所有启用中的 Skill 名称，供同步到官方仓库。 */
     @Select("SELECT name FROM skill WHERE status = 'ENABLED' ORDER BY name")
