@@ -399,17 +399,28 @@ public class SkillImportService {
                 wanted.add(raw.trim());
             }
         }
-        List<Prepared> selected = new ArrayList<>();
+        // 两段匹配：先按「技能目录 / 技能名 / 目录最后一段」精确挑，
+        // 一个都没匹配上才把 names 当**技能包名**（一次装一整个包）。
+        // 为什么要分两段：有的仓库里技能名恰好等于包名（实测 ui-ux-pro-max 就是），
+        // 混在一起会导致「只想更新一个技能，结果整包都重装了」。
+        List<Prepared> exact = new ArrayList<>();
         for (Prepared prepared : loaded.skills()) {
-            // names 可以是：技能目录、技能名、目录最后一段，或**技能包名**（一次装一整个包）
             if (wanted.contains(prepared.root())
                     || wanted.contains(prepared.name())
-                    || wanted.contains(lastSegment(prepared.root()))
-                    || (prepared.pack() != null && wanted.contains(prepared.pack()))) {
-                selected.add(prepared);
+                    || wanted.contains(lastSegment(prepared.root()))) {
+                exact.add(prepared);
             }
         }
-        return selected;
+        if (!exact.isEmpty()) {
+            return exact;
+        }
+        List<Prepared> byPack = new ArrayList<>();
+        for (Prepared prepared : loaded.skills()) {
+            if (prepared.pack() != null && wanted.contains(prepared.pack())) {
+                byPack.add(prepared);
+            }
+        }
+        return byPack;
     }
 
     private static String lastSegment(String root) {

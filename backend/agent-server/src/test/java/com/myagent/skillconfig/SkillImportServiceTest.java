@@ -314,6 +314,78 @@ class SkillImportServiceTest {
     }
 
     @Test
+    void 导入的技能内容只读_但可以改启用状态() {
+        String name = unique("ro");
+        when(repoFetcher.fetch(any(), any()))
+                .thenReturn(new SkillRepoFetcher.Fetched(withResource(name), "https://example.com/x.zip"));
+        importService.install(
+                new SkillImportRequest("https://example.com/ro.zip", null, false, List.of(), true, true));
+        Skill saved = findByName(name);
+
+        // 改正文 → 409，并提示去改仓库
+        assertThatThrownBy(() -> skillConfigService.update(
+                        saved.getId(),
+                        new com.myagent.skillconfig.dto.SkillRequest(name, saved.getDescription(), "偷偷改的正文", "ENABLED")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("仓库导入")
+                .hasMessageContaining("只读");
+
+        // 改名字也不行
+        assertThatThrownBy(() -> skillConfigService.update(
+                        saved.getId(),
+                        new com.myagent.skillconfig.dto.SkillRequest(name + "-renamed", saved.getDescription(), saved.getContent(), "ENABLED")))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("只读");
+
+        // 只切状态可以（内容原样回传）
+        var disabled = skillConfigService.update(
+                saved.getId(),
+                new com.myagent.skillconfig.dto.SkillRequest(name, saved.getDescription(), saved.getContent(), "DISABLED"));
+        assertThat(disabled.status()).isEqualTo("DISABLED");
+        assertThat(disabled.resourceCount()).isEqualTo(2);
+        assertThat(disabled.content()).isEqualTo(saved.getContent());
+    }
+
+    @Test
+    void 技能名与包名相同时按名字只装一个_不会被当成整包() {
+        String pack = unique("packname");
+        // 让包名 == 技能名（实测 ui-ux-pro-max 就是这种），另加一个同包技能
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        String manifest = "{\"plugins\":[{\"name\":\"" + pack + "\",\"skills\":[\"./skills/" + pack
+                + "\",\"./skills/other-in-pack\"]}]}";
+        files.put("repo-main/.claude-plugin/marketplace.json", text(manifest));
+        files.put("repo-main/skills/" + pack + "/SKILL.md", text(skillMd(pack, "同名", "正文")));
+        files.put("repo-main/skills/other-in-pack/SKILL.md", text(skillMd("other-in-pack", "同包", "正文")));
+        when(repoFetcher.fetch(any(), any()))
+                .thenReturn(new SkillRepoFetcher.Fetched(zip(files), "https://example.com/x.zip"));
+
+        SkillImportResult result = importService.install(
+                new SkillImportRequest("https://example.com/same.zip", null, false, List.of(pack), true, false));
+
+        assertThat(result.installed()).extracting(SkillImportResult.Installed::name).containsExactly(pack);
+        assertThat(findByName("other-in-pack")).isNull();
+
+        // 显式指定包名（不是技能名）时才整包
+        SkillImportResult byPack = importService.install(
+                new SkillImportRequest("https://example.com/same.zip", null, false, List.of(pack), true, false));
+        assertThat(byPack.installed()).hasSize(1);
+    }
+
+    @Test
+    void 手工创建的技能仍然可以随便改() {
+        String name = unique("manual");
+        var created = skillConfigService.create(
+                new com.myagent.skillconfig.dto.SkillRequest(name, "手工技能", "第一版", "ENABLED"));
+
+        var updated = skillConfigService.update(
+                created.id(),
+                new com.myagent.skillconfig.dto.SkillRequest(name, "手工技能（改）", "第二版", "ENABLED"));
+
+        assertThat(updated.version()).isEqualTo(2);
+        assertThat(updated.content()).isEqualTo("第二版");
+    }
+
+    @Test
     void 非标准SKILL_md给出明确错误() {
         Map<String, byte[]> files = Map.of("repo-main/SKILL.md", text("# 没有 frontmatter 的正文"));
         when(repoFetcher.fetch(any(), any()))

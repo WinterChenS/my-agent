@@ -137,6 +137,14 @@ public class SkillConfigService {
         validate(request);
         ensureNameUnique(request.name(), id);
 
+        // 外部导入的技能**内容只读**：它是仓库的投影，在平台上改完下次重新导入就被覆盖，
+        // 用户会以为改成功了。要改就改仓库再导入（管理页有「按来源更新」）。
+        // 平台本地的状态（启用/停用）仍然可以改 —— 那是运行开关，不属于仓库内容。
+        if (StringUtils.hasText(skill.getSourceUrl()) && contentDiffers(skill, request)) {
+            throw BizException.conflict(
+                    "该技能由仓库导入，内容只读：请改仓库后重新导入。来源 " + skill.getSourceUrl());
+        }
+
         // 内容变化才自增版本，避免无意义的版本膨胀
         if (!Objects.equals(skill.getContent(), request.content())) {
             skill.setVersion((skill.getVersion() == null ? 1 : skill.getVersion()) + 1);
@@ -159,6 +167,13 @@ public class SkillConfigService {
         }
         skillMapper.deleteById(id);
         afterChange();
+    }
+
+    /** 导入的技能只允许改启用状态；名称/说明/正文只要有一个不同就算"改内容"。 */
+    private static boolean contentDiffers(Skill skill, SkillRequest request) {
+        return !Objects.equals(skill.getName(), request.name())
+                || !Objects.equals(skill.getDescription(), request.description())
+                || !Objects.equals(skill.getContent(), request.content());
     }
 
     /** Skill 变化会影响所有 Agent 的提示词，因此让 Agent 缓存与官方仓库一起刷新。 */

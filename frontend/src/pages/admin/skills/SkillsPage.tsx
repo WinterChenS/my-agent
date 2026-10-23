@@ -64,6 +64,8 @@ interface FormState {
   content: string;
   status: "ENABLED" | "DISABLED";
   version: number | null;
+  /** 非空 = 从仓库导入的技能：内容只读，只能改启用状态或按来源更新。 */
+  sourceUrl: string | null;
 }
 
 const EMPTY: FormState = {
@@ -73,6 +75,7 @@ const EMPTY: FormState = {
   content: "",
   status: "ENABLED",
   version: null,
+  sourceUrl: null,
 };
 
 export default function SkillsPage() {
@@ -113,6 +116,8 @@ export default function SkillsPage() {
   const [resourcesOpen, setResourcesOpen] = useState(false);
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [openedResource, setOpenedResource] = useState<SkillResourceInfo | null>(null);
+  /** 「按来源更新」进行中（导入的技能不能手改，只能从仓库重新拉）。 */
+  const [reimportBusy, setReimportBusy] = useState(false);
   /** 候选里出现的技能包（去重后，用于「只选某包」快捷键）。 */
   const importPacks = Array.from(
     new Set(importCandidates.map((c) => c.pack).filter((pack): pack is string => !!pack)),
@@ -235,6 +240,40 @@ export default function SkillsPage() {
     }
   }
 
+  /** 导入的技能：按来源仓库重新拉一遍（内容只读，这是唯一的更新途径）。 */
+  async function reimportFromSource() {
+    if (!form.sourceUrl || form.id == null) {
+      return;
+    }
+    setReimportBusy(true);
+    try {
+      const result = await importSkills({
+        url: form.sourceUrl,
+        preview: false,
+        names: [form.name],
+        overwrite: true,
+        // 不改启用状态：是否启用是平台本地开关，不属于仓库内容
+        enable: false,
+      });
+      const installed = result.installed[0];
+      if (!installed) {
+        toast.error(result.skipped[0]?.reason ?? "没有更新任何内容");
+        return;
+      }
+      toast.success(
+        installed.action === "unchanged"
+          ? "仓库内容没有变化"
+          : `已按来源更新到 v${installed.version}（${installed.resourceCount} 个资源文件）`,
+      );
+      setDialogOpen(false);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "按来源更新失败");
+    } finally {
+      setReimportBusy(false);
+    }
+  }
+
   /** 拉取该技能的资源清单（只含路径与大小）。 */
   async function loadResources(skillId: number) {
     setResources([]);
@@ -288,12 +327,21 @@ export default function SkillsPage() {
       toast.error("说明不能为空：它决定模型何时命中这个技能");
       return;
     }
-    const payload = {
-      name: form.name.trim(),
-      description: form.description.trim() || null,
-      content: form.content,
-      status: form.status,
-    };
+    // 导入的技能只允许改状态：名称/说明/正文必须**原样回传**（后端会比对，
+    // 一旦发现内容变了就 409 —— 免得"改了但下次导入被覆盖"）。
+    const payload = form.sourceUrl
+      ? {
+          name: form.name,
+          description: form.description,
+          content: form.content,
+          status: form.status,
+        }
+      : {
+          name: form.name.trim(),
+          description: form.description.trim() || null,
+          content: form.content,
+          status: form.status,
+        };
     try {
       if (form.id == null) {
         await createSkill(payload);
@@ -409,6 +457,7 @@ export default function SkillsPage() {
                             content: s.content ?? "",
                             status: s.status,
                             version: s.version,
+                            sourceUrl: s.sourceUrl ?? null,
                           });
                           setDialogOpen(true);
                           void loadResources(s.id);
@@ -511,7 +560,35 @@ export default function SkillsPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+            {/* 外部导入的技能：内容只读。手改会在下次导入时被覆盖，所以干脆不让改。 */}
+            {form.sourceUrl && (
+              <div
+                className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"
+                data-testid="skill-imported-banner"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <b>该技能由仓库导入，内容只读。</b>
+                  <span className="text-amber-800">要改请改仓库，然后</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-xs"
+                    data-testid="skill-reimport"
+                    disabled={reimportBusy}
+                    onClick={() => void reimportFromSource()}
+                  >
+                    <Download className="mr-1 size-3" />
+                    {reimportBusy ? "更新中…" : "按来源更新"}
+                  </Button>
+                  <span className="text-amber-800">；这里只能切换启用状态。</span>
+                </div>
+                <div className="mt-1 truncate font-mono text-[11px] text-amber-700">
+                  {form.sourceUrl}
+                </div>
+              </div>
+            )}
             {/* 用 AI 生成：把自然语言需求 + 可用工具清单交给模型，产出草稿再人工确认 */}
+            {!form.sourceUrl && (
             <div
               className="bg-muted/40 space-y-2 rounded-md border border-dashed p-3"
               data-testid="skill-ai-panel"
@@ -573,11 +650,13 @@ export default function SkillsPage() {
                 </p>
               )}
             </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 text-sm">
                 名称 <span className="text-destructive">*</span>
                 <Input
                   value={form.name}
+                  disabled={!!form.sourceUrl}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="reply-with-ok"
                 />
@@ -603,7 +682,8 @@ export default function SkillsPage() {
               </span>
               <textarea
                 data-testid="skill-description"
-                className="border-input min-h-[60px] w-full resize-y rounded-md border bg-transparent p-2 text-sm"
+                className="border-input min-h-[60px] w-full resize-y rounded-md border bg-transparent p-2 text-sm disabled:opacity-70"
+                disabled={!!form.sourceUrl}
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 placeholder="例如：需要用户确认危险操作时弹确认卡"
@@ -673,6 +753,19 @@ export default function SkillsPage() {
             )}
 
             <div className="flex min-h-0 flex-1 flex-col">
+              {form.sourceUrl ? (
+                <div className="flex min-h-0 flex-1 flex-col space-y-1">
+                  <span className="text-muted-foreground text-xs">
+                    SKILL.md 正文（只读；模型按需用 load_skill_through_path 加载）
+                  </span>
+                  <pre
+                    data-testid="skill-content-readonly"
+                    className="bg-muted/40 min-h-[240px] flex-1 overflow-auto whitespace-pre-wrap rounded-md border p-3 text-xs"
+                  >
+                    {form.content}
+                  </pre>
+                </div>
+              ) : (
               <Suspense
                 fallback={
                   <div className="text-muted-foreground flex h-[320px] items-center justify-center rounded-md border text-xs">
@@ -688,13 +781,16 @@ export default function SkillsPage() {
                 placeholder="# 规则&#10;&#10;回答时在末尾加【OK】。"
               />
               </Suspense>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={() => void save()}>保存</Button>
+            <Button data-testid="skill-save" onClick={() => void save()}>
+              {form.sourceUrl ? "保存状态" : "保存"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
