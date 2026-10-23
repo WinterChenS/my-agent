@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, RefreshCw, Trash2, Pencil, Sparkles, Download, PackagePlus } from "lucide-react";
+import {
+  Plus,
+  RefreshCw,
+  Trash2,
+  Pencil,
+  Sparkles,
+  Download,
+  PackagePlus,
+  FolderTree,
+  FileText,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,10 +35,13 @@ import {
   deleteSkill,
   generateSkill,
   importSkills,
+  listSkillResources,
   listSkills,
+  readSkillResource,
   updateSkill,
   type SkillImportCandidate,
   type SkillInfo,
+  type SkillResourceInfo,
 } from "@/api/skills";
 import { listTools, type ToolEntry } from "@/api/tools";
 import { listModels, type ModelInfo } from "@/api/models";
@@ -94,6 +107,12 @@ export default function SkillsPage() {
   const [importForce, setImportForce] = useState(false);
   const [importSource, setImportSource] = useState<{ url: string; ref: string } | null>(null);
   const [importNotes, setImportNotes] = useState<string[]>([]);
+
+  // 渐进式披露的第二层：资源文件（references/ scripts/ data/ …）
+  const [resources, setResources] = useState<SkillResourceInfo[]>([]);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
+  const [openedResource, setOpenedResource] = useState<SkillResourceInfo | null>(null);
   /** 候选里出现的技能包（去重后，用于「只选某包」快捷键）。 */
   const importPacks = Array.from(
     new Set(importCandidates.map((c) => c.pack).filter((pack): pack is string => !!pack)),
@@ -216,6 +235,32 @@ export default function SkillsPage() {
     }
   }
 
+  /** 拉取该技能的资源清单（只含路径与大小）。 */
+  async function loadResources(skillId: number) {
+    setResources([]);
+    setOpenedResource(null);
+    setResourcesOpen(false);
+    setResourcesLoading(true);
+    try {
+      const list = await listSkillResources(skillId);
+      setResources(list);
+      setResourcesOpen(list.length > 0);
+    } catch {
+      setResources([]);
+    } finally {
+      setResourcesLoading(false);
+    }
+  }
+
+  /** 点开一个资源文件才读正文（大型技能有几十个文件，不预读）。 */
+  async function openResource(skillId: number, path: string) {
+    try {
+      setOpenedResource(await readSkillResource(skillId, path));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "读取资源失败");
+    }
+  }
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -293,6 +338,8 @@ export default function SkillsPage() {
         <Button
           onClick={() => {
             setForm(EMPTY);
+            setResources([]);
+            setOpenedResource(null);
             setDialogOpen(true);
           }}
         >
@@ -364,6 +411,7 @@ export default function SkillsPage() {
                             version: s.version,
                           });
                           setDialogOpen(true);
+                          void loadResources(s.id);
                         }}
                       >
                         <Pencil className="size-3.5" />
@@ -553,13 +601,77 @@ export default function SkillsPage() {
               <span className="text-muted-foreground ml-1 text-xs">
                 必填：模型靠它判断什么时候用这个技能
               </span>
-              <Input
+              <textarea
                 data-testid="skill-description"
+                className="border-input min-h-[60px] w-full resize-y rounded-md border bg-transparent p-2 text-sm"
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 placeholder="例如：需要用户确认危险操作时弹确认卡"
               />
             </label>
+
+            {/*
+              渐进式披露：资源文件是技能的第二层。以前这里只显示 SKILL.md 正文，
+              用户会以为「导入只进来一个 markdown」——其实 references/ scripts/ data/ 都在库里。
+            */}
+            {form.id != null && (resources.length > 0 || resourcesLoading) && (
+              <div className="rounded-md border" data-testid="skill-resources">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium"
+                  onClick={() => setResourcesOpen((open) => !open)}
+                >
+                  <FolderTree className="size-4" />
+                  资源文件（{resources.length}）
+                  <span className="text-muted-foreground text-xs font-normal">
+                    模型按需用 load_skill_through_path 读取，不占上下文
+                  </span>
+                  <span className="ml-auto text-xs">{resourcesOpen ? "收起" : "展开"}</span>
+                </button>
+                {resourcesOpen && (
+                  <div className="max-h-[240px] overflow-auto border-t px-3 py-2">
+                    <ul className="space-y-0.5 text-xs">
+                      {resources.map((resource) => (
+                        <li key={resource.path}>
+                          <button
+                            type="button"
+                            className="hover:bg-muted flex w-full items-center gap-2 rounded px-1 py-0.5 text-left"
+                            onClick={() => void openResource(form.id as number, resource.path)}
+                          >
+                            <FileText className="size-3 shrink-0" />
+                            <span className="truncate font-mono">{resource.path}</span>
+                            <span className="text-muted-foreground ml-auto shrink-0">
+                              {resource.binary ? "二进制" : `${resource.size} 字`}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {openedResource && (
+                  <div className="border-t px-3 py-2">
+                    <div className="mb-1 flex items-center gap-2 text-xs">
+                      <span className="truncate font-mono">{openedResource.path}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="ml-auto h-6 px-2 text-xs"
+                        onClick={() => setOpenedResource(null)}
+                      >
+                        关闭
+                      </Button>
+                    </div>
+                    <pre className="bg-muted/40 max-h-[200px] overflow-auto whitespace-pre-wrap rounded p-2 text-xs">
+                      {openedResource.binary
+                        ? "（二进制文件，此处不展示内容）"
+                        : (openedResource.content ?? "")}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex min-h-0 flex-1 flex-col">
               <Suspense
                 fallback={

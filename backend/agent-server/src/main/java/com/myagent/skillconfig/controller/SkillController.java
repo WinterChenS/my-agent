@@ -5,7 +5,9 @@ import com.myagent.common.Result;
 import com.myagent.skillconfig.dto.SkillImportRequest;
 import com.myagent.skillconfig.dto.SkillImportResult;
 import com.myagent.skillconfig.dto.SkillRequest;
+import com.myagent.skillconfig.dto.SkillResourceDto;
 import com.myagent.skillconfig.dto.SkillResponse;
+import java.util.List;
 import com.myagent.skillconfig.service.SkillConfigService;
 import com.myagent.skillconfig.service.SkillImportService;
 import jakarta.validation.Valid;
@@ -78,6 +80,23 @@ public class SkillController {
     @GetMapping("/{id}")
     public Result<SkillResponse> get(@PathVariable Long id) {
         return Result.ok(service.get(id));
+    }
+
+    /**
+     * 某技能的资源文件列表（渐进式披露的第二层：references/ scripts/ data/ …）。
+     *
+     * <p>只返回路径与大小，不带正文——大型技能有几百个文件、总计几 MB，一次全传会让管理页卡住。
+     */
+    @GetMapping("/{id}/resources")
+    public Result<List<SkillResourceDto>> resources(@PathVariable Long id) {
+        return Result.ok(service.listResources(id));
+    }
+
+    /** 读某个资源文件的正文（点开才读）。 */
+    @GetMapping("/{id}/resources/content")
+    public Result<SkillResourceDto> resourceContent(
+            @PathVariable Long id, @RequestParam("path") String path) {
+        return Result.ok(service.readResource(id, path));
     }
 
     @PostMapping

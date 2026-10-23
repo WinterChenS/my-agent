@@ -7,8 +7,10 @@ import com.myagent.common.BizException;
 import com.myagent.common.PageResult;
 import com.myagent.skillconfig.cache.SkillSyncTrigger;
 import com.myagent.skillconfig.dto.SkillRequest;
+import com.myagent.skillconfig.dto.SkillResourceDto;
 import com.myagent.skillconfig.dto.SkillResponse;
 import com.myagent.skillconfig.entity.Skill;
+import com.myagent.skillconfig.entity.SkillResource;
 import com.myagent.skillconfig.entity.SkillResourceCount;
 import com.myagent.skillconfig.mapper.SkillMapper;
 import com.myagent.skillconfig.mapper.SkillResourceMapper;
@@ -63,6 +65,43 @@ public class SkillConfigService {
     public SkillResponse get(Long id) {
         Skill skill = requireSkill(id);
         return toResponse(skill, skillResourceMapper.countBySkillId(id));
+    }
+
+    /**
+     * 某技能的资源文件清单（不含正文）。
+     *
+     * <p>为什么单独一个接口：渐进式披露的技能动辄几十上百个资源（实测 ui-ux-pro-max 有 72 个、
+     * 合计 3.5MB），全塞进列表响应会让管理页明显变慢。这里只给路径 + 大小，点开才读正文。
+     */
+    public List<SkillResourceDto> listResources(Long id) {
+        requireSkill(id);
+        return skillResourceMapper.findBySkillId(id).stream()
+                .map(resource -> SkillResourceDto.meta(
+                        resource.getResourcePath(),
+                        resource.getResourceContent() == null ? 0 : resource.getResourceContent().length(),
+                        isBinary(resource)))
+                .toList();
+    }
+
+    /** 读单个资源正文（路径必须属于该技能，防越权读别的技能）。 */
+    public SkillResourceDto readResource(Long id, String path) {
+        requireSkill(id);
+        if (!StringUtils.hasText(path)) {
+            throw BizException.badRequest("path 不能为空");
+        }
+        return skillResourceMapper.findBySkillId(id).stream()
+                .filter(resource -> resource.getResourcePath().equals(path))
+                .findFirst()
+                .map(resource -> new SkillResourceDto(
+                        resource.getResourcePath(),
+                        resource.getResourceContent() == null ? 0 : resource.getResourceContent().length(),
+                        isBinary(resource),
+                        resource.getResourceContent()))
+                .orElseThrow(() -> BizException.notFound("该技能没有这个资源文件: " + path));
+    }
+
+    private static boolean isBinary(SkillResource resource) {
+        return resource.getResourceContent() != null && resource.getResourceContent().startsWith("base64:");
     }
 
     /** 批量取资源计数（列表页一次查完，避免每个 Skill 各查一次）。 */

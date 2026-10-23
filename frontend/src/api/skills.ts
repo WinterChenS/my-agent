@@ -127,3 +127,24 @@ export function importSkills(payload: SkillImportPayload) {
     body: JSON.stringify(payload),
   });
 }
+
+/** 技能的资源文件（渐进式披露的第二层：references/ scripts/ data/ …）。 */
+export interface SkillResourceInfo {
+  path: string;
+  size: number;
+  binary: boolean;
+  /** 列表接口为 null，点开某个文件才有正文。 */
+  content?: string | null;
+}
+
+/** 资源文件清单（只含路径与大小）。 */
+export function listSkillResources(id: number) {
+  return apiFetch<SkillResourceInfo[]>(`/api/skills/${id}/resources`);
+}
+
+/** 读单个资源文件正文。 */
+export function readSkillResource(id: number, path: string) {
+  return apiFetch<SkillResourceInfo>(
+    `/api/skills/${id}/resources/content?path=${encodeURIComponent(path)}`,
+  );
+}

@@ -42,6 +42,9 @@ class SkillImportServiceTest {
     private SkillImportService importService;
 
     @Autowired
+    private com.myagent.skillconfig.service.SkillConfigService skillConfigService;
+
+    @Autowired
     private SkillMapper skillMapper;
 
     @Autowired
@@ -277,6 +280,37 @@ class SkillImportServiceTest {
                 new SkillImportRequest("https://example.com/dup.zip", null, false, List.of(), true, false));
         assertThat(result.installed()).hasSize(1);
         assertThat(skillResourceMapper.findBySkillId(findByName(name).getId())).hasSize(1);
+    }
+
+    @Test
+    void 资源文件可按技能列出并逐个读取_渐进式披露的第二层不丢() {
+        String name = unique("layer");
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        files.put("repo-main/skills/" + name + "/SKILL.md", text(skillMd(name, "两层技能", "正文")));
+        files.put("repo-main/skills/" + name + "/references/quick-reference.md", text("# 完整规则"));
+        files.put("repo-main/skills/" + name + "/scripts/search.py", text("print('search')"));
+        files.put("repo-main/skills/" + name + "/data/palettes.csv", text("a,b"));
+        when(repoFetcher.fetch(any(), any()))
+                .thenReturn(new SkillRepoFetcher.Fetched(zip(files), "https://example.com/x.zip"));
+
+        importService.install(
+                new SkillImportRequest("https://example.com/layer.zip", null, false, List.of(), true, true));
+        Long id = findByName(name).getId();
+
+        // 第一层：SKILL.md 正文
+        assertThat(skillConfigService.get(id).content()).contains("正文");
+        // 第二层：资源清单（只给路径与大小）
+        List<com.myagent.skillconfig.dto.SkillResourceDto> resources = skillConfigService.listResources(id);
+        assertThat(resources).extracting(com.myagent.skillconfig.dto.SkillResourceDto::path)
+                .containsExactly("data/palettes.csv", "references/quick-reference.md", "scripts/search.py");
+        assertThat(resources).allSatisfy(resource -> assertThat(resource.content()).isNull());
+        // 点开某个文件才读正文
+        assertThat(skillConfigService.readResource(id, "references/quick-reference.md").content())
+                .isEqualTo("# 完整规则");
+        // 读别的技能没有的路径要报 404，而不是返回空
+        assertThatThrownBy(() -> skillConfigService.readResource(id, "references/nope.md"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("没有这个资源文件");
     }
 
     @Test
