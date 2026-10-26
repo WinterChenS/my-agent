@@ -165,4 +165,31 @@ class SkillArchiveTest {
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("归档超过上限");
     }
+
+    /**
+     * 含 NUL 字节的文本资源必须按 base64 存。
+     *
+     * <p>回归用例：NUL 是合法 UTF-8，单看"能否解码"会判成文本，而 PostgreSQL 的 text 列
+     * 不接受 0x00 → 导入直接 500。实测来自 tt-a1i/archify 的 diagnostics.mjs
+     * （作者用字面 NUL 当字符串分隔符）。
+     */
+    @Test
+    void 含NUL字节的资源按base64存储() {
+        Map<String, byte[]> files = new LinkedHashMap<>();
+        String nl = String.valueOf((char) 10);
+        String skillMd = "---" + nl + "name: nul-demo" + nl + "description: NUL" + nl
+                + "---" + nl + "正文";
+        files.put("archify/SKILL.md", skillMd.getBytes(StandardCharsets.UTF_8));
+        // 模拟真实内容：源码里带字面 NUL 字节（archify 的 diagnostics.mjs 就是这么写的）
+        byte[] withNul = ("const key = `a" + (char) 0 + "b`").getBytes(StandardCharsets.UTF_8);
+        files.put("archify/renderers/diagnostics.mjs", withNul);
+
+        List<SkillArchive.Bundle> bundles = SkillArchive.read(zip(files), SkillArchive.Limits.defaults());
+
+        assertThat(bundles).hasSize(1);
+        String stored = bundles.get(0).resources().get("renderers/diagnostics.mjs");
+        assertThat(stored).as("含 NUL 的资源必须以 base64: 前缀存储").startsWith("base64:");
+        byte[] decoded = java.util.Base64.getDecoder().decode(stored.substring("base64:".length()));
+        assertThat(decoded).isEqualTo(withNul);
+    }
 }

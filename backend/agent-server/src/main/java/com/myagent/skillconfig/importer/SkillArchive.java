@@ -670,8 +670,32 @@ public final class SkillArchive {
         return false;
     }
 
-    /** 能按 UTF-8 正常解码就当文本，否则按官方约定存 {@code base64:} + Base64。 */
+    /** 内容里是否含 NUL 字节（PostgreSQL text 列无法存储）。 */
+    private static boolean hasNul(byte[] content) {
+        if (content == null) {
+            return false;
+        }
+        for (byte b : content) {
+            if (b == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 能按 UTF-8 正常解码就当文本，否则按官方约定存 {@code base64:} + Base64。
+     *
+     * <p>**额外要求：含 NUL(0x00) 的内容必须按二进制存**。原因：NUL 是合法 UTF-8 字符，
+     * 单看"能否解码"会把它判成文本，而 PostgreSQL 的 {@code text} 列不接受 0x00，插入直接
+     * 报 {@code invalid byte sequence for encoding "UTF8": 0x00}（实测踩过：
+     * tt-a1i/archify 的 {@code renderers/shared/diagnostics.mjs} 用字面 NUL 当字符串分隔符）。
+     * 存 base64 既能保住原始字节（官方 MarketplaceStager 落盘时会解码），又不会弄坏 PG。
+     */
     private static String encode(byte[] content) {
+        if (hasNul(content)) {
+            return "base64:" + Base64.getEncoder().encodeToString(content);
+        }
         try {
             return StandardCharsets.UTF_8
                     .newDecoder()
@@ -685,7 +709,10 @@ public final class SkillArchive {
     }
 
     private static String decodeText(byte[] content) {
-        // SKILL.md 必须是文本：解不出来就是仓库本身有问题，直接报错而不是塞进模型上下文
+        // SKILL.md 必须是文本：解不出来（或含 NUL）就是仓库本身有问题，直接报错而不是塞进模型上下文
+        if (hasNul(content)) {
+            throw BizException.badRequest("SKILL.md 含有 NUL 字节（不是文本文件），请检查仓库内容");
+        }
         try {
             return StandardCharsets.UTF_8
                     .newDecoder()
