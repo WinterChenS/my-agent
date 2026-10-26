@@ -7,6 +7,8 @@ import com.myagent.agentconfig.entity.Agent;
 import com.myagent.agentconfig.mapper.AgentMapper;
 import com.myagent.auth.entity.SysUser;
 import com.myagent.auth.mapper.SysUserMapper;
+import com.myagent.channelconfig.ChannelTypeDescriptor;
+import com.myagent.channelconfig.ChannelTypeRegistry;
 import com.myagent.channelconfig.dto.ChannelAppRequest;
 import com.myagent.channelconfig.dto.ChannelAppResponse;
 import com.myagent.channelconfig.dto.ChannelPeerResponse;
@@ -40,14 +42,6 @@ public class ChannelAppService {
 
     private static final Logger log = LoggerFactory.getLogger(ChannelAppService.class);
 
-    /** 支持的渠道类型（飞书后续接入，表结构已预留）。 */
-    public static final Set<String> SUPPORTED_TYPES = Set.of("DINGTALK", "FEISHU");
-
-    /** 会被掩码的敏感键（回显时替换成 ***）。 */
-    private static final Set<String> SECRET_KEYS = Set.of("appSecret", "encryptKey", "aesKey", "verificationToken");
-
-    /** 钉钉必填键。 */
-    private static final List<String> DINGTALK_REQUIRED = List.of("appKey", "appSecret", "robotCode");
 
     private final ChannelAppMapper appMapper;
     private final ChannelPeerMapper peerMapper;
@@ -55,6 +49,7 @@ public class ChannelAppService {
     private final SysUserMapper userMapper;
     private final CryptoService crypto;
     private final ApplicationEventPublisher events;
+    private final ChannelTypeRegistry typeRegistry;
     private final ObjectMapper json = new ObjectMapper();
 
     public ChannelAppService(
@@ -63,13 +58,15 @@ public class ChannelAppService {
             AgentMapper agentMapper,
             SysUserMapper userMapper,
             CryptoService crypto,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            ChannelTypeRegistry typeRegistry) {
         this.appMapper = appMapper;
         this.peerMapper = peerMapper;
         this.agentMapper = agentMapper;
         this.userMapper = userMapper;
         this.crypto = crypto;
         this.events = events;
+        this.typeRegistry = typeRegistry;
     }
 
     // ===================== 查询 =====================
@@ -211,8 +208,9 @@ public class ChannelAppService {
 
     private void validate(ChannelAppRequest request, ChannelApp existing) {
         String type = request.channelType() == null ? null : request.channelType().trim().toUpperCase();
-        if (type != null && !SUPPORTED_TYPES.contains(type)) {
-            throw BizException.badRequest("不支持的渠道类型: " + request.channelType());
+        if (type != null && !typeRegistry.supports(type)) {
+            throw BizException.badRequest("不支持的渠道类型: " + request.channelType()
+                    + "（已支持：" + typeRegistry.supportedTypes() + "）");
         }
         Agent agent = agentMapper.selectById(request.agentId());
         if (agent == null) {
@@ -233,10 +231,12 @@ public class ChannelAppService {
         String effectiveType = type != null
                 ? type
                 : (existing == null ? null : existing.getChannelType());
-        if ("DINGTALK".equals(effectiveType)) {
-            for (String key : DINGTALK_REQUIRED) {
+        ChannelTypeDescriptor descriptor = typeRegistry.find(effectiveType);
+        if (descriptor != null) {
+            for (String key : descriptor.requiredKeys()) {
                 if (isBlank(merged.get(key))) {
-                    throw BizException.badRequest("钉钉渠道缺少必填配置: " + key);
+                    throw BizException.badRequest(
+                            descriptor.displayName() + "渠道缺少必填配置: " + key);
                 }
             }
         }
@@ -290,8 +290,9 @@ public class ChannelAppService {
 
     private ChannelAppResponse toResponse(ChannelApp app) {
         Map<String, String> config = decryptConfig(app);
+        Set<String> secretKeys = typeRegistry.secretKeys(app.getChannelType());
         Map<String, String> masked = new LinkedHashMap<>();
-        config.forEach((key, value) -> masked.put(key, SECRET_KEYS.contains(key) && !isBlank(value) ? "***" : value));
+        config.forEach((key, value) -> masked.put(key, secretKeys.contains(key) && !isBlank(value) ? "***" : value));
         Agent agent = app.getAgentId() == null ? null : agentMapper.selectById(app.getAgentId());
         SysUser owner = app.getOwnerUserId() == null ? null : userMapper.selectById(app.getOwnerUserId());
         long peerCount = peerMapper.selectCount(
@@ -314,15 +315,18 @@ public class ChannelAppService {
                 app.getUpdatedAt());
     }
 
-    /** 飞书/钉钉 HTTP 回调模式的完整回调地址；Stream 模式返回 null。 */
+    /**
+     * HTTP 回调模式的回调地址（Stream 模式或该渠道无回调时返回 null）。
+     *
+     * <p>路径模板来自 {@link ChannelTypeRegistry}，不再按类型写 if。
+     */
     private String webhookPath(ChannelApp app, Map<String, String> config) {
         String mode = config.getOrDefault("mode", "stream");
-        if ("http".equalsIgnoreCase(mode)) {
-            return "DINGTALK".equals(app.getChannelType())
-                    ? "/api/channels/dingtalk/" + app.getId() + "/callback"
-                    : "/api/channels/feishu/" + app.getId() + "/callback";
+        if (!"http".equalsIgnoreCase(mode)) {
+            return null;
         }
-        return null;
+        ChannelTypeDescriptor descriptor = typeRegistry.find(app.getChannelType());
+        return descriptor == null ? null : descriptor.callbackPath(app.getId());
     }
 
     private static boolean isBlank(String value) {

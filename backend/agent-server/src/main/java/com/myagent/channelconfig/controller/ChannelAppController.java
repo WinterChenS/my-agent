@@ -1,6 +1,8 @@
 package com.myagent.channelconfig.controller;
 
 import com.myagent.auth.JwtPrincipal;
+import com.myagent.channelconfig.ChannelTypeDescriptor;
+import com.myagent.channelconfig.ChannelTypeRegistry;
 import com.myagent.channelconfig.dto.ChannelAppRequest;
 import com.myagent.channelconfig.dto.ChannelAppResponse;
 import com.myagent.channelconfig.dto.ChannelPeerResponse;
@@ -35,10 +37,23 @@ public class ChannelAppController {
 
     private final ChannelAppService service;
     private final ObjectProvider<ChannelPushPort> pushPort;
+    private final ChannelTypeRegistry typeRegistry;
 
-    public ChannelAppController(ChannelAppService service, ObjectProvider<ChannelPushPort> pushPort) {
+    public ChannelAppController(
+            ChannelAppService service,
+            ObjectProvider<ChannelPushPort> pushPort,
+            ChannelTypeRegistry typeRegistry) {
         this.service = service;
         this.pushPort = pushPort;
+        this.typeRegistry = typeRegistry;
+    }
+
+    /**
+     * 已支持的渠道类型及其配置项（管理页可据此动态渲染表单，加渠道不用改前端）。
+     */
+    @GetMapping("/types")
+    public Result<List<ChannelTypeDescriptor>> types() {
+        return Result.ok(typeRegistry.all());
     }
 
     @GetMapping

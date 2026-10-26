@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>HTTP 一律用 JDK 的 {@link HttpClient}（与 {@code SkillRepoFetcher} 一致，不引入新依赖）。
  */
-public class DingTalkMediaClient {
+public class DingTalkMediaClient implements ImMediaClient {
 
     private static final Logger log = LoggerFactory.getLogger(DingTalkMediaClient.class);
 
@@ -97,6 +97,7 @@ public class DingTalkMediaClient {
      *
      * @return 文件字节；失败抛 {@link ChannelMediaException}
      */
+    @Override
     public byte[] download(String downloadCode) {
         if (isBlank(downloadCode)) {
             throw new ChannelMediaException("downloadCode 为空");
@@ -157,6 +158,7 @@ public class DingTalkMediaClient {
      * @param fileName 文件名（决定扩展名与图片判定）
      * @param bytes 内容
      */
+    @Override
     public void sendMedia(boolean direct, String to, String fileName, byte[] bytes) {
         if (isBlank(to)) {
             throw new ChannelMediaException("缺少接收方");
@@ -302,19 +304,14 @@ public class DingTalkMediaClient {
 
     // ===================== 工具方法 =====================
 
+    /** 兼容入口：实际实现见 {@link MediaFiles}（中性工具，与渠道无关）。 */
     static boolean isImage(String fileName) {
-        return IMAGE_EXT.contains(extension(fileName));
+        return MediaFiles.isImage(fileName);
     }
 
+    /** 兼容入口：实际实现见 {@link MediaFiles}。 */
     static String extension(String fileName) {
-        if (fileName == null) {
-            return "";
-        }
-        int dot = fileName.lastIndexOf('.');
-        if (dot < 0 || dot == fileName.length() - 1) {
-            return "";
-        }
-        return fileName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        return MediaFiles.extension(fileName);
     }
 
     private static byte[] multipartBody(String boundary, String fileName, byte[] bytes) {
@@ -347,7 +344,7 @@ public class DingTalkMediaClient {
     }
 
     /** 媒体收发的业务异常（渠道层会把它转成给用户的提示）。 */
-    public static class ChannelMediaException extends RuntimeException {
+    public static class ChannelMediaException extends ImMediaClient.MediaException {
 
         public ChannelMediaException(String message) {
             super(message);

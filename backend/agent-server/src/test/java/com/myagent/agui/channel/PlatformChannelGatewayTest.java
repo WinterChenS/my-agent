@@ -44,7 +44,7 @@ class PlatformChannelGatewayTest {
     private com.myagent.agui.AgentFactory agentFactory;
     private com.myagent.artifact.service.ArtifactService artifactService;
     private com.myagent.artifact.service.ArtifactCaptureService artifactCaptureService;
-    private DingTalkMediaClientFactory mediaClientFactory;
+    private ImMediaClientFactory mediaClientFactory;
     private HarnessAgent agent;
 
     private PlatformChannelGateway gateway;
@@ -58,7 +58,7 @@ class PlatformChannelGatewayTest {
         agentFactory = mock(com.myagent.agui.AgentFactory.class);
         artifactService = mock(com.myagent.artifact.service.ArtifactService.class);
         artifactCaptureService = mock(com.myagent.artifact.service.ArtifactCaptureService.class);
-        mediaClientFactory = mock(DingTalkMediaClientFactory.class);
+        mediaClientFactory = mock(ImMediaClientFactory.class);
         agent = mock(HarnessAgent.class);
 
         gateway = new PlatformChannelGateway(
@@ -121,9 +121,9 @@ class PlatformChannelGatewayTest {
 
     @Test
     void mime按扩展名推断() {
-        assertThat(PlatformChannelGateway.guessMime("a.PNG")).isEqualTo("image/png");
-        assertThat(PlatformChannelGateway.guessMime("a.pdf")).isEqualTo("application/pdf");
-        assertThat(PlatformChannelGateway.guessMime("a.unknown")).isEqualTo("application/octet-stream");
+        assertThat(MediaFiles.guessMime("a.PNG")).isEqualTo("image/png");
+        assertThat(MediaFiles.guessMime("a.pdf")).isEqualTo("application/pdf");
+        assertThat(MediaFiles.guessMime("a.unknown")).isEqualTo("application/octet-stream");
     }
 
     // ===================== 端到端（Mock） =====================
@@ -148,7 +148,7 @@ class PlatformChannelGatewayTest {
     @Test
     void 入站图片_非多模态模型时不塞图片块而是提示() {
         when(agentFactory.isMultimodal(7L)).thenReturn(false);
-        DingTalkMediaClient client = mock(DingTalkMediaClient.class);
+        ImMediaClient client = mock(ImMediaClient.class);
         when(mediaClientFactory.get(any())).thenReturn(client);
         when(client.download("code-1")).thenReturn(new byte[] {1, 2, 3});
         when(agent.stream(anyList(), any(StreamOptions.class), any(RuntimeContext.class)))
@@ -183,7 +183,7 @@ class PlatformChannelGatewayTest {
 
     @Test
     void 入站Excel_直接给原文件路径让模型用python读_不再生成txt() {
-        DingTalkMediaClient client = mock(DingTalkMediaClient.class);
+        ImMediaClient client = mock(ImMediaClient.class);
         when(mediaClientFactory.get(any())).thenReturn(client);
         when(client.download("code-x")).thenReturn(new byte[] {1, 2, 3});
         when(agent.stream(anyList(), any(StreamOptions.class), any(RuntimeContext.class)))
@@ -225,7 +225,7 @@ class PlatformChannelGatewayTest {
         when(artifactService.list(any(), any()))
                 .thenReturn(List.of())            // 开跑前快照为空
                 .thenReturn(List.of(png));        // 跑完后多了一个 png
-        DingTalkMediaClient client = mock(DingTalkMediaClient.class);
+        ImMediaClient client = mock(ImMediaClient.class);
         when(mediaClientFactory.get(any())).thenReturn(client);
         when(artifactService.contentBytes(eq(1L), eq(900L))).thenReturn("PNG".getBytes());
         when(agent.stream(anyList(), any(StreamOptions.class), any(RuntimeContext.class)))

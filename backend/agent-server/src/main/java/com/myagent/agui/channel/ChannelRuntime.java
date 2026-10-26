@@ -15,6 +15,7 @@ import io.agentscope.harness.agent.gateway.channel.Channel;
 import io.agentscope.harness.agent.gateway.channel.ChannelConfig;
 import io.agentscope.harness.agent.gateway.channel.OutboundAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +35,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>门禁 G8：渠道协议、消息解析、Stream 长连接、出站文本全部走官方
  * {@link DingTalkChannel}；我们只补两件官方没有的东西——<b>媒体收发</b>
- * （{@link DingTalkMediaClient}）和<b>入站去重/token 的持久化</b>（官方 SPI 的实现）。
+ * （{@link DingTalkMediaClient} 的 {@link ImMediaClient} 实现）和<b>入站去重/token 的持久化</b>（官方 SPI 的实现）。
  *
  * <p>为什么生命周期要自己管而不是用 {@code GatewayBootstrap}：一个平台里可能有多个
  * 机器人（多个 Agent），每个都要独立启停、独立凭据、独立去重表；官方 bootstrap 是"单网关"模型。
@@ -46,11 +47,14 @@ public class ChannelRuntime implements ChannelPushPort {
 
     private final ChannelAppService channelAppService;
     private final PlatformChannelGateway gateway;
-    private final DingTalkMediaClientFactory mediaClientFactory;
+    private final ImMediaClientFactory mediaClientFactory;
     private final com.myagent.artifact.service.ArtifactService artifactService;
     private final ChannelPeerMapper peerMapper;
     private final com.myagent.agui.AguiProperties aguiProperties;
     private final JdbcTemplate jdbc;
+
+    /** 各渠道的构造器（按 channelType 查；加新渠道只需新增一个 Bean）。 */
+    private final Map<String, ImChannelBuilder> builders = new HashMap<>();
 
     private final ChannelManager channelManager = new ChannelManager();
     /** 串行执行起停，避免"改配置 + 手动重启"并发把渠道建成两份。 */
@@ -64,11 +68,15 @@ public class ChannelRuntime implements ChannelPushPort {
     public ChannelRuntime(
             ChannelAppService channelAppService,
             PlatformChannelGateway gateway,
-            DingTalkMediaClientFactory mediaClientFactory,
+            ImMediaClientFactory mediaClientFactory,
             com.myagent.artifact.service.ArtifactService artifactService,
             ChannelPeerMapper peerMapper,
             com.myagent.agui.AguiProperties aguiProperties,
+            java.util.List<ImChannelBuilder> builderBeans,
             JdbcTemplate jdbc) {
+        for (ImChannelBuilder builder : builderBeans) {
+            builders.put(builder.channelType().toUpperCase(java.util.Locale.ROOT), builder);
+        }
         this.channelAppService = channelAppService;
         this.gateway = gateway;
         this.mediaClientFactory = mediaClientFactory;
@@ -135,24 +143,26 @@ public class ChannelRuntime implements ChannelPushPort {
     /** 启动一个渠道（幂等：已在跑会先停）。 */
     public void start(Long appId) {
         ChannelApp app = channelAppService.require(appId);
-        if (!"DINGTALK".equals(app.getChannelType())) {
-            channelAppService.markStatus(appId, "ERROR", "该渠道类型暂未接入（当前支持钉钉）");
+        ImChannelBuilder builder = builderFor(app.getChannelType());
+        if (builder == null) {
+            channelAppService.markStatus(appId, "ERROR",
+                    "该渠道类型暂未接入运行时（已接入：" + builders.keySet() + "）");
             return;
         }
         Map<String, String> config = channelAppService.config(appId);
         try {
-            // 先验一次凭据：官方 Stream 客户端连不上时只在后台不断重试并打日志，
-            // 管理页会一直显示"运行中"，用户根本不知道是 appKey/appSecret 错了。
-            DingTalkMediaClient.fromConfig(config).v1Token();
-            Channel channel = buildDingTalk(app, config);
+            // 先验一次凭据：官方长连接客户端鉴权失败只在后台重试并打日志，
+            // 管理页会一直显示"运行中"，用户根本不知道是凭据错了。
+            builder.preflight(app, config);
+            Channel channel = builder.build(app, config, new ImChannelBuilder.BuildContext(jdbc));
             channel.init(gateway);
             channel.start();
             channelManager.register(channel);
             channelAppService.markStatus(appId, "RUNNING", null);
-            log.info("钉钉渠道已启动 appId={} name={} mode={}", appId, app.getName(),
-                    config.getOrDefault("mode", "stream"));
+            log.info("渠道已启动 type={} appId={} name={} mode={}", app.getChannelType(), appId,
+                    app.getName(), config.getOrDefault("mode", "stream"));
         } catch (Exception ex) {
-            log.error("钉钉渠道启动失败 appId={}: {}", appId, ex.toString(), ex);
+            log.error("渠道启动失败 type={} appId={}: {}", app.getChannelType(), appId, ex.toString(), ex);
             channelAppService.markStatus(appId, "ERROR", rootMessage(ex));
         }
     }
@@ -170,16 +180,15 @@ public class ChannelRuntime implements ChannelPushPort {
         channelAppService.markStatus(appId, "STOPPED", null);
     }
 
-    private Channel buildDingTalk(ChannelApp app, Map<String, String> config) {
-        Map<String, Object> props = new LinkedHashMap<>();
-        props.putAll(config);
-        props.putIfAbsent("mode", "stream");
-        // channelId 用数据库 id：回调地址与渠道实例一一对应，也便于日志排查
-        String channelId = String.valueOf(app.getId());
-        ChannelConfig channelConfig = ChannelConfig.of(channelId, String.valueOf(app.getAgentId()));
-        InboundEventDeduplicator dedupe = new PgInboundEventDeduplicator(jdbc, app.getId());
-        PgAccessTokenStore tokenStore = new PgAccessTokenStore(jdbc, app.getId());
-        return DingTalkChannel.fromProperties(channelId, channelConfig, props, dedupe, tokenStore);
+    private ImChannelBuilder builderFor(String channelType) {
+        return channelType == null
+                ? null
+                : builders.get(channelType.trim().toUpperCase(java.util.Locale.ROOT));
+    }
+
+    /** 已接入运行时的渠道类型（管理页/排障用）。 */
+    public java.util.Set<String> runtimeChannelTypes() {
+        return java.util.Set.copyOf(builders.keySet());
     }
 
     // ===================== 主动推送 =====================
@@ -224,7 +233,7 @@ public class ChannelRuntime implements ChannelPushPort {
         if (workspacePaths == null || workspacePaths.isEmpty()) {
             return sent;
         }
-        DingTalkMediaClient client = mediaClientFactory.get(app);
+        ImMediaClient client = mediaClientFactory.get(app);
         if (client == null) {
             return sent;
         }
@@ -265,7 +274,7 @@ public class ChannelRuntime implements ChannelPushPort {
         if (artifactIds == null || artifactIds.isEmpty()) {
             return 0;
         }
-        DingTalkMediaClient client = mediaClientFactory.get(app);
+        ImMediaClient client = mediaClientFactory.get(app);
         if (client == null) {
             return 0;
         }

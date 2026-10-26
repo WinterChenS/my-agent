@@ -65,7 +65,7 @@ public class PlatformChannelGateway implements Gateway {
     private final com.myagent.agui.AgentFactory agentFactory;
     private final ArtifactService artifactService;
     private final ArtifactCaptureService artifactCaptureService;
-    private final DingTalkMediaClientFactory mediaClientFactory;
+    private final ImMediaClientFactory mediaClientFactory;
 
     /**
      * 是否启用了命令执行（{@code myagent.shell.enabled}）。
@@ -81,7 +81,7 @@ public class PlatformChannelGateway implements Gateway {
             com.myagent.agui.AgentFactory agentFactory,
             ArtifactService artifactService,
             ArtifactCaptureService artifactCaptureService,
-            DingTalkMediaClientFactory mediaClientFactory,
+            ImMediaClientFactory mediaClientFactory,
             @org.springframework.beans.factory.annotation.Value("${myagent.shell.enabled:true}")
                     boolean shellEnabled) {
         this.shellEnabled = shellEnabled;
@@ -286,7 +286,7 @@ public class PlatformChannelGateway implements Gateway {
                         kind,
                         str(metadata.get(ChannelMediaMetadata.ID)),
                         fileName,
-                        guessMime(fileName),
+                        MediaFiles.guessMime(fileName),
                         str(metadata.get(ChannelMediaMetadata.RECOGNITION))));
                 if (rawText.isBlank()) {
                     rawText = msg.getTextContent();
@@ -307,7 +307,7 @@ public class PlatformChannelGateway implements Gateway {
             notes.add("（用户发来一段语音，转写如下）" + media.recognition());
             return;
         }
-        DingTalkMediaClient client = mediaClientFactory.get(app);
+        ImMediaClient client = mediaClientFactory.get(app);
         if (client == null) {
             notes.add("（收到一个" + kindLabel(media.kind()) + "：" + media.fileName() + "，该渠道暂不支持下载）");
             return;
@@ -355,7 +355,7 @@ public class PlatformChannelGateway implements Gateway {
         if (target == null) {
             return;
         }
-        DingTalkMediaClient client = mediaClientFactory.get(app);
+        ImMediaClient client = mediaClientFactory.get(app);
         if (client == null) {
             return;
         }
@@ -407,7 +407,7 @@ public class PlatformChannelGateway implements Gateway {
     }
 
     private static boolean isImageName(String fileName) {
-        return DingTalkMediaClient.isImage(fileName);
+        return MediaFiles.isImage(fileName);
     }
 
     // ===================== 辅助 =====================
@@ -578,25 +578,6 @@ public class PlatformChannelGateway implements Gateway {
         };
     }
 
-    static String guessMime(String fileName) {
-        String ext = DingTalkMediaClient.extension(fileName);
-        return switch (ext) {
-            case "png" -> "image/png";
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "gif" -> "image/gif";
-            case "webp" -> "image/webp";
-            case "pdf" -> "application/pdf";
-            case "md" -> "text/markdown";
-            case "txt" -> "text/plain";
-            case "csv" -> "text/csv";
-            case "json" -> "application/json";
-            case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-            case "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-            case "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-            case "zip" -> "application/zip";
-            default -> "application/octet-stream";
-        };
-    }
 
     private static String rootMessage(Throwable ex) {
         Throwable current = ex;
