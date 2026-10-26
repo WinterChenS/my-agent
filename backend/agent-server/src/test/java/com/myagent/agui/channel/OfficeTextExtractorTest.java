@@ -3,10 +3,13 @@ package com.myagent.agui.channel;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
@@ -28,6 +31,65 @@ class OfficeTextExtractorTest {
             }
         }
         return out.toByteArray();
+    }
+
+    /**
+     * 造一个「本地头里 size=0」的 ZIP（WPS 等工具的流式写法）。
+     *
+     * <p>这正是用户实测踩到的包：{@code ZipInputStream} 会抛
+     * {@code ZipException: invalid entry size (expected 0 but got N)}，必须走 ZipFile。
+     */
+    private static byte[] streamingZip(Map<String, String> entries) throws Exception {
+        java.io.ByteArrayOutputStream out = new ByteArrayOutputStream();
+        java.util.List<byte[]> central = new java.util.ArrayList<>();
+        java.util.List<Integer> offsets = new java.util.ArrayList<>();
+        for (Map.Entry<String, String> entry : entries.entrySet()) {
+            byte[] name = entry.getKey().getBytes(StandardCharsets.UTF_8);
+            byte[] data = entry.getValue().getBytes(StandardCharsets.UTF_8);
+            CRC32 crc = new CRC32();
+            crc.update(data);
+            int offset = out.size();
+            offsets.add(offset);
+            // local header：size/compSize 故意写 0，且不带 data descriptor
+            ByteBuffer head = ByteBuffer.allocate(30 + name.length).order(ByteOrder.LITTLE_ENDIAN);
+            head.putInt(0x04034b50).putShort((short) 10).putShort((short) 0).putShort((short) 0)
+                    .putShort((short) 0).putShort((short) 0).putInt((int) crc.getValue())
+                    .putInt(0).putInt(0).putShort((short) name.length).putShort((short) 0).put(name);
+            out.write(head.array());
+            out.write(data);
+            ByteBuffer cd = ByteBuffer.allocate(46 + name.length).order(ByteOrder.LITTLE_ENDIAN);
+            cd.putInt(0x02014b50).putShort((short) 10).putShort((short) 10).putShort((short) 0)
+                    .putShort((short) 0).putShort((short) 0).putShort((short) 0)
+                    .putInt((int) crc.getValue()).putInt(data.length).putInt(data.length)
+                    .putShort((short) name.length).putShort((short) 0).putShort((short) 0)
+                    .putShort((short) 0).putShort((short) 0).putInt(0).putInt(offset).put(name);
+            central.add(cd.array());
+        }
+        int cdStart = out.size();
+        for (byte[] cd : central) {
+            out.write(cd);
+        }
+        int cdSize = out.size() - cdStart;
+        ByteBuffer eocd = ByteBuffer.allocate(22).order(ByteOrder.LITTLE_ENDIAN);
+        eocd.putInt(0x06054b50).putShort((short) 0).putShort((short) 0)
+                .putShort((short) central.size()).putShort((short) central.size())
+                .putInt(cdSize).putInt(cdStart).putShort((short) 0);
+        out.write(eocd.array());
+        return out.toByteArray();
+    }
+
+    @Test
+    void 流式写入的xlsx_本地头size为0_也能解析() throws Exception {
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("xl/sharedStrings.xml", "<sst><si><t>商品</t></si></sst>");
+        files.put("xl/worksheets/sheet1.xml",
+                "<worksheet><sheetData><row><c t=\"s\"><v>0</v></c><c><v>9.9</v></c></row></sheetData></worksheet>");
+
+        Optional<OfficeTextExtractor.Extracted> result =
+                OfficeTextExtractor.extract("wps.xlsx", streamingZip(files));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().text()).contains("商品	9.9");
     }
 
     @Test

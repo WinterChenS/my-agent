@@ -225,21 +225,43 @@ public final class OfficeTextExtractor {
 
     // ===================== 通用 =====================
 
-    /** 读取 ZIP 中匹配的条目（只保留小文件，避免解压炸弹）。 */
+    /**
+     * 读取 ZIP 中匹配的条目（只保留小文件，避免解压炸弹）。
+     *
+     * <p>**必须走 {@link java.util.zip.ZipFile}（中央目录），不能用 {@link ZipInputStream} 顺序读**：
+     * 实测用户发来的 WPS 导出的 xlsx，本地头里的 size 是 0（流式写入），ZipInputStream 会直接抛
+     * {@code ZipException: invalid entry size (expected 0 but got 1053 bytes)} —— 表象就是"表格解析失败"。
+     * ZipFile 按中央目录读，对这种包是稳的。
+     */
     private static Map<String, byte[]> readZip(byte[] bytes, java.util.function.Predicate<String> filter)
             throws Exception {
         Map<String, byte[]> result = new LinkedHashMap<>();
-        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(bytes))) {
-            ZipEntry entry;
-            while ((entry = zip.getNextEntry()) != null) {
-                if (entry.isDirectory() || !filter.test(entry.getName())) {
-                    continue;
+        java.nio.file.Path temp = java.nio.file.Files.createTempFile("office-extract-", ".zip");
+        try {
+            java.nio.file.Files.write(temp, bytes);
+            try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(temp.toFile())) {
+                java.util.Enumeration<? extends ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    if (entry.isDirectory() || !filter.test(entry.getName())) {
+                        continue;
+                    }
+                    if (entry.getSize() > MAX_INPUT_BYTES) {
+                        continue;
+                    }
+                    try (java.io.InputStream in = zip.getInputStream(entry)) {
+                        byte[] content = in.readAllBytes();
+                        if (content.length <= MAX_INPUT_BYTES) {
+                            result.put(entry.getName(), content);
+                        }
+                    }
                 }
-                byte[] content = zip.readAllBytes();
-                if (content.length > MAX_INPUT_BYTES) {
-                    continue;
-                }
-                result.put(entry.getName(), content);
+            }
+        } finally {
+            try {
+                java.nio.file.Files.deleteIfExists(temp);
+            } catch (java.io.IOException ignored) {
+                // 临时文件删不掉不影响解析结果
             }
         }
         return result;

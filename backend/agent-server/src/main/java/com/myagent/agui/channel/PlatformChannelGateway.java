@@ -304,7 +304,10 @@ public class PlatformChannelGateway implements Gateway {
                 return;
             }
             artifactService.store(app.getOwnerUserId(), session.getId(),
-                    ArtifactService.ROLE_SOURCE, media.fileName(), media.mime(), bytes, true);
+                    ArtifactService.ROLE_SOURCE, media.fileName(), media.mime(), bytes, false);
+            // store() 本身不物化（注释写明"由 upload() 负责"），IM 路径必须自己落到工作区，
+            // 否则模型 read_file 永远 File not found（实测踩过）。
+            materializeOriginal(app, media.fileName(), bytes);
             if ("image".equals(media.kind())) {
                 notes.add("（用户发来一张图片：" + media.fileName()
                         + "，已放入工作区；当前模型不支持看图，可忽略或提示用户换多模态模型）");
@@ -443,6 +446,15 @@ public class PlatformChannelGateway implements Gateway {
         return "（用户上传了" + label + "：" + safeName + "，原始文件：" + path
                 + "；已转成文本：" + "uploads/" + sidecar
                 + "，可直接 read_file 该文本）\n内容预览：\n" + preview;
+    }
+
+    /** 把入站文件原样落到工作区 uploads/（失败只告警，不影响这一轮对话）。 */
+    private void materializeOriginal(ChannelApp app, String fileName, byte[] bytes) {
+        try {
+            artifactService.materialize(String.valueOf(app.getOwnerUserId()), bytes, fileName);
+        } catch (Exception ex) {
+            log.warn("物化入站文件失败 {}: {}", fileName, ex.toString());
+        }
     }
 
     private static String joinText(String text, List<String> notes) {

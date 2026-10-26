@@ -171,10 +171,11 @@ class PlatformChannelGatewayTest {
                 MsgContext.defaultContext(), List.of(text("")), address(), null, withImage).block();
 
         assertThat(reply.getTextContent()).isEqualTo("收到图片");
-        // 图片落到会话产物（工作区），正文里带上"不支持看图"的说明
+        // 图片落到会话产物 + 显式物化到工作区（store 本身不物化），正文里带上"不支持看图"的说明
         verify(artifactService).store(
                 eq(1L), eq(100L), eq(com.myagent.artifact.service.ArtifactService.ROLE_SOURCE),
-                eq("a.png"), anyString(), any(), eq(true));
+                eq("a.png"), anyString(), any(), eq(false));
+        verify(artifactService).materialize(eq("1"), any(), eq("a.png"));
         verify(sessionBridge).appendUserMessage(
                 eq(session), org.mockito.ArgumentMatchers.contains("不支持看图"), any());
     }
