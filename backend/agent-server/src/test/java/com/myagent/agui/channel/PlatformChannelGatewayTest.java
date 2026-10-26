@@ -62,7 +62,7 @@ class PlatformChannelGatewayTest {
 
         gateway = new PlatformChannelGateway(
                 channelAppService, sessionBridge, agentFactory,
-                artifactService, artifactCaptureService, mediaClientFactory);
+                artifactService, artifactCaptureService, mediaClientFactory, true);
 
         app = new ChannelApp();
         app.setId(1L);
@@ -178,6 +178,41 @@ class PlatformChannelGatewayTest {
         verify(artifactService).materialize(eq("1"), any(), eq("a.png"));
         verify(sessionBridge).appendUserMessage(
                 eq(session), org.mockito.ArgumentMatchers.contains("不支持看图"), any());
+    }
+
+    @Test
+    void 入站Excel_直接给原文件路径让模型用python读_不再生成txt() {
+        DingTalkMediaClient client = mock(DingTalkMediaClient.class);
+        when(mediaClientFactory.get(any())).thenReturn(client);
+        when(client.download("code-x")).thenReturn(new byte[] {1, 2, 3});
+        when(agent.stream(anyList(), any(StreamOptions.class), any(RuntimeContext.class)))
+                .thenReturn(Flux.just(new Event(EventType.AGENT_RESULT, text("好"), true)));
+
+        InboundMessage withFile = InboundMessage.builder(
+                        "1", Peer.direct("staff-1"),
+                        List.of(Msg.builder()
+                                .role(MsgRole.USER)
+                                .textContent("[file: 白名单.xlsx]")
+                                .metadata(Map.of(
+                                        "channelMediaKind", "file",
+                                        "channelMediaId", "code-x",
+                                        "channelMediaFileName", "白名单.xlsx",
+                                        "channelMessageId", "m2"))
+                                .build()))
+                .senderId("staff-1")
+                .build();
+
+        gateway.run(MsgContext.defaultContext(), List.of(text("")), address(), null, withFile).block();
+
+        // 原文件必须物化到工作区（模型自己读）
+        verify(artifactService).materialize(eq("1"), any(), eq("白名单.xlsx"));
+        // 不能再生成 .txt 旁挂文件
+        verify(artifactService, never()).materialize(eq("1"), any(), eq("白名单.xlsx.txt"));
+        // 提示里给路径 + 指向 execute
+        verify(sessionBridge).appendUserMessage(
+                eq(session), org.mockito.ArgumentMatchers.contains("uploads/白名单.xlsx"), any());
+        verify(sessionBridge).appendUserMessage(
+                eq(session), org.mockito.ArgumentMatchers.contains("execute"), any());
     }
 
     @Test

@@ -67,13 +67,24 @@ public class PlatformChannelGateway implements Gateway {
     private final ArtifactCaptureService artifactCaptureService;
     private final DingTalkMediaClientFactory mediaClientFactory;
 
+    /**
+     * 是否启用了命令执行（{@code myagent.shell.enabled}）。
+     *
+     * <p>决定「Office 文件怎么给模型」：可用命令执行时**直接给原文件路径**，让模型自己用
+     * python/openpyxl 读（原表是唯一事实来源）；不可用时才退化成抽好的纯文本旁挂文件。
+     */
+    private final boolean shellEnabled;
+
     public PlatformChannelGateway(
             ChannelAppService channelAppService,
             ChannelSessionBridge sessionBridge,
             com.myagent.agui.AgentFactory agentFactory,
             ArtifactService artifactService,
             ArtifactCaptureService artifactCaptureService,
-            DingTalkMediaClientFactory mediaClientFactory) {
+            DingTalkMediaClientFactory mediaClientFactory,
+            @org.springframework.beans.factory.annotation.Value("${myagent.shell.enabled:true}")
+                    boolean shellEnabled) {
+        this.shellEnabled = shellEnabled;
         this.channelAppService = channelAppService;
         this.sessionBridge = sessionBridge;
         this.agentFactory = agentFactory;
@@ -447,15 +458,28 @@ public class PlatformChannelGateway implements Gateway {
         String safeName = ArtifactService.safeFileName(media.fileName());
         String path = "uploads/" + safeName;
         String label = kindLabel(media.kind());
-        if (!"file".equals(media.kind()) || !OfficeTextExtractor.supports(safeName)) {
-            return "（用户上传了" + label + "：" + safeName + "，工作区路径：" + path
-                    + "，可用 read_file 读取）";
+        String size = bytes == null ? "未知" : String.format(java.util.Locale.ROOT, "%.1f KB", bytes.length / 1024.0);
+        String basic = "（用户上传了" + label + "：" + safeName + "，工作区路径：" + path + "，" + size;
+
+        // 首选：让模型自己用 python 读原文件。原表是唯一事实来源，转文本会丢格式/公式/多表关系。
+        if (shellEnabled && "file".equals(media.kind())) {
+            String hint = OfficeTextExtractor.supports(safeName)
+                    ? "。这是 Excel/Word/PPT，请用 execute 跑 python 读取（openpyxl/python-docx/python-pptx 已可用，"
+                            + "缺库会自动安装），例如 python -c \"import openpyxl;wb=openpyxl.load_workbook('"
+                            + path + "',data_only=True);print(wb.sheetnames)\"" 
+                    : "。可用 execute 跑命令处理它（例如 python 读取、或 file/head 查看）";
+            return basic + hint + "）";
         }
+
+        if (!"file".equals(media.kind()) || !OfficeTextExtractor.supports(safeName)) {
+            return basic + "，可用 read_file 读取）";
+        }
+
+        // 兜底（未启用命令执行时）：抽成纯文本旁挂文件，让模型至少能"看"内容
         java.util.Optional<OfficeTextExtractor.Extracted> extracted =
                 OfficeTextExtractor.extract(safeName, bytes);
         if (extracted.isEmpty()) {
-            return "（用户上传了" + label + "：" + safeName + "，工作区路径：" + path
-                    + "；这是二进制文件，解析失败，可告知用户换个格式或直接问内容）";
+            return basic + "；这是二进制文件，解析失败，可告知用户换个格式或直接问内容）";
         }
         String sidecar = OfficeTextExtractor.sidecarName(safeName);
         try {
@@ -470,8 +494,7 @@ public class PlatformChannelGateway implements Gateway {
         if (preview.length() > 800) {
             preview = preview.substring(0, 800) + "\n…（完整内容见文件）";
         }
-        return "（用户上传了" + label + "：" + safeName + "，原始文件：" + path
-                + "；已转成文本：" + "uploads/" + sidecar
+        return basic + "；未启用命令执行，已转成文本 uploads/" + sidecar
                 + "，可直接 read_file 该文本）\n内容预览：\n" + preview;
     }
 
