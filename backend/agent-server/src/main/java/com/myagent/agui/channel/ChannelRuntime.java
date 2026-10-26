@@ -199,7 +199,8 @@ public class ChannelRuntime implements ChannelPushPort {
             sendText(app, address, text);
             sent += 1;
         }
-        sent += sendArtifacts(app, address, peer.getPeerKind(), artifactIds);
+        // 发媒体必须用裸 peer id（address.to 是 "channelId:KIND:id" 复合串，钉钉会报 staffId.notExisted）
+        sent += sendArtifacts(app, peer.getPeerKey(), peer.getPeerKind(), artifactIds);
         return sent;
     }
 
@@ -211,7 +212,7 @@ public class ChannelRuntime implements ChannelPushPort {
     }
 
     private int sendArtifacts(
-            ChannelApp app, OutboundAddress address, String peerKind, List<Long> artifactIds) {
+            ChannelApp app, String peerId, String peerKind, List<Long> artifactIds) {
         if (artifactIds == null || artifactIds.isEmpty()) {
             return 0;
         }
@@ -227,7 +228,7 @@ public class ChannelRuntime implements ChannelPushPort {
                 if (content == null || content.bytes() == null || content.bytes().length == 0) {
                     continue;
                 }
-                client.sendMedia(direct, address.to(), content.fileName(), content.bytes());
+                client.sendMedia(direct, peerId, content.fileName(), content.bytes());
                 sent += 1;
             } catch (Exception ex) {
                 log.warn("推送产物失败 artifactId={}: {}", artifactId, ex.toString());

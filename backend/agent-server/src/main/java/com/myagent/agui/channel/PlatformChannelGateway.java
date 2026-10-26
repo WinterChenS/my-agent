@@ -165,7 +165,8 @@ public class PlatformChannelGateway implements Gateway {
             safeEndRun(app, session, workspaceSnapshot, runId);
 
             // 6) 把本轮产物发回 IM（只发文件/图片，不混进正文）
-            sendAttachments(app, session, runId, address, peerIsDirect(inbound));
+            sendAttachments(
+                    app, session, runId, address, ChannelSessionBridge.peerKey(inbound), peerIsDirect(inbound));
             return textMsg(answer);
         } catch (Exception ex) {
             log.warn("IM run 失败 appId={}: {}", app.getId(), ex.toString(), ex);
@@ -193,7 +194,12 @@ public class PlatformChannelGateway implements Gateway {
                 .doOnNext(event -> accumulate(event, answer))
                 .blockLast();
         String result = answer.toString().strip();
-        return result.isEmpty() ? "（这轮没有产生文字回复）" : result;
+        if (result.isEmpty()) {
+            log.warn("模型这一轮没有产出可见正文 sessionId={}（上下文里可能有工具失败，如 execute 不存在）",
+                    session.getId());
+            return "（这轮没有产出可见回复，可能上一步工具调用失败了。可以让我换种方式重试，或把需求说得具体些。）";
+        }
+        return result;
     }
 
     /** 只累积「正文」增量：思考、工具调用、工具结果一律丢弃（需求 3）。 */
@@ -327,8 +333,10 @@ public class PlatformChannelGateway implements Gateway {
             ChatSession session,
             String runId,
             OutboundAddress address,
+            String fallbackPeerId,
             boolean direct) {
-        if (address == null || address.to() == null || address.to().isBlank()) {
+        String target = peerIdOf(address, fallbackPeerId);
+        if (target == null) {
             return;
         }
         DingTalkMediaClient client = mediaClientFactory.get(app);
@@ -354,7 +362,7 @@ public class PlatformChannelGateway implements Gateway {
                 if (content.bytes() == null || content.bytes().length == 0) {
                     continue;
                 }
-                client.sendMedia(direct, address.to(), content.fileName(), content.bytes());
+                client.sendMedia(direct, target, content.fileName(), content.bytes());
             } catch (Exception ex) {
                 log.warn("发送产物到 IM 失败 artifactId={}: {}", artifact.id(), ex.toString());
             }
@@ -395,6 +403,25 @@ public class PlatformChannelGateway implements Gateway {
             log.warn("渠道应用不存在 channelId={}", channelId);
             return null;
         }
+    }
+
+    /**
+     * 从 {@link OutboundAddress#to()} 里取「裸 peer id」。
+     *
+     * <p>钉钉渠道把 to 存成 {@code "<channelId>:<KIND>:<id>"}（官方出站客户端自己会拆），
+     * 但我们直接调钉钉发媒体接口时**必须**用裸 id，否则报
+     * {@code staffId.notExisted}（实测踩过）。
+     */
+    static String peerIdOf(OutboundAddress address, String fallback) {
+        String to = address == null ? null : address.to();
+        if (to == null || to.isBlank()) {
+            return fallback == null || fallback.isBlank() ? null : fallback;
+        }
+        String[] parts = to.split(":", 3);
+        String raw = parts.length == 3 ? parts[2] : to;
+        return raw == null || raw.isBlank()
+                ? (fallback == null || fallback.isBlank() ? null : fallback)
+                : raw;
     }
 
     private static boolean peerIsDirect(InboundMessage inbound) {
