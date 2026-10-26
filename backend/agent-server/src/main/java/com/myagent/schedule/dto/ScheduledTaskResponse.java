@@ -17,6 +17,8 @@ public record ScheduledTaskResponse(
         String scheduleText,
         String prompt,
         String targetType,
+        /** 目标的人类可读描述，例如「IM · 钉钉机器人 / 张三」「会话 #2159」「只记录」。 */
+        String targetText,
         Long chatSessionId,
         Long channelAppId,
         String peerKey,

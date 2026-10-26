@@ -64,7 +64,8 @@ public class ScheduleTaskTool implements AgentTool {
                 + "可选 IM / SESSION / NONE 显式指定。"
                 + "prompt 要写成**独立可执行**的指令（到点没人补充上下文），例如"
                 + "「把昨天 uploads 里的销售表汇总成 3 条要点」。"
-                + "创建成功后告诉用户任务 id、计划与下次执行时间。"; 
+                + "任务执行时如果你生成了文件（报告文档、图表等），平台会自动把它们随结果一起发出去。"
+                + "创建成功后告诉用户任务 id、计划与下次执行时间。";
     }
 
     @Override

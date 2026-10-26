@@ -19,6 +19,8 @@ export interface ScheduledTaskInfo {
   scheduleText: string;
   prompt: string;
   targetType: TaskTarget;
+  /** 目标的人类可读描述（IM · 渠道#2 peer / 会话 #2159 / 只记录） */
+  targetText?: string;
   chatSessionId: number | null;
   channelAppId: number | null;
   peerKey: string | null;
@@ -43,6 +45,8 @@ export interface ScheduledTaskPayload {
   timezone?: string;
   prompt: string;
   targetType: TaskTarget;
+  /** 目标的人类可读描述（IM · 渠道#2 peer / 会话 #2159 / 只记录） */
+  targetText?: string;
   chatSessionId?: number | null;
   channelAppId?: number | null;
   peerKey?: string | null;
@@ -60,6 +64,41 @@ export interface ScheduledTaskRunInfo {
   durationMs: number | null;
   outputPreview: string | null;
   error: string | null;
+}
+
+export interface SchedulePreview {
+  scheduleText: string;
+  nextRuns: string[];
+}
+
+/** 计划预览：保存前先把"接下来 5 次"算出来给用户看，避免表达式写错。 */
+export function previewSchedule(payload: {
+  scheduleType: ScheduleType;
+  cronExpr?: string | null;
+  intervalMinutes?: number | null;
+  onceAt?: string | null;
+  timezone?: string;
+  count?: number;
+}) {
+  return apiFetch<SchedulePreview>("/api/scheduled-tasks/preview", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, count: payload.count ?? 5 }),
+  });
+}
+
+/** 已绑定的 IM 接收人（用于把任务结果推到指定的人/群）。 */
+export function listChannelPeers(channelId: number) {
+  return apiFetch<
+    { id: number; peerKey: string; peerKind: string; peerName: string | null }[]
+  >(`/api/channels/${channelId}/peers`);
+}
+
+/** 绑定一个新的 IM 接收人（用户没主动发过消息时也能推送）。 */
+export function bindChannelPeer(channelId: number, peerKey: string, peerName: string) {
+  return apiFetch<{ peerKey: string }>(`/api/channels/${channelId}/peers`, {
+    method: "POST",
+    body: JSON.stringify({ peerKey, peerName }),
+  });
 }
 
 export function listScheduledTasks(all = false) {

@@ -41,6 +41,35 @@ public class ScheduledTaskController {
         this.agentMapper = agentMapper;
     }
 
+    /** 计划预览请求（管理页可视化配置时实时调用）。 */
+    public record PreviewRequest(
+            String scheduleType,
+            String cronExpr,
+            Integer intervalMinutes,
+            java.time.OffsetDateTime onceAt,
+            String timezone,
+            Integer count) {}
+
+    /** 计划预览响应：人类可读摘要 + 接下来 N 次执行时间。 */
+    public record PreviewResponse(String scheduleText, List<java.time.OffsetDateTime> nextRuns) {}
+
+    @PostMapping("/preview")
+    public Result<PreviewResponse> preview(@RequestBody PreviewRequest request) {
+        int count = request.count() == null ? 5 : request.count();
+        List<java.time.OffsetDateTime> runs;
+        try {
+            runs = ScheduleMath.nextRuns(request.scheduleType(), request.cronExpr(),
+                    request.intervalMinutes(), request.onceAt(), request.timezone(),
+                    java.time.OffsetDateTime.now(), count);
+        } catch (IllegalArgumentException ex) {
+            throw BizException.badRequest(ex.getMessage());
+        }
+        return Result.ok(new PreviewResponse(
+                ScheduleMath.describe(request.scheduleType(), request.cronExpr(),
+                        request.intervalMinutes(), request.onceAt(), request.timezone()),
+                runs));
+    }
+
     @GetMapping
     public Result<List<ScheduledTaskResponse>> list(
             @AuthenticationPrincipal JwtPrincipal principal,
@@ -102,6 +131,21 @@ public class ScheduledTaskController {
         return Result.ok();
     }
 
+    /** 结果发到哪，写成人话（含渠道/接收人），避免"配了 IM 却不知道发给谁"。 */
+    private String targetText(ScheduledTask task) {
+        String type = task.getTargetType() == null ? "SESSION" : task.getTargetType();
+        if ("NONE".equalsIgnoreCase(type)) {
+            return "只记录";
+        }
+        if ("IM".equalsIgnoreCase(type)) {
+            String peer = task.getPeerKey() == null ? "（用运行会话的绑定）" : task.getPeerKey();
+            String channel = task.getChannelAppId() == null
+                    ? "" : "渠道#" + task.getChannelAppId() + " ";
+            return "IM · " + channel + peer;
+        }
+        return task.getChatSessionId() == null ? "会话（自动创建）" : "会话 #" + task.getChatSessionId();
+    }
+
     private ScheduledTaskResponse toResponse(ScheduledTask task) {
         var agent = agentMapper.selectById(task.getAgentId());
         return new ScheduledTaskResponse(
@@ -119,6 +163,7 @@ public class ScheduledTaskController {
                         task.getIntervalMinutes(), task.getOnceAt(), task.getTimezone()),
                 task.getPrompt(),
                 task.getTargetType(),
+                targetText(task),
                 task.getChatSessionId(),
                 task.getChannelAppId(),
                 task.getPeerKey(),

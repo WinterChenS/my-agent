@@ -5,6 +5,7 @@ import com.myagent.channelconfig.entity.ChannelPeer;
 import com.myagent.channelconfig.service.ChannelPushPort;
 import com.myagent.chat.entity.ChatSession;
 import com.myagent.chat.service.ChatSessionService;
+import com.myagent.artifact.dto.ArtifactResponse;
 import com.myagent.schedule.entity.ScheduledTask;
 import com.myagent.schedule.entity.ScheduledTaskRun;
 import io.agentscope.core.agent.Event;
@@ -39,23 +40,32 @@ public class ScheduledTaskExecutor {
     /** 推送正文长度上限（IM 单条消息太长会被截断/拒收）。 */
     static final int MAX_PUSH_CHARS = 3500;
 
+    /** 单次最多随结果发送的附件个数（每条 IM 消息只能带一个媒体，太多会刷屏）。 */
+    static final int MAX_ATTACHMENTS = 5;
+
     private final AgentFactory agentFactory;
     private final ScheduledTaskService taskService;
     private final ChatSessionService sessionService;
     private final com.myagent.agui.channel.ChannelSessionBridge sessionBridge;
     private final ObjectProvider<ChannelPushPort> pushPort;
+    private final com.myagent.artifact.service.ArtifactCaptureService artifactCaptureService;
+    private final com.myagent.artifact.service.ArtifactService artifactService;
 
     public ScheduledTaskExecutor(
             AgentFactory agentFactory,
             ScheduledTaskService taskService,
             ChatSessionService sessionService,
             com.myagent.agui.channel.ChannelSessionBridge sessionBridge,
-            ObjectProvider<ChannelPushPort> pushPort) {
+            ObjectProvider<ChannelPushPort> pushPort,
+            com.myagent.artifact.service.ArtifactCaptureService artifactCaptureService,
+            com.myagent.artifact.service.ArtifactService artifactService) {
         this.agentFactory = agentFactory;
         this.taskService = taskService;
         this.sessionService = sessionService;
         this.sessionBridge = sessionBridge;
         this.pushPort = pushPort;
+        this.artifactCaptureService = artifactCaptureService;
+        this.artifactService = artifactService;
     }
 
     /**
@@ -68,13 +78,17 @@ public class ScheduledTaskExecutor {
         ScheduledTaskRun run = taskService.startRun(task.getId(), nodeId, triggerType);
         String answer = null;
         String error = null;
+        String runId = java.util.UUID.randomUUID().toString();
         try {
             ChatSession session = taskService.ensureSession(task);
+            // 产物快照：定时任务常要"生成报告文档并发出"，所以跑完要把新文件一起发
+            java.util.Map<String, Long> before = snapshot(task);
             answer = runAgent(task, session);
-            deliver(task, session, answer);
-            log.info("定时任务执行成功 id={} name={} 耗时={}ms 输出长度={}",
+            java.util.List<Long> produced = captureArtifacts(task, session, before, runId);
+            deliver(task, session, answer, produced);
+            log.info("定时任务执行成功 id={} name={} 耗时={}ms 输出长度={} 产物={}",
                     task.getId(), task.getName(), System.currentTimeMillis() - started,
-                    answer == null ? 0 : answer.length());
+                    answer == null ? 0 : answer.length(), produced.size());
         } catch (Exception ex) {
             error = rootMessage(ex);
             log.warn("定时任务执行失败 id={} name={}: {}", task.getId(), task.getName(), error, ex);
@@ -149,11 +163,14 @@ public class ScheduledTaskExecutor {
 
     // ===================== 推送 =====================
 
-    private void deliver(ScheduledTask task, ChatSession session, String answer) {
+    private void deliver(ScheduledTask task, ChatSession session, String answer, java.util.List<Long> produced) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("scheduledTaskId", task.getId());
         meta.put("scheduledTaskName", task.getName());
         meta.put("scheduled", true);
+        if (produced != null && !produced.isEmpty()) {
+            meta.put("artifactIds", produced);
+        }
 
         String type = task.getTargetType() == null ? "SESSION" : task.getTargetType();
         if ("NONE".equalsIgnoreCase(type)) {
@@ -180,9 +197,51 @@ public class ScheduledTaskExecutor {
             appId = peer.getChannelAppId();
             peerKey = peer.getPeerKey();
         }
-        int sent = port.push(appId, peerKey, truncate(answer, MAX_PUSH_CHARS), List.of());
-        log.info("定时任务已推送到 IM taskId={} appId={} peer={} 条数={}",
-                task.getId(), appId, peerKey, sent);
+        // 正文一条 + 本轮产物（报告文档/图片）逐个发出
+        int sent = port.push(appId, peerKey, truncate(answer, MAX_PUSH_CHARS), produced);
+        log.info("定时任务已推送到 IM taskId={} appId={} peer={} 条数={} 附件={}",
+                task.getId(), appId, peerKey, sent, produced.size());
+    }
+
+    private java.util.Map<String, Long> snapshot(ScheduledTask task) {
+        try {
+            return artifactCaptureService.beginRun(String.valueOf(task.getCreatedByUserId()));
+        } catch (Exception ex) {
+            log.debug("定时任务产物快照失败（忽略）: {}", ex.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 把本轮新生成/修改的文件登记为产物，返回本次的 artifact id 列表（用于推送给 IM）。
+     *
+     * <p>这就是「每天生成报告文档」，agent 用 write_file/execute 产出文件后，
+     * 平台自动收进来并随结果一起发出去。
+     */
+    private java.util.List<Long> captureArtifacts(
+            ScheduledTask task, ChatSession session, java.util.Map<String, Long> before, String runId) {
+        try {
+            if (before == null) {
+                return List.of();
+            }
+            artifactCaptureService.endRun(task.getCreatedByUserId(), session.getId(),
+                    session.getThreadId(), before, runId);
+            return artifactService.list(task.getCreatedByUserId(), session.getId()).stream()
+                    .filter(a -> runId.equals(a.runId()))
+                    .filter(a -> com.myagent.artifact.service.ArtifactService.ROLE_ARTIFACT
+                            .equals(a.role()))
+                    .filter(a -> a.sizeBytes() != null && a.sizeBytes() > 0)
+                    // 图片优先，其次按 id 顺序；最多带 MAX_ATTACHMENTS 个（每条消息只能带一个媒体）
+                    .sorted(java.util.Comparator.comparing(
+                            (ArtifactResponse a) -> com.myagent.agui.channel.MediaFiles.isImage(a.fileName())
+                                    ? 0 : 1))
+                    .limit(MAX_ATTACHMENTS)
+                    .map(ArtifactResponse::id)
+                    .toList();
+        } catch (Exception ex) {
+            log.warn("登记定时任务产物失败 taskId={}: {}", task.getId(), ex.toString());
+            return List.of();
+        }
     }
 
     /** 连续失败自动暂停后通知创建人（会话里留一条，能推 IM 就再推一条）。 */

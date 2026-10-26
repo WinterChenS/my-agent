@@ -22,9 +22,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { listAgentDetails, type AgentDetail } from "@/api/agents";
+import { listChannels, type ChannelAppInfo } from "@/api/channels";
+import { listSessions } from "@/api/sessions";
 import {
   createScheduledTask,
   deleteScheduledTask,
+  listChannelPeers,
   listScheduledTaskRuns,
   listScheduledTasks,
   runScheduledTaskNow,
@@ -35,6 +38,19 @@ import {
   type ScheduleType,
   type TaskTarget,
 } from "@/api/scheduledTasks";
+import ScheduleEditor from "./ScheduleEditor";
+
+interface SessionOption {
+  id: number;
+  title: string | null;
+  origin?: string;
+}
+
+interface PeerOption {
+  peerKey: string;
+  peerName: string | null;
+  peerKind: string;
+}
 
 interface FormState {
   id: number | null;
@@ -48,6 +64,11 @@ interface FormState {
   prompt: string;
   targetType: TaskTarget;
   misfirePolicy: "COALESCE" | "SKIP";
+  /** 运行/写回用的会话（决定 threadId → 记忆连续） */
+  chatSessionId: number | null;
+  /** 推送到 IM 时：渠道 + 接收人（不填则用运行会话的绑定） */
+  channelAppId: number | null;
+  peerKey: string;
 }
 
 const EMPTY: FormState = {
@@ -62,6 +83,9 @@ const EMPTY: FormState = {
   prompt: "",
   targetType: "SESSION",
   misfirePolicy: "COALESCE",
+  chatSessionId: null,
+  channelAppId: null,
+  peerKey: "",
 };
 
 /** ISO → datetime-local 输入框格式。 */
@@ -86,13 +110,16 @@ function statusBadge(status: ScheduledTaskInfo["status"]) {
 }
 
 function targetLabel(target: TaskTarget) {
-  return target === "IM" ? "IM（钉钉）" : target === "NONE" ? "只记录" : "会话";
+  return target === "IM" ? "IM" : target === "NONE" ? "只记录" : "会话";
 }
 
-/** 定时任务管理：cron / 固定间隔 / 一次性，结果可回会话或推送到 IM。 */
+/** 定时任务管理：cron / 固定间隔 / 一次性，结果可回会话或推送到 IM（含附件）。 */
 export default function SchedulesPage() {
   const [items, setItems] = useState<ScheduledTaskInfo[]>([]);
   const [agents, setAgents] = useState<AgentDetail[]>([]);
+  const [sessions, setSessions] = useState<SessionOption[]>([]);
+  const [channels, setChannels] = useState<ChannelAppInfo[]>([]);
+  const [peers, setPeers] = useState<PeerOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -102,9 +129,16 @@ export default function SchedulesPage() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [tasks, agentPage] = await Promise.all([listScheduledTasks(), listAgentDetails(1, 200)]);
+      const [tasks, agentPage, sessionList, channelList] = await Promise.all([
+        listScheduledTasks(),
+        listAgentDetails(1, 200),
+        listSessions().catch(() => [] as SessionOption[]),
+        listChannels().catch(() => [] as ChannelAppInfo[]),
+      ]);
       setItems(tasks);
       setAgents(agentPage.records ?? []);
+      setSessions((sessionList ?? []).map((s) => ({ id: s.id, title: s.title, origin: s.origin })));
+      setChannels(channelList ?? []);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载定时任务失败");
     } finally {
@@ -115,6 +149,30 @@ export default function SchedulesPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // 选了渠道就拉它已绑定的接收人（含手工绑定的、还没聊过天的用户）
+  useEffect(() => {
+    const channelId = form?.channelAppId;
+    if (!channelId) {
+      setPeers([]);
+      return;
+    }
+    let alive = true;
+    listChannelPeers(channelId)
+      .then((list) => {
+        if (alive) {
+          setPeers(
+            list.map((p) => ({ peerKey: p.peerKey, peerName: p.peerName, peerKind: p.peerKind })),
+          );
+        }
+      })
+      .catch(() => {
+        if (alive) setPeers([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [form?.channelAppId]);
 
   const agentOptions = useMemo(
     () => agents.filter((a) => a.permissionMode !== "REQUIRE_APPROVAL"),
@@ -138,6 +196,9 @@ export default function SchedulesPage() {
       prompt: task.prompt,
       targetType: task.targetType,
       misfirePolicy: task.misfirePolicy,
+      chatSessionId: task.chatSessionId,
+      channelAppId: task.channelAppId,
+      peerKey: task.peerKey ?? "",
     });
   }
 
@@ -148,6 +209,9 @@ export default function SchedulesPage() {
     if (!form.prompt.trim()) return toast.error("请填写要执行的指令");
     if (form.scheduleType === "CRON" && !form.cronExpr.trim()) return toast.error("请填写 cron 表达式");
     if (form.scheduleType === "ONCE" && !form.onceAtLocal) return toast.error("请选择执行时间");
+    if (form.targetType === "IM" && !form.peerKey && !form.chatSessionId) {
+      return toast.error("推送到 IM 需要选接收人，或选一个从 IM 来的会话");
+    }
 
     const payload = {
       name: form.name.trim(),
@@ -160,6 +224,9 @@ export default function SchedulesPage() {
       prompt: form.prompt.trim(),
       targetType: form.targetType,
       misfirePolicy: form.misfirePolicy,
+      chatSessionId: form.chatSessionId,
+      channelAppId: form.targetType === "IM" ? form.channelAppId : null,
+      peerKey: form.targetType === "IM" ? form.peerKey || null : null,
     };
     setSaving(true);
     try {
@@ -225,7 +292,7 @@ export default function SchedulesPage() {
         <div>
           <h1 className="text-2xl font-semibold">定时任务</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            到点让 Agent 自动执行一条指令，结果写回会话或推送到钉钉。多实例部署不会重复执行。
+            到点让 Agent 自动执行指令；生成的文件会随结果一起发出去。多实例部署不会重复执行。
           </p>
         </div>
         <div className="flex gap-2">
@@ -269,7 +336,10 @@ export default function SchedulesPage() {
                 <TableRow key={task.id}>
                   <TableCell className="font-medium">
                     {task.name}
-                    <div className="text-muted-foreground max-w-[260px] truncate text-xs" title={task.prompt}>
+                    <div
+                      className="text-muted-foreground max-w-[260px] truncate text-xs"
+                      title={task.prompt}
+                    >
                       {task.prompt}
                     </div>
                   </TableCell>
@@ -279,11 +349,19 @@ export default function SchedulesPage() {
                     {task.nextRunAt ? new Date(task.nextRunAt).toLocaleString() : "-"}
                     <div className="text-muted-foreground">已跑 {task.runCount} 次</div>
                   </TableCell>
-                  <TableCell>{targetLabel(task.targetType)}</TableCell>
+                  <TableCell className="max-w-[180px] text-xs">
+                    <div>{targetLabel(task.targetType)}</div>
+                    <div className="text-muted-foreground truncate" title={task.targetText}>
+                      {task.targetText ?? ""}
+                    </div>
+                  </TableCell>
                   <TableCell>
                     {statusBadge(task.status)}
                     {task.lastError && (
-                      <div className="text-destructive mt-1 max-w-[200px] truncate text-xs" title={task.lastError}>
+                      <div
+                        className="text-destructive mt-1 max-w-[200px] truncate text-xs"
+                        title={task.lastError}
+                      >
                         {task.lastError}
                       </div>
                     )}
@@ -316,11 +394,11 @@ export default function SchedulesPage() {
 
       {/* 新建/编辑 */}
       <Dialog open={form !== null} onOpenChange={(open) => !open && setForm(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{form?.id ? "编辑定时任务" : "新建定时任务"}</DialogTitle>
             <DialogDescription>
-              指令要能独立执行（到点时没有当前对话上下文）。结果默认写回会话，选 IM 则推送到钉钉。
+              指令要能独立执行（到点时没有当前对话上下文）。生成的文件会随结果一起发送。
             </DialogDescription>
           </DialogHeader>
           {form && (
@@ -339,7 +417,9 @@ export default function SchedulesPage() {
                 <select
                   className="border-input bg-background mt-1 h-9 w-full rounded-md border px-2 text-sm"
                   value={form.agentId ?? ""}
-                  onChange={(e) => setForm({ ...form, agentId: e.target.value ? Number(e.target.value) : null })}
+                  onChange={(e) =>
+                    setForm({ ...form, agentId: e.target.value ? Number(e.target.value) : null })
+                  }
                 >
                   <option value="">请选择</option>
                   {agentOptions.map((agent) => (
@@ -349,8 +429,9 @@ export default function SchedulesPage() {
                   ))}
                 </select>
               </label>
+
               <label className="block text-sm">
-                计划
+                计划类型
                 <select
                   className="border-input bg-background mt-1 h-9 w-full rounded-md border px-2 text-sm"
                   value={form.scheduleType}
@@ -361,43 +442,16 @@ export default function SchedulesPage() {
                   <option value="ONCE">一次性（指定时间）</option>
                 </select>
               </label>
-              {form.scheduleType === "CRON" && (
-                <label className="block text-sm">
-                  cron 表达式（5 段：分 时 日 月 周）
-                  <Input
-                    className="mt-1 font-mono"
-                    value={form.cronExpr}
-                    onChange={(e) => setForm({ ...form, cronExpr: e.target.value })}
-                    placeholder="0 9 * * *"
-                  />
-                  <span className="text-muted-foreground text-xs">
-                    例：每天 9 点 = 0 9 * * *；每周一 8:30 = 30 8 * * 1
-                  </span>
-                </label>
-              )}
-              {form.scheduleType === "EVERY_MINUTES" && (
-                <label className="block text-sm">
-                  每隔多少分钟
-                  <Input
-                    className="mt-1"
-                    type="number"
-                    min={1}
-                    value={form.intervalMinutes}
-                    onChange={(e) => setForm({ ...form, intervalMinutes: e.target.value })}
-                  />
-                </label>
-              )}
-              {form.scheduleType === "ONCE" && (
-                <label className="block text-sm">
-                  执行时间
-                  <Input
-                    className="mt-1"
-                    type="datetime-local"
-                    value={form.onceAtLocal}
-                    onChange={(e) => setForm({ ...form, onceAtLocal: e.target.value })}
-                  />
-                </label>
-              )}
+
+              <ScheduleEditor
+                scheduleType={form.scheduleType}
+                cronExpr={form.cronExpr}
+                intervalMinutes={form.intervalMinutes}
+                onceAtLocal={form.onceAtLocal}
+                timezone={form.timezone}
+                onChange={(patch) => setForm({ ...form, ...patch })}
+              />
+
               <label className="block text-sm">
                 时区
                 <Input
@@ -412,9 +466,10 @@ export default function SchedulesPage() {
                   className="border-input bg-background mt-1 min-h-[90px] w-full rounded-md border p-2 text-sm"
                   value={form.prompt}
                   onChange={(e) => setForm({ ...form, prompt: e.target.value })}
-                  placeholder="例如：把 uploads 里昨天的销售表汇总成 3 条要点"
+                  placeholder="例如：把 uploads 里昨天的销售表汇总成一份 markdown 报告"
                 />
               </label>
+
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-sm">
                   结果发到
@@ -442,10 +497,78 @@ export default function SchedulesPage() {
                   </select>
                 </label>
               </div>
+
+              <label className="block text-sm">
+                运行会话（决定上下文与记忆；不选则自动新建）
+                <select
+                  className="border-input bg-background mt-1 h-9 w-full rounded-md border px-2 text-sm"
+                  value={form.chatSessionId ?? ""}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      chatSessionId: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                >
+                  <option value="">自动新建</option>
+                  {sessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      #{session.id} {session.title ?? "未命名"}
+                      {session.origin === "DINGTALK" ? "（钉钉）" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               {form.targetType === "IM" && (
-                <p className="text-muted-foreground text-xs">
-                  推送使用「运行会话」对应的 IM 绑定；若该会话不是从 IM 来的，请在渠道页先绑定接收人。
-                </p>
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block text-sm">
+                      渠道
+                      <select
+                        className="border-input bg-background mt-1 h-9 w-full rounded-md border px-2 text-sm"
+                        value={form.channelAppId ?? ""}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            channelAppId: e.target.value ? Number(e.target.value) : null,
+                            peerKey: "",
+                          })
+                        }
+                      >
+                        <option value="">用运行会话的绑定</option>
+                        {channels.map((channel) => (
+                          <option key={channel.id} value={channel.id}>
+                            {channel.name}（{channel.channelType}）
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm">
+                      接收人
+                      <select
+                        className="border-input bg-background mt-1 h-9 w-full rounded-md border px-2 text-sm"
+                        value={form.peerKey}
+                        onChange={(e) => setForm({ ...form, peerKey: e.target.value })}
+                      >
+                        <option value="">用运行会话的绑定</option>
+                        {peers.map((peer) => (
+                          <option key={peer.peerKey} value={peer.peerKey}>
+                            {peer.peerName ?? peer.peerKey}
+                            {peer.peerKind === "GROUP" ? "（群）" : ""}
+                          </option>
+                        ))}
+                        {form.peerKey && !peers.some((p) => p.peerKey === form.peerKey) && (
+                          <option value={form.peerKey}>已绑定：{form.peerKey}</option>
+                        )}
+                      </select>
+                    </label>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    接收人可在「IM 渠道 → 会话」里手工绑定（用户还没跟机器人说过话时用）。
+                    未选接收人时，会用「运行会话」对应的 IM 绑定。
+                  </p>
+                </>
               )}
             </div>
           )}
@@ -465,7 +588,9 @@ export default function SchedulesPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>「{runsOf?.name}」执行记录</DialogTitle>
-            <DialogDescription>最近 20 次。失败的会记录原因，连续失败 3 次会自动暂停。</DialogDescription>
+            <DialogDescription>
+              最近 20 次。失败的会记录原因，连续失败 3 次会自动暂停。
+            </DialogDescription>
           </DialogHeader>
           <Table>
             <TableHeader>
@@ -500,7 +625,9 @@ export default function SchedulesPage() {
                       {run.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-xs">{run.durationMs ? `${run.durationMs}ms` : "-"}</TableCell>
+                  <TableCell className="text-xs">
+                    {run.durationMs ? `${run.durationMs}ms` : "-"}
+                  </TableCell>
                   <TableCell className="max-w-[420px] text-xs">
                     <div className="truncate" title={run.error ?? run.outputPreview ?? ""}>
                       {run.error ?? run.outputPreview ?? "-"}

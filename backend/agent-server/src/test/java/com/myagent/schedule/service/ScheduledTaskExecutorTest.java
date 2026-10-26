@@ -49,7 +49,9 @@ class ScheduledTaskExecutorTest {
         provider.registerSingleton("pushPort", port);
         ScheduledTaskExecutor executor = new ScheduledTaskExecutor(
                 Mockito.mock(com.myagent.agui.AgentFactory.class), taskService, sessionService, bridge,
-                provider.getBeanProvider(ChannelPushPort.class));
+                provider.getBeanProvider(ChannelPushPort.class),
+                Mockito.mock(com.myagent.artifact.service.ArtifactCaptureService.class),
+                Mockito.mock(com.myagent.artifact.service.ArtifactService.class));
 
         ScheduledTask task = new ScheduledTask();
         task.setId(1L);
@@ -68,9 +70,10 @@ class ScheduledTaskExecutorTest {
             ScheduledTaskExecutor executor, ScheduledTask task, ChatSession session, String answer) {
         try {
             var method = ScheduledTaskExecutor.class
-                    .getDeclaredMethod("deliver", ScheduledTask.class, ChatSession.class, String.class);
+                    .getDeclaredMethod("deliver", ScheduledTask.class, ChatSession.class,
+                            String.class, java.util.List.class);
             method.setAccessible(true);
-            method.invoke(executor, task, session, answer);
+            method.invoke(executor, task, session, answer, java.util.List.of());
         } catch (Exception ex) {
             throw new IllegalStateException(ex);
         }

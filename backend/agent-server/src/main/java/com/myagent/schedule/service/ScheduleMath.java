@@ -128,6 +128,38 @@ public final class ScheduleMath {
         return scheduledAt.isBefore(now.minusMinutes(Math.max(1, overdueMinutes)));
     }
 
+    /**
+     * 预览「接下来 N 次执行时间」（管理页配置时用来验证表达式是否符合预期）。
+     *
+     * <p>这就是"配置要真的生效"的可验证一环：保存前把未来几次时间给用户看，
+     * 写错了立刻能发现（而不是等它半夜跑错时间）。
+     */
+    public static java.util.List<OffsetDateTime> nextRuns(
+            String scheduleType,
+            String cronExpr,
+            Integer intervalMinutes,
+            OffsetDateTime onceAt,
+            String timezone,
+            OffsetDateTime base,
+            int count) {
+        java.util.List<OffsetDateTime> result = new java.util.ArrayList<>();
+        OffsetDateTime cursor = base == null ? OffsetDateTime.now() : base;
+        int limit = Math.min(Math.max(count, 1), 20);
+        for (int i = 0; i < limit; i++) {
+            OffsetDateTime next = next(scheduleType, cronExpr, intervalMinutes, onceAt, timezone, cursor);
+            if (next == null) {
+                break;
+            }
+            result.add(next);
+            cursor = next;
+            // 一次性只会有一次
+            if (TYPE_ONCE.equalsIgnoreCase(scheduleType)) {
+                break;
+            }
+        }
+        return result;
+    }
+
     /** 方便描述：人类可读的计划摘要（管理页/工具返回用）。 */
     public static String describe(
             String scheduleType, String cronExpr, Integer intervalMinutes, OffsetDateTime onceAt,

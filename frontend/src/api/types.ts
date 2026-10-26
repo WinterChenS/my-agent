@@ -30,6 +30,8 @@ export interface ChatSession {
   agentId: number | null;
   title: string | null;
   threadId: string | null;
+  /** 会话来源：WEB / DINGTALK / FEISHU / SCHEDULE（后端 SessionResponse 已返回） */
+  origin?: string;
   lastActiveAt: string | null;
   createdAt: string;
 }
