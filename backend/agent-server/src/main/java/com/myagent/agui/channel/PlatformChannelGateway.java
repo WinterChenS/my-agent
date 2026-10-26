@@ -309,8 +309,7 @@ public class PlatformChannelGateway implements Gateway {
                 notes.add("（用户发来一张图片：" + media.fileName()
                         + "，已放入工作区；当前模型不支持看图，可忽略或提示用户换多模态模型）");
             } else {
-                notes.add("（用户上传了" + kindLabel(media.kind()) + "：" + media.fileName()
-                        + "，已放入工作区，可用 read_file 读取）");
+                notes.add(fileNote(app, media, bytes));
             }
         } catch (Exception ex) {
             log.warn("处理入站媒体失败 kind={} appId={}: {}", media.kind(), app.getId(), ex.toString());
@@ -406,6 +405,44 @@ public class PlatformChannelGateway implements Gateway {
             return "";
         }
         return MEDIA_MARKER.matcher(text).replaceAll("").replaceAll("[ \\t]{2,}", " ").strip();
+    }
+
+    /**
+     * 文件类入站消息的说明：**给准确路径** + 能转文本就先转好（xlsx/docx/pptx）。
+     *
+     * <p>踩过的坑：只写"已放入工作区"不给路径，模型会说"文件没有位置"；直接把 xlsx 路径给模型，
+     * 它读出来是二进制乱码。所以 Office 文件额外落一份 `.txt` 旁挂文件，并附一小段预览。
+     */
+    private String fileNote(ChannelApp app, MediaRef media, byte[] bytes) {
+        String safeName = ArtifactService.safeFileName(media.fileName());
+        String path = "uploads/" + safeName;
+        String label = kindLabel(media.kind());
+        if (!"file".equals(media.kind()) || !OfficeTextExtractor.supports(safeName)) {
+            return "（用户上传了" + label + "：" + safeName + "，工作区路径：" + path
+                    + "，可用 read_file 读取）";
+        }
+        java.util.Optional<OfficeTextExtractor.Extracted> extracted =
+                OfficeTextExtractor.extract(safeName, bytes);
+        if (extracted.isEmpty()) {
+            return "（用户上传了" + label + "：" + safeName + "，工作区路径：" + path
+                    + "；这是二进制文件，解析失败，可告知用户换个格式或直接问内容）";
+        }
+        String sidecar = OfficeTextExtractor.sidecarName(safeName);
+        try {
+            artifactService.materialize(
+                    String.valueOf(app.getOwnerUserId()),
+                    extracted.get().text().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    sidecar);
+        } catch (Exception ex) {
+            log.warn("写入 Office 文本旁挂文件失败 {}: {}", sidecar, ex.toString());
+        }
+        String preview = extracted.get().text();
+        if (preview.length() > 800) {
+            preview = preview.substring(0, 800) + "\n…（完整内容见文件）";
+        }
+        return "（用户上传了" + label + "：" + safeName + "，原始文件：" + path
+                + "；已转成文本：" + "uploads/" + sidecar
+                + "，可直接 read_file 该文本）\n内容预览：\n" + preview;
     }
 
     private static String joinText(String text, List<String> notes) {

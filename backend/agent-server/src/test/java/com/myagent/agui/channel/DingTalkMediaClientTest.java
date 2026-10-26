@@ -46,7 +46,8 @@ class DingTalkMediaClientTest {
     private void handle(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         String query = exchange.getRequestURI().getQuery();
-        requests.put(path, query == null ? "" : query);
+        // 记录「方法 + 路径」与 body：下载接口必须是 POST + JSON body（GET 查询参数会 400）
+        requests.put(path, exchange.getRequestMethod() + (query == null ? "" : "?" + query));
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         bodies.add(path + "|" + body);
         String response;
@@ -78,9 +79,12 @@ class DingTalkMediaClientTest {
         byte[] bytes = client.download("code-1");
 
         assertThat(new String(bytes, StandardCharsets.UTF_8)).isEqualTo("PNGDATA");
-        assertThat(requests.get("/v1.0/robot/messageFiles/download"))
-                .contains("downloadCode=code-1")
-                .contains("robotCode=robot-1");
+        // 钉钉要求 POST + JSON body（实测用 GET 查询参数会 400，图片就"收不到"了）
+        assertThat(requests.get("/v1.0/robot/messageFiles/download")).isEqualTo("POST");
+        assertThat(bodies).anySatisfy(b -> assertThat(b)
+                .startsWith("/v1.0/robot/messageFiles/download|")
+                .contains("\"downloadCode\":\"code-1\"")
+                .contains("\"robotCode\":\"robot-1\""));
         assertThat(requests).containsKey("/v1.0/oauth2/accessToken");
     }
 

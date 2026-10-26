@@ -102,18 +102,22 @@ public class DingTalkMediaClient {
             throw new ChannelMediaException("downloadCode 为空");
         }
         String token = v1Token();
-        String url = apiBase + "/v1.0/robot/messageFiles/download"
-                + "?downloadCode=" + enc(downloadCode)
-                + "&robotCode=" + enc(robotCode);
+        // 钉钉这个接口是 **POST + JSON body**（不是 GET 查询参数）。
+        // 实测踩过坑：用 GET 会 400，表象是"图片下载失败"，用户看到的是"收不到图片"。
+        String url = apiBase + "/v1.0/robot/messageFiles/download";
         try {
+            String payload = json.writeValueAsString(
+                    java.util.Map.of("downloadCode", downloadCode, "robotCode", robotCode));
             HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json")
                     .header("x-acs-dingtalk-access-token", token)
-                    .GET()
+                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) {
-                throw new ChannelMediaException("钉钉换取下载地址失败 HTTP " + response.statusCode());
+                throw new ChannelMediaException("钉钉换取下载地址失败 HTTP " + response.statusCode()
+                        + ": " + abbreviate(response.body()));
             }
             JsonNode body = json.readTree(response.body());
             String downloadUrl = body.path("downloadUrl").asText(null);
