@@ -35,11 +35,20 @@ public class McpToolkitFactory {
     /** 让 Agent 主动给 IM 会话发消息（钉钉渠道）。 */
     private final com.myagent.agui.channel.SendImMessageTool sendImMessageTool;
 
+    /** 在工作区执行命令/脚本（跨平台；体 Excel 分析这类任务靠它）。 */
+    private final com.myagent.agui.shell.RunCommandTool executeTool;
+
+    private final com.myagent.agui.shell.RunCommandTool runCommandTool;
+
     public McpToolkitFactory(
             com.myagent.agui.skillimport.SkillInstallTool skillInstallTool,
-            com.myagent.agui.channel.SendImMessageTool sendImMessageTool) {
+            com.myagent.agui.channel.SendImMessageTool sendImMessageTool,
+            com.myagent.agui.shell.RunCommandTool executeTool,
+            com.myagent.agui.shell.RunCommandTool runCommandTool) {
         this.skillInstallTool = skillInstallTool;
         this.sendImMessageTool = sendImMessageTool;
+        this.executeTool = executeTool;
+        this.runCommandTool = runCommandTool;
     }
 
     /** 平台 transport → 官方 McpServerConfig.transport 字面量。 */
@@ -70,7 +79,10 @@ public class McpToolkitFactory {
             toolkit.registerAgentTool(skillInstallTool);
             // IM 渠道：Agent 能主动推送（只在 IM 会话里生效，Web 会话调用会返回说明）
             toolkit.registerAgentTool(sendImMessageTool);
-            log.info("已注册 {} 个 AG-UI 交互卡片工具 + install_skill + send_im_message",
+            // 跨平台命令执行：模型要跑 python 分析表格时靠它（名字按模型习惯挂了两个）
+            toolkit.registerAgentTool(executeTool);
+            toolkit.registerAgentTool(runCommandTool);
+            log.info("已注册 {} 个 AG-UI 交互卡片工具 + install_skill + send_im_message + execute/run_command",
                     DemoCardTools.tools().size());
         }
         if (servers == null || servers.isEmpty()) {
