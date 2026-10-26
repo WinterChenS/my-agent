@@ -48,8 +48,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-redis</artifactId>
     </dependency>
+    <!-- 官方钉钉渠道的出站客户端用 WebClient；MVC 与 WebFlux 共存时 Boot 仍用 Servlet 栈 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webflux</artifactId>
+    </dependency>
 
-    <!-- ===== AgentScope Java 2.0.3（门禁 G1） ===== -->
+    <!-- ===== AgentScope Java 2.0.4（门禁 G1） ===== -->
     <dependency>
       <groupId>io.agentscope</groupId>
       <artifactId>agentscope-harness</artifactId>
@@ -73,6 +78,17 @@
     <dependency>
       <groupId>io.agentscope</groupId>
       <artifactId>agentscope-extensions-model-anthropic</artifactId>
+      <version>${agentscope.version}</version>
+    </dependency>
+    <!-- IM 渠道（钉钉）：官方渠道实现，Stream 长连接 + 入站媒体元数据 + 出站文本 -->
+    <dependency>
+      <groupId>io.agentscope</groupId>
+      <artifactId>agentscope-extensions-channel-dingtalk</artifactId>
+      <version>${agentscope.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.agentscope</groupId>
+      <artifactId>agentscope-extensions-channel-common</artifactId>
       <version>${agentscope.version}</version>
     </dependency>
     <dependency>

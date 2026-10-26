@@ -8,5 +8,6 @@ public record SessionResponse(
         Long agentId,
         String title,
         String threadId,
+        String origin,
         OffsetDateTime lastActiveAt,
         OffsetDateTime createdAt) {}

@@ -33,6 +33,8 @@ public class SecurityConfig {
         "/api/agents/**",
         "/api/skills/**",
         "/api/mcp-servers/**",
+        // IM 渠道（钉钉/飞书）：读要登录、写要 ADMIN
+        "/api/channels/**",
         // 用户管理（C1）：读要登录、写要 ADMIN。注意配额接口 /api/users/{id}/quota 也在这条路径下，
         // 它自身还额外判了 ADMIN（见 QuotaController）。
         "/api/users/**"

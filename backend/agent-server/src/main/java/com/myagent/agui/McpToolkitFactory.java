@@ -32,8 +32,14 @@ public class McpToolkitFactory {
     /** 聊天里安装标准 Skill 的工具（与管理页「从仓库导入」走同一个服务）。 */
     private final com.myagent.agui.skillimport.SkillInstallTool skillInstallTool;
 
-    public McpToolkitFactory(com.myagent.agui.skillimport.SkillInstallTool skillInstallTool) {
+    /** 让 Agent 主动给 IM 会话发消息（钉钉渠道）。 */
+    private final com.myagent.agui.channel.SendImMessageTool sendImMessageTool;
+
+    public McpToolkitFactory(
+            com.myagent.agui.skillimport.SkillInstallTool skillInstallTool,
+            com.myagent.agui.channel.SendImMessageTool sendImMessageTool) {
         this.skillInstallTool = skillInstallTool;
+        this.sendImMessageTool = sendImMessageTool;
     }
 
     /** 平台 transport → 官方 McpServerConfig.transport 字面量。 */
@@ -62,7 +68,10 @@ public class McpToolkitFactory {
             // 「从仓库链接安装 Skill」对每个 Agent 开放：用户可能在任意会话里丢一个仓库地址过来。
             // 写操作由权限模式兜底（REQUIRE_APPROVAL 会自动给它弹审批卡）。
             toolkit.registerAgentTool(skillInstallTool);
-            log.info("已注册 {} 个 AG-UI 交互卡片工具 + install_skill", DemoCardTools.tools().size());
+            // IM 渠道：Agent 能主动推送（只在 IM 会话里生效，Web 会话调用会返回说明）
+            toolkit.registerAgentTool(sendImMessageTool);
+            log.info("已注册 {} 个 AG-UI 交互卡片工具 + install_skill + send_im_message",
+                    DemoCardTools.tools().size());
         }
         if (servers == null || servers.isEmpty()) {
             return toolkit;
