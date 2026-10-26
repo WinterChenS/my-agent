@@ -4,6 +4,7 @@ import {
   Bot,
   Blocks,
   Brain,
+  CalendarClock,
   MessageCircle,
   MessageSquare,
   Plug,
@@ -37,6 +38,7 @@ const SkillsPage = lazy(() => import("@/pages/admin/skills/SkillsPage"));
 const McpPage = lazy(() => import("@/pages/admin/mcp/McpPage"));
 const UsersPage = lazy(() => import("@/pages/admin/users/UsersPage"));
 const ChannelsPage = lazy(() => import("@/pages/admin/channels/ChannelsPage"));
+const SchedulesPage = lazy(() => import("@/pages/admin/schedules/SchedulesPage"));
 
 interface NavItem {
   to: string;
@@ -52,6 +54,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/admin/skills", label: "Skill", icon: Blocks },
   { to: "/admin/mcp", label: "MCP", icon: Plug },
   { to: "/admin/channels", label: "IM 渠道", icon: MessageCircle },
+  { to: "/admin/schedules", label: "定时", icon: CalendarClock },
   { to: "/admin/audit", label: "审计", icon: ScrollText },
   { to: "/admin/users", label: "用户", icon: Users },
 ];
@@ -166,6 +169,7 @@ export default function App() {
           <Route path="admin/skills" element={<SkillsPage />} />
           <Route path="admin/mcp" element={<McpPage />} />
           <Route path="admin/channels" element={<ChannelsPage />} />
+          <Route path="admin/schedules" element={<SchedulesPage />} />
           <Route path="admin/audit" element={<AuditPage />} />
           <Route path="admin/users" element={<UsersPage />} />
           <Route path="*" element={<Placeholder title="页面不存在" />} />

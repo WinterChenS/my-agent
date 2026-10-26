@@ -70,6 +70,8 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/auth/login", "/api/health")
                         .permitAll()
+                        // 定时任务：登录即可，普通用户只能看到/管理自己的（服务层按 created_by 过滤）
+                        .requestMatchers("/api/scheduled-tasks/**").authenticated()
                         .requestMatchers(HttpMethod.GET, CONFIG_PATHS).authenticated()
                         .requestMatchers(CONFIG_PATHS).hasRole("ADMIN")
                         .anyRequest().authenticated())

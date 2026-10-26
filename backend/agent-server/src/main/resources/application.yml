@@ -39,6 +39,20 @@ myagent:
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
     bucket: ${MINIO_BUCKET:agent-platform}
     max-file-size-mb: ${MINIO_MAX_FILE_MB:50}
+  # 定时任务（技术方案 §21）：分布式靠 PG 的 SELECT ... FOR UPDATE SKIP LOCKED 抢占
+  schedule:
+    # 总开关（关掉后不 tick，也不执行；工具仍可创建任务）
+    enabled: ${MYAGENT_SCHEDULE_ENABLED:true}
+    # tick 间隔（毫秒）
+    tick-millis: ${MYAGENT_SCHEDULE_TICK_MS:10000}
+    # 每轮最多认领多少条
+    batch-size: ${MYAGENT_SCHEDULE_BATCH:10}
+    # 执行线程数（独立于 Web 线程池）
+    worker-threads: ${MYAGENT_SCHEDULE_WORKERS:4}
+    # 排队上限；满了本轮跳过，任务下轮再抢
+    queue-capacity: ${MYAGENT_SCHEDULE_QUEUE:100}
+    # 执行租约（分钟）：未过期时其它节点不会抢同一任务
+    lease-minutes: ${MYAGENT_SCHEDULE_LEASE_MIN:10}
   # 命令执行（技术方案 §19）：跨平台 shell + 每用户 Python venv + 缺包自动安装
   shell:
     # 总开关；关掉后 execute/run_command 仍在但直接返回"未启用"

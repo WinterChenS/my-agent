@@ -40,15 +40,24 @@ public class McpToolkitFactory {
 
     private final com.myagent.agui.shell.RunCommandTool runCommandTool;
 
+    /** 定时任务：创建 / 查看管理。 */
+    private final com.myagent.schedule.tool.ScheduleTaskTool scheduleTaskTool;
+
+    private final com.myagent.schedule.tool.ManageScheduledTaskTool manageScheduledTaskTool;
+
     public McpToolkitFactory(
             com.myagent.agui.skillimport.SkillInstallTool skillInstallTool,
             com.myagent.agui.channel.SendImMessageTool sendImMessageTool,
             com.myagent.agui.shell.RunCommandTool executeTool,
-            com.myagent.agui.shell.RunCommandTool runCommandTool) {
+            com.myagent.agui.shell.RunCommandTool runCommandTool,
+            com.myagent.schedule.tool.ScheduleTaskTool scheduleTaskTool,
+            com.myagent.schedule.tool.ManageScheduledTaskTool manageScheduledTaskTool) {
         this.skillInstallTool = skillInstallTool;
         this.sendImMessageTool = sendImMessageTool;
         this.executeTool = executeTool;
         this.runCommandTool = runCommandTool;
+        this.scheduleTaskTool = scheduleTaskTool;
+        this.manageScheduledTaskTool = manageScheduledTaskTool;
     }
 
     /** 平台 transport → 官方 McpServerConfig.transport 字面量。 */
@@ -82,8 +91,11 @@ public class McpToolkitFactory {
             // 跨平台命令执行：模型要跑 python 分析表格时靠它（名字按模型习惯挂了两个）
             toolkit.registerAgentTool(executeTool);
             toolkit.registerAgentTool(runCommandTool);
-            log.info("已注册 {} 个 AG-UI 交互卡片工具 + install_skill + send_im_message + execute/run_command",
-                    DemoCardTools.tools().size());
+            // 定时任务：对话里创建/管理（"每天9点把汇总发我"）
+            toolkit.registerAgentTool(scheduleTaskTool);
+            toolkit.registerAgentTool(manageScheduledTaskTool);
+            log.info("已注册 {} 个 AG-UI 卡片工具 + install_skill + send_im_message + execute/run_command"
+                    + " + schedule_task/manage_scheduled_task", DemoCardTools.tools().size());
         }
         if (servers == null || servers.isEmpty()) {
             return toolkit;

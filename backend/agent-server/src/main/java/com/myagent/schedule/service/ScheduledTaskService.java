@@ -1,0 +1,376 @@
+package com.myagent.schedule.service;
+
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.myagent.agentconfig.entity.Agent;
+import com.myagent.agentconfig.mapper.AgentMapper;
+import com.myagent.chat.entity.ChatSession;
+import com.myagent.chat.mapper.ChatSessionMapper;
+import com.myagent.chat.service.ChatSessionService;
+import com.myagent.common.BizException;
+import com.myagent.schedule.dto.ScheduledTaskRequest;
+import com.myagent.schedule.entity.ScheduledTask;
+import com.myagent.schedule.entity.ScheduledTaskRun;
+import com.myagent.schedule.mapper.ScheduledTaskMapper;
+import com.myagent.schedule.mapper.ScheduledTaskRunMapper;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * 定时任务的定义维护 + 分布式抢占 + 收尾记账。
+ *
+ * <p>分工：本类只管"任务定义与抢占"，真正跑 agent 在 {@code ScheduledTaskExecutor}。
+ */
+@Service
+public class ScheduledTaskService {
+
+    private static final Logger log = LoggerFactory.getLogger(ScheduledTaskService.class);
+
+    /** 连续失败多少次自动暂停（并通知创建人）。 */
+    static final int AUTO_PAUSE_AFTER_FAILURES = 3;
+
+    private final ScheduledTaskMapper taskMapper;
+    private final ScheduledTaskRunMapper runMapper;
+    private final AgentMapper agentMapper;
+    private final ChatSessionMapper sessionMapper;
+    private final ChatSessionService sessionService;
+    private final long leaseMinutes;
+
+    public ScheduledTaskService(
+            ScheduledTaskMapper taskMapper,
+            ScheduledTaskRunMapper runMapper,
+            AgentMapper agentMapper,
+            ChatSessionMapper sessionMapper,
+            ChatSessionService sessionService,
+            @Value("${myagent.schedule.lease-minutes:10}") long leaseMinutes) {
+        this.taskMapper = taskMapper;
+        this.runMapper = runMapper;
+        this.agentMapper = agentMapper;
+        this.sessionMapper = sessionMapper;
+        this.sessionService = sessionService;
+        this.leaseMinutes = Math.max(1, leaseMinutes);
+    }
+
+    // ===================== 查询 =====================
+
+    public List<ScheduledTask> list(Long createdByUserId) {
+        return taskMapper.selectList(Wrappers.<ScheduledTask>lambdaQuery()
+                .eq(createdByUserId != null, ScheduledTask::getCreatedByUserId, createdByUserId)
+                .orderByDesc(ScheduledTask::getId));
+    }
+
+    public ScheduledTask require(Long id) {
+        ScheduledTask task = id == null ? null : taskMapper.selectById(id);
+        if (task == null) {
+            throw BizException.notFound("定时任务不存在: " + id);
+        }
+        return task;
+    }
+
+    public List<ScheduledTaskRun> runs(Long taskId, int limit) {
+        return runMapper.selectList(Wrappers.<ScheduledTaskRun>lambdaQuery()
+                .eq(ScheduledTaskRun::getTaskId, taskId)
+                .orderByDesc(ScheduledTaskRun::getId)
+                .last("limit " + Math.min(Math.max(limit, 1), 100)));
+    }
+
+    // ===================== 写入 =====================
+
+    @Transactional
+    public ScheduledTask create(ScheduledTaskRequest request, Long userId) {
+        ScheduledTask task = new ScheduledTask();
+        apply(task, request, userId);
+        task.setCreatedByUserId(userId);
+        task.setStatus("ACTIVE");
+        task.setEnabled(true);
+        task.setRunCount(0);
+        task.setConsecutiveFailures(0);
+        task.setCreatedAt(OffsetDateTime.now());
+        task.setUpdatedAt(OffsetDateTime.now());
+        task.setNextRunAt(computeNext(task, OffsetDateTime.now()));
+        taskMapper.insert(task);
+        log.info("已创建定时任务 id={} name={} 计划={} 下次={}", task.getId(), task.getName(),
+                ScheduleMath.describe(task.getScheduleType(), task.getCronExpr(),
+                        task.getIntervalMinutes(), task.getOnceAt(), task.getTimezone()),
+                task.getNextRunAt());
+        return task;
+    }
+
+    @Transactional
+    public ScheduledTask update(Long id, ScheduledTaskRequest request) {
+        ScheduledTask task = require(id);
+        Long owner = task.getCreatedByUserId();
+        apply(task, request, owner);
+        task.setUpdatedAt(OffsetDateTime.now());
+        task.setNextRunAt(computeNext(task, OffsetDateTime.now()));
+        taskMapper.updateById(task);
+        return task;
+    }
+
+    @Transactional
+    public ScheduledTask setStatus(Long id, String status) {
+        ScheduledTask task = require(id);
+        task.setStatus(status);
+        task.setEnabled("ACTIVE".equals(status));
+        task.setUpdatedAt(OffsetDateTime.now());
+        if ("ACTIVE".equals(status)) {
+            task.setConsecutiveFailures(0);
+            task.setNextRunAt(computeNext(task, OffsetDateTime.now()));
+        }
+        taskMapper.updateById(task);
+        return task;
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        require(id);
+        taskMapper.deleteById(id);
+    }
+
+    /** 手动立即执行：不改 next_run_at，只清出错状态，交给执行器跑一次。 */
+    @Transactional
+    public ScheduledTask prepareManualRun(Long id) {
+        ScheduledTask task = require(id);
+        if (!"ACTIVE".equals(task.getStatus()) && !"ERROR".equals(task.getStatus())) {
+            throw BizException.badRequest("任务当前状态为 " + task.getStatus() + "，不能手动执行");
+        }
+        return task;
+    }
+
+    // ===================== 分布式抢占 =====================
+
+    /**
+     * 抢占到期的任务（多副本安全）。
+     *
+     * <p>在一个事务里：锁行（SKIP LOCKED）→ 算下次时间 → 打租约 → 返回。
+     * 返回的任务已属于本节点，其它节点不会再拿到。
+     */
+    @Transactional
+    public List<ScheduledTask> claimDue(int limit) {
+        List<ScheduledTask> due = taskMapper.lockDueTasks(limit);
+        if (due.isEmpty()) {
+            return List.of();
+        }
+        OffsetDateTime now = OffsetDateTime.now();
+        for (ScheduledTask task : due) {
+            OffsetDateTime scheduledAt = task.getNextRunAt();
+            // 错过太久且策略是 SKIP：直接跳到下一个周期（base=now），避免恢复瞬间被雪崩；
+            // COALESCE 则按"现在就是这次触发"处理（base 略微回退，保证严格晚于上次计划时刻）
+            boolean overdue = scheduledAt != null && scheduledAt.isBefore(now.minusMinutes(5))
+                    && "SKIP".equalsIgnoreCase(task.getMisfirePolicy());
+            OffsetDateTime base = overdue ? now : now.minusSeconds(1);
+            OffsetDateTime next = computeNext(task, base);
+            task.setLastRunAt(now);
+            task.setNextRunAt(next);
+            task.setLeaseUntil(now.plusMinutes(leaseMinutes));
+            task.setUpdatedAt(now);
+            if (next == null) {
+                // 一次性任务：等执行完再由 finish 决定 DONE / ERROR
+                task.setEnabled(false);
+            }
+            taskMapper.updateById(task);
+        }
+        return due;
+    }
+
+    /** 回收租约过期与残留的 RUNNING 记录（节点崩溃留下的）。 */
+    @Transactional
+    public void recoverStale() {
+        int released = taskMapper.releaseExpiredLeases();
+        int abandoned = taskMapper.abandonStaleRuns(60);
+        if (released > 0 || abandoned > 0) {
+            log.info("定时任务回收：释放租约 {} 条，标记放弃执行 {} 条", released, abandoned);
+        }
+    }
+
+    /** 线程池满时把任务放回去：清租约、恢复下一个计划时间，等下一轮再抢。 */
+    @Transactional
+    public void requeue(Long taskId) {
+        ScheduledTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            return;
+        }
+        task.setLeaseUntil(null);
+        task.setNextRunAt(computeNext(task, OffsetDateTime.now().minusSeconds(1)));
+        task.setUpdatedAt(OffsetDateTime.now());
+        taskMapper.updateById(task);
+    }
+
+    public ScheduledTaskRun startRun(Long taskId, String nodeId, String triggerType) {
+        ScheduledTaskRun run = new ScheduledTaskRun();
+        run.setTaskId(taskId);
+        run.setNodeId(nodeId);
+        run.setTriggerType(triggerType);
+        run.setStatus("RUNNING");
+        run.setStartedAt(OffsetDateTime.now());
+        run.setCreatedAt(OffsetDateTime.now());
+        runMapper.insert(run);
+        return run;
+    }
+
+    /**
+     * 收尾记账：成功清零失败计数；失败累加，达到阈值自动暂停。
+     *
+     * @return true 表示本次失败触发了自动暂停
+     */
+    @Transactional
+    public boolean finishRun(Long taskId, Long runId, boolean success, String output, String error,
+            long durationMs) {
+        ScheduledTask task = taskMapper.selectById(taskId);
+        ScheduledTaskRun run = runId == null ? null : runMapper.selectById(runId);
+        OffsetDateTime now = OffsetDateTime.now();
+        if (run != null) {
+            run.setStatus(success ? "SUCCESS" : "FAILED");
+            run.setFinishedAt(now);
+            run.setDurationMs(durationMs);
+            run.setOutputPreview(truncate(output, 2000));
+            run.setError(truncate(error, 2000));
+            runMapper.updateById(run);
+        }
+        if (task == null) {
+            return false;
+        }
+        task.setLeaseUntil(null);
+        task.setLastRunAt(now);
+        task.setRunCount((task.getRunCount() == null ? 0 : task.getRunCount()) + 1);
+        task.setUpdatedAt(now);
+        boolean paused = false;
+        if (success) {
+            task.setConsecutiveFailures(0);
+            task.setLastError(null);
+            if (ScheduleMath.TYPE_ONCE.equalsIgnoreCase(task.getScheduleType())) {
+                task.setStatus("DONE");
+                task.setEnabled(false);
+                task.setNextRunAt(null);
+            }
+        } else {
+            int failures = (task.getConsecutiveFailures() == null ? 0 : task.getConsecutiveFailures()) + 1;
+            task.setConsecutiveFailures(failures);
+            task.setLastError(truncate(error, 2000));
+            if (failures >= AUTO_PAUSE_AFTER_FAILURES) {
+                task.setStatus("PAUSED");
+                task.setEnabled(false);
+                paused = true;
+                log.warn("定时任务连续失败 {} 次，已自动暂停 id={} name={}",
+                        failures, task.getId(), task.getName());
+            }
+        }
+        taskMapper.updateById(task);
+        return paused;
+    }
+
+    // ===================== 内部 =====================
+
+    private void apply(ScheduledTask task, ScheduledTaskRequest request, Long owner) {
+        if (request.name() == null || request.name().isBlank()) {
+            throw BizException.badRequest("任务名称不能为空");
+        }
+        if (request.prompt() == null || request.prompt().isBlank()) {
+            throw BizException.badRequest("prompt 不能为空（定时执行时要告诉 agent 做什么）");
+        }
+        Agent agent = agentMapper.selectById(request.agentId());
+        if (agent == null) {
+            throw BizException.badRequest("Agent 不存在: " + request.agentId());
+        }
+        String type = request.scheduleType() == null
+                ? "" : request.scheduleType().trim().toUpperCase(java.util.Locale.ROOT);
+        if (!List.of(ScheduleMath.TYPE_CRON, ScheduleMath.TYPE_EVERY, ScheduleMath.TYPE_ONCE)
+                .contains(type)) {
+            throw BizException.badRequest("scheduleType 只能是 CRON / EVERY_MINUTES / ONCE");
+        }
+        switch (type) {
+            case ScheduleMath.TYPE_CRON -> {
+                try {
+                    ScheduleMath.validateCron(request.cronExpr());
+                } catch (IllegalArgumentException ex) {
+                    throw BizException.badRequest(ex.getMessage());
+                }
+            }
+            case ScheduleMath.TYPE_EVERY -> {
+                if (request.intervalMinutes() == null || request.intervalMinutes() <= 0) {
+                    throw BizException.badRequest("EVERY_MINUTES 需要 intervalMinutes > 0");
+                }
+            }
+            case ScheduleMath.TYPE_ONCE -> {
+                if (request.onceAt() == null) {
+                    throw BizException.badRequest("ONCE 需要 onceAt（执行时间）");
+                }
+            }
+            default -> {
+                // 上面已校验
+            }
+        }
+        String target = request.targetType() == null
+                ? "SESSION" : request.targetType().trim().toUpperCase(java.util.Locale.ROOT);
+        if (!List.of("SESSION", "IM", "NONE").contains(target)) {
+            throw BizException.badRequest("targetType 只能是 SESSION / IM / NONE");
+        }
+        if ("IM".equals(target) && request.channelAppId() == null
+                && request.chatSessionId() == null) {
+            throw BizException.badRequest("推送到 IM 需要指定渠道应用，或从 IM 会话里创建任务");
+        }
+        if (request.chatSessionId() != null) {
+            ChatSession session = sessionMapper.selectById(request.chatSessionId());
+            if (session == null) {
+                throw BizException.badRequest("会话不存在: " + request.chatSessionId());
+            }
+            if (owner != null && !owner.equals(session.getUserId())) {
+                throw BizException.badRequest("不能使用别人的会话：" + request.chatSessionId());
+            }
+        }
+        task.setName(request.name().trim());
+        task.setAgentId(request.agentId());
+        task.setScheduleType(type);
+        task.setCronExpr(ScheduleMath.TYPE_CRON.equals(type)
+                ? ScheduleMath.normalizeCron(request.cronExpr()) : null);
+        task.setIntervalMinutes(ScheduleMath.TYPE_EVERY.equals(type) ? request.intervalMinutes() : null);
+        task.setOnceAt(ScheduleMath.TYPE_ONCE.equals(type) ? request.onceAt() : null);
+        task.setTimezone(request.timezone() == null || request.timezone().isBlank()
+                ? "Asia/Shanghai" : request.timezone().trim());
+        task.setPrompt(request.prompt().trim());
+        task.setTargetType(target);
+        task.setChatSessionId(request.chatSessionId());
+        task.setChannelAppId(request.channelAppId());
+        task.setPeerKey(request.peerKey());
+        task.setMisfirePolicy(request.misfirePolicy() == null
+                ? "COALESCE" : request.misfirePolicy().trim().toUpperCase(java.util.Locale.ROOT));
+    }
+
+    private OffsetDateTime computeNext(ScheduledTask task, OffsetDateTime base) {
+        return ScheduleMath.next(task.getScheduleType(), task.getCronExpr(),
+                task.getIntervalMinutes(), task.getOnceAt(), task.getTimezone(), base);
+    }
+
+    /** 任务运行用的会话：有就用，没有就建一个（保证记忆/上下文连续）。 */
+    @Transactional
+    public ChatSession ensureSession(ScheduledTask task) {
+        if (task.getChatSessionId() != null) {
+            ChatSession existing = sessionMapper.selectById(task.getChatSessionId());
+            if (existing != null) {
+                return existing;
+            }
+        }
+        ChatSession created = sessionService.createForThread(
+                task.getCreatedByUserId(), UUID.randomUUID().toString(), task.getAgentId());
+        created.setTitle("定时 · " + task.getName());
+        created.setOrigin("SCHEDULE");
+        created.setOriginRef("定时任务 #" + task.getId());
+        sessionMapper.updateById(created);
+        task.setChatSessionId(created.getId());
+        task.setUpdatedAt(OffsetDateTime.now());
+        taskMapper.updateById(task);
+        return created;
+    }
+
+    private static String truncate(String text, int max) {
+        if (text == null) {
+            return null;
+        }
+        return text.length() <= max ? text : text.substring(0, max) + "…";
+    }
+}

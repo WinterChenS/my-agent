@@ -99,6 +99,15 @@ public class ChannelAppController {
         return Result.ok();
     }
 
+    /** 手工绑定 IM 接收人（未聊过天的用户也能被推送）。 */
+    public record BindPeerRequest(String peerKey, String peerName) {}
+
+    @PostMapping("/{id}/peers")
+    public Result<ChannelPeerResponse> bindPeer(
+            @PathVariable Long id, @RequestBody BindPeerRequest request) {
+        return Result.ok(service.bindPeer(id, request.peerKey(), request.peerName()));
+    }
+
     @GetMapping("/{id}/peers")
     public Result<List<ChannelPeerResponse>> peers(@PathVariable Long id) {
         return Result.ok(service.peers(id));

@@ -98,6 +98,63 @@ public class ChannelAppService {
         return app;
     }
 
+    /**
+     * 手工绑定一个 IM 接收人（用户还没跟机器人说过话时用它，否则拿不到 staffId/open_id）。
+     *
+     * <p>写入后 {@code channel_peer} 就有推送地址，定时任务/主动推送可以直接发。
+     * 注意：钉钉/飞书对**主动消息**有配额与频控，别拿它做高频通知。
+     */
+    @Transactional
+    public ChannelPeerResponse bindPeer(Long appId, String peerKey, String peerName) {
+        ChannelApp app = require(appId);
+        if (peerKey == null || peerKey.isBlank()) {
+            throw BizException.badRequest("接收人标识不能为空（钉钉是 staffId/userId）");
+        }
+        String key = peerKey.trim();
+        ChannelPeer existing = peerMapper.selectOne(Wrappers.<ChannelPeer>lambdaQuery()
+                .eq(ChannelPeer::getChannelAppId, appId)
+                .eq(ChannelPeer::getPeerKey, key));
+        String address = peerAddress(app, key);
+        if (existing == null) {
+            ChannelPeer peer = new ChannelPeer();
+            peer.setChannelAppId(appId);
+            peer.setPeerKey(key);
+            peer.setPeerKind("DIRECT");
+            peer.setPeerName(peerName == null || peerName.isBlank() ? key : peerName.trim());
+            peer.setOutboundAddress(address);
+            peer.setCreatedAt(OffsetDateTime.now());
+            peer.setUpdatedAt(OffsetDateTime.now());
+            peerMapper.insert(peer);
+            log.info("已手工绑定 IM 接收人 appId={} peerKey={}", appId, key);
+            return new ChannelPeerResponse(peer.getId(), key, "DIRECT", peer.getPeerName(), null, null);
+        }
+        if (existing.getOutboundAddress() == null) {
+            existing.setOutboundAddress(address);
+            existing.setUpdatedAt(OffsetDateTime.now());
+            peerMapper.updateById(existing);
+        }
+        return new ChannelPeerResponse(existing.getId(), key, existing.getPeerKind(),
+                existing.getPeerName(), existing.getChatSessionId(), existing.getLastActiveAt());
+    }
+
+    /** 合成推送地址：官方出站客户端会按 {@code channelId:KIND:id} 拆分。 */
+    private String peerAddress(ChannelApp app, String peerKey) {
+        Map<String, String> config = decryptConfig(app);
+        Map<String, String> address = new LinkedHashMap<>();
+        address.put("channelId", String.valueOf(app.getId()));
+        String accountId = config.getOrDefault("robotCode", config.get("appId"));
+        if (accountId != null && !accountId.isBlank()) {
+            address.put("accountId", accountId);
+        }
+        address.put("to", app.getId() + ":DIRECT:" + peerKey);
+        try {
+            return json.writeValueAsString(address);
+        } catch (Exception ex) {
+            log.warn("合成推送地址失败 appId={}: {}", app.getId(), ex.toString());
+            return null;
+        }
+    }
+
     public List<ChannelPeerResponse> peers(Long appId) {
         require(appId);
         List<ChannelPeer> peers = peerMapper.selectList(Wrappers.<ChannelPeer>lambdaQuery()
