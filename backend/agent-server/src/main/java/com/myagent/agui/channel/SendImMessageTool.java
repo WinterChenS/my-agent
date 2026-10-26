@@ -57,10 +57,11 @@ public class SendImMessageTool implements AgentTool {
 
     @Override
     public String getDescription() {
-        return "主动给当前 IM 会话（钉钉）发一条消息，可附带本轮生成的文件/图片。"
-                + "用户说「搞定后通知我」「提醒我」这类需求时用它，不要用普通回复（普通回复只发一次）。"
-                + "参数 text 必填（要发出去的正文）；artifactIds 可选（要一起发的产物 id，图片会发成图片消息，其它发成文件）。"
-                + "只有在 IM 会话里能用；Web 会话调用会返回错误说明。";
+        return "主动给当前 IM 会话（钉钉）发一条消息，可附带文件或图片（图片会以图片消息发出）。"
+                + "用户说「发张图给我」「搞定后通知我」「提醒我」这类需求时用它。"
+                + "参数 text 必填（正文）；paths 可选：**工作区相对路径**列表（如 screen.png、output/结果.csv），"
+                + "刚生成还没登记的文件用它最省事；artifactIds 可选（已有产物 id）。"
+                + "图片与文件是独立消息，正文单独一条。只有在 IM 会话里能用；Web 会话调用会返回说明。";
     }
 
     @Override
@@ -71,6 +72,11 @@ public class SendImMessageTool implements AgentTool {
                 "type", "array",
                 "items", Map.of("type", "integer"),
                 "description", "要随消息发送的产物 id 列表（可选）"));
+        properties.put("paths", Map.of(
+                "type", "array",
+                "items", Map.of("type", "string"),
+                "description", "工作区相对路径列表（可选），例如 screen.png。刚生成的文件用它，"
+                        + "图片会以图片消息发出"));
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
         schema.put("properties", properties);
@@ -113,11 +119,15 @@ public class SendImMessageTool implements AgentTool {
             return error("当前会话不是 IM 会话（Web 会话没有可推送的渠道），这条消息没有发出去");
         }
         List<Long> artifactIds = asLongList(param.getInput().get("artifactIds"));
+        List<String> paths = asStringList(param.getInput().get("paths"));
         ChannelPushPort port = pushPort.getIfAvailable();
         if (port == null) {
             return error("渠道运行时未就绪，这条消息没有发出去");
         }
         int sent = port.push(peer.getChannelAppId(), peer.getPeerKey(), text, artifactIds);
+        if (!paths.isEmpty()) {
+            sent += port.pushFiles(peer.getChannelAppId(), peer.getPeerKey(), null, paths);
+        }
         log.info("Agent 主动推送 IM 消息 sessionId={} appId={} sent={}",
                 session.getId(), peer.getChannelAppId(), sent);
         return ToolResultBlock.builder()
@@ -133,6 +143,22 @@ public class SendImMessageTool implements AgentTool {
 
     private static String asString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private static List<String> asStringList(Object value) {
+        List<String> result = new ArrayList<>();
+        if (value instanceof List<?> list) {
+            for (Object item : list) {
+                if (item == null) {
+                    continue;
+                }
+                String text = String.valueOf(item).trim();
+                if (!text.isEmpty()) {
+                    result.add(text);
+                }
+            }
+        }
+        return result;
     }
 
     private static List<Long> asLongList(Object value) {

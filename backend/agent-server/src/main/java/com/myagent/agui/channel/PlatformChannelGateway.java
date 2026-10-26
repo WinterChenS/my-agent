@@ -166,6 +166,10 @@ public class PlatformChannelGateway implements Gateway {
             sessionBridge.appendUserMessage(session, userText, meta);
 
             Map<String, Long> workspaceSnapshot = safeBeginRun(app);
+            // 本轮"新产出"的判定用 id 差集，不依赖 runId：实测模型用工具生成的图片
+            // （如 PowerShell 截图）在本轮结束时 runId 可能是 null，按 runId 过滤会被漏掉，
+            // 用户看到的就是"让它发张图，它说发不了"。
+            java.util.Set<Long> artifactsBefore = artifactIds(app, session);
 
             // 4) 跑 Agent（与 AG-UI 同一条官方入口）
             String answer = runAgent(app, session, blocks, userText);
@@ -177,7 +181,8 @@ public class PlatformChannelGateway implements Gateway {
 
             // 6) 把本轮产物发回 IM（只发文件/图片，不混进正文）
             sendAttachments(
-                    app, session, runId, address, ChannelSessionBridge.peerKey(inbound), peerIsDirect(inbound));
+                    app, session, artifactsBefore, address,
+                    ChannelSessionBridge.peerKey(inbound), peerIsDirect(inbound));
             return textMsg(answer);
         } catch (Exception ex) {
             log.warn("IM run 失败 appId={}: {}", app.getId(), ex.toString(), ex);
@@ -342,7 +347,7 @@ public class PlatformChannelGateway implements Gateway {
     private void sendAttachments(
             ChannelApp app,
             ChatSession session,
-            String runId,
+            java.util.Set<Long> before,
             OutboundAddress address,
             String fallbackPeerId,
             boolean direct) {
@@ -357,9 +362,13 @@ public class PlatformChannelGateway implements Gateway {
         List<ArtifactResponse> produced;
         try {
             produced = artifactService.list(app.getOwnerUserId(), session.getId()).stream()
-                    .filter(a -> runId.equals(a.runId()))
+                    // 只用「本轮新增」判定（id 差集），不看 runId；同时排除用户上传的 SOURCE
+                    .filter(a -> before == null || !before.contains(a.id()))
                     .filter(a -> ArtifactService.ROLE_ARTIFACT.equals(a.role()))
                     .filter(a -> a.sizeBytes() != null && a.sizeBytes() > 0)
+                    // 图片优先：用户最想看到的是图，别被同名批次里的 CSV/日志挤掉名额
+                    .sorted(java.util.Comparator.comparing(
+                            (ArtifactResponse a) -> isImageName(a.fileName()) ? 0 : 1))
                     .limit(MAX_OUTBOUND_ATTACHMENTS)
                     .toList();
         } catch (Exception ex) {
@@ -368,16 +377,37 @@ public class PlatformChannelGateway implements Gateway {
         }
         for (ArtifactResponse artifact : produced) {
             try {
-                ArtifactService.DownloadResult content =
-                        artifactService.download(app.getOwnerUserId(), artifact.id());
-                if (content.bytes() == null || content.bytes().length == 0) {
+                // 必须用 contentBytes：download() 对 MinIO 产物只给预签名 URL（bytes 为 null），
+                // 直接用它发图会被静默跳过（实测踩过）。
+                byte[] bytes = artifactService.contentBytes(app.getOwnerUserId(), artifact.id());
+                if (bytes == null || bytes.length == 0) {
+                    log.warn("产物内容为空，跳过发送 artifactId={}", artifact.id());
                     continue;
                 }
-                client.sendMedia(direct, target, content.fileName(), content.bytes());
+                client.sendMedia(direct, target, artifact.fileName(), bytes);
+                log.info("已发送产物到 IM artifactId={} file={} size={}",
+                        artifact.id(), artifact.fileName(), bytes.length);
             } catch (Exception ex) {
                 log.warn("发送产物到 IM 失败 artifactId={}: {}", artifact.id(), ex.toString());
             }
         }
+    }
+
+    /** 会话当前已有的产物 id（用于算本轮新增）。 */
+    private java.util.Set<Long> artifactIds(ChannelApp app, ChatSession session) {
+        try {
+            java.util.Set<Long> ids = new java.util.HashSet<>();
+            artifactService.list(app.getOwnerUserId(), session.getId())
+                    .forEach(a -> ids.add(a.id()));
+            return ids;
+        } catch (Exception ex) {
+            log.debug("快照产物列表失败（退化为按 runId 语义发送）: {}", ex.getMessage());
+            return java.util.Set.of();
+        }
+    }
+
+    private static boolean isImageName(String fileName) {
+        return DingTalkMediaClient.isImage(fileName);
     }
 
     // ===================== 辅助 =====================

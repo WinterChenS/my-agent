@@ -49,6 +49,7 @@ public class ChannelRuntime implements ChannelPushPort {
     private final DingTalkMediaClientFactory mediaClientFactory;
     private final com.myagent.artifact.service.ArtifactService artifactService;
     private final ChannelPeerMapper peerMapper;
+    private final com.myagent.agui.AguiProperties aguiProperties;
     private final JdbcTemplate jdbc;
 
     private final ChannelManager channelManager = new ChannelManager();
@@ -66,12 +67,14 @@ public class ChannelRuntime implements ChannelPushPort {
             DingTalkMediaClientFactory mediaClientFactory,
             com.myagent.artifact.service.ArtifactService artifactService,
             ChannelPeerMapper peerMapper,
+            com.myagent.agui.AguiProperties aguiProperties,
             JdbcTemplate jdbc) {
         this.channelAppService = channelAppService;
         this.gateway = gateway;
         this.mediaClientFactory = mediaClientFactory;
         this.artifactService = artifactService;
         this.peerMapper = peerMapper;
+        this.aguiProperties = aguiProperties;
         this.jdbc = jdbc;
     }
 
@@ -204,6 +207,52 @@ public class ChannelRuntime implements ChannelPushPort {
         return sent;
     }
 
+    @Override
+    public int pushFiles(
+            Long channelAppId, String peerKey, String text, List<String> workspacePaths) {
+        ChannelApp app = channelAppService.require(channelAppId);
+        ChannelPeer peer = findPeer(channelAppId, peerKey);
+        if (peer == null || peer.getOutboundAddress() == null) {
+            throw com.myagent.common.BizException.badRequest("该会话还没有和机器人聊过，无法推送: " + peerKey);
+        }
+        OutboundAddress address = OutboundAddress.fromMap(readMap(peer.getOutboundAddress()));
+        int sent = 0;
+        if (text != null && !text.isBlank()) {
+            sendText(app, address, text);
+            sent += 1;
+        }
+        if (workspacePaths == null || workspacePaths.isEmpty()) {
+            return sent;
+        }
+        DingTalkMediaClient client = mediaClientFactory.get(app);
+        if (client == null) {
+            return sent;
+        }
+        java.nio.file.Path root = java.nio.file.Path.of(
+                aguiProperties.workspaceRoot()).toAbsolutePath().normalize()
+                .resolve(String.valueOf(app.getOwnerUserId()));
+        boolean direct = !"GROUP".equalsIgnoreCase(peer.getPeerKind());
+        for (String path : workspacePaths) {
+            try {
+                java.nio.file.Path file = root.resolve(path).normalize();
+                if (!file.startsWith(root)) {
+                    log.warn("拒绝推送工作区外的路径: {}", path);
+                    continue;
+                }
+                if (!java.nio.file.Files.isRegularFile(file)) {
+                    log.warn("推送失败，文件不存在: {}", file);
+                    continue;
+                }
+                byte[] bytes = java.nio.file.Files.readAllBytes(file);
+                client.sendMedia(direct, peer.getPeerKey(), file.getFileName().toString(), bytes);
+                sent += 1;
+            } catch (Exception ex) {
+                log.warn("按路径推送失败 path={}: {}", path, ex.toString());
+            }
+        }
+        return sent;
+    }
+
     private void sendText(ChannelApp app, OutboundAddress address, String text) {
         Channel channel = channelManager.getChannel(String.valueOf(app.getId()))
                 .orElseThrow(() -> com.myagent.common.BizException.badRequest("渠道未启动，无法推送"));
@@ -224,11 +273,14 @@ public class ChannelRuntime implements ChannelPushPort {
         int sent = 0;
         for (Long artifactId : artifactIds) {
             try {
-                var content = artifactService.download(app.getOwnerUserId(), artifactId);
-                if (content == null || content.bytes() == null || content.bytes().length == 0) {
+                // 用 contentBytes：download() 对 MinIO 产物只给预签名 URL（bytes 为 null）
+                byte[] bytes = artifactService.contentBytes(app.getOwnerUserId(), artifactId);
+                if (bytes == null || bytes.length == 0) {
+                    log.warn("产物内容为空，跳过推送 artifactId={}", artifactId);
                     continue;
                 }
-                client.sendMedia(direct, peerId, content.fileName(), content.bytes());
+                String fileName = artifactService.fileNameOf(app.getOwnerUserId(), artifactId);
+                client.sendMedia(direct, peerId, fileName, bytes);
                 sent += 1;
             } catch (Exception ex) {
                 log.warn("推送产物失败 artifactId={}: {}", artifactId, ex.toString());

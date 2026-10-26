@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.myagent.channelconfig.entity.ChannelApp;
 import com.myagent.channelconfig.service.ChannelAppService;
+import com.myagent.artifact.service.ArtifactService;
 import com.myagent.chat.entity.ChatSession;
 import io.agentscope.core.agent.Event;
 import io.agentscope.core.agent.EventType;
@@ -213,6 +214,27 @@ class PlatformChannelGatewayTest {
                 eq(session), org.mockito.ArgumentMatchers.contains("uploads/白名单.xlsx"), any());
         verify(sessionBridge).appendUserMessage(
                 eq(session), org.mockito.ArgumentMatchers.contains("execute"), any());
+    }
+
+    @Test
+    void 本轮新生成的图片会以图片消息发回IM_即使runId为空() {
+        com.myagent.artifact.dto.ArtifactResponse png = new com.myagent.artifact.dto.ArtifactResponse(
+                900L, 100L, "ARTIFACT", "MINIO", "screen.png", "image/png", 1234L,
+                "sha", "READY", null, false, null, null, java.time.OffsetDateTime.now());
+        // runId 为 null —— 这正是模型用 PowerShell 截图时的实际情况
+        when(artifactService.list(any(), any()))
+                .thenReturn(List.of())            // 开跑前快照为空
+                .thenReturn(List.of(png));        // 跑完后多了一个 png
+        DingTalkMediaClient client = mock(DingTalkMediaClient.class);
+        when(mediaClientFactory.get(any())).thenReturn(client);
+        when(artifactService.contentBytes(eq(1L), eq(900L))).thenReturn("PNG".getBytes());
+        when(agent.stream(anyList(), any(StreamOptions.class), any(RuntimeContext.class)))
+                .thenReturn(Flux.just(new Event(EventType.AGENT_RESULT, text("图给你"), true)));
+
+        gateway.run(MsgContext.defaultContext(), List.of(text("找张图发我")), address(), null,
+                inbound("找张图发我")).block();
+
+        verify(client).sendMedia(true, "staff-1", "screen.png", "PNG".getBytes());
     }
 
     @Test

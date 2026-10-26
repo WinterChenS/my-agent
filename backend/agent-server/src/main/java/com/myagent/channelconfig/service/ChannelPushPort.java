@@ -16,4 +16,11 @@ public interface ChannelPushPort {
      * @return 实际发出的消息条数
      */
     int push(Long channelAppId, String peerKey, String text, List<Long> artifactIds);
+
+    /**
+     * 按**工作区相对路径**推送文件/图片（Agent 刚生成的图常常还没登记成 artifact）。
+     *
+     * @return 实际发出的消息条数
+     */
+    int pushFiles(Long channelAppId, String peerKey, String text, List<String> workspacePaths);
 }
