@@ -3,6 +3,32 @@ import { apiFetch } from "./client";
 export type ScheduleType = "CRON" | "EVERY_MINUTES" | "ONCE";
 export type TaskTarget = "SESSION" | "IM" | "NONE";
 export type TaskStatus = "ACTIVE" | "PAUSED" | "ERROR" | "DONE";
+export type RunStatus = "RUNNING" | "SUCCESS" | "FAILED" | "ABANDONED" | "CANCELLED";
+
+/** 日历用：某一天的执行统计（数字越大颜色越深）。 */
+export interface RunDaySummary {
+  day: string; // YYYY-MM-DD
+  total: number;
+  success: number;
+  failed: number;
+  cancelled: number;
+  running: number;
+}
+
+/** 时间轴用：一条执行记录（跨任务）。 */
+export interface RunTimelineItem {
+  id: number;
+  task_id: number;
+  task_name: string;
+  trigger_type: string;
+  status: RunStatus;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+  output_preview: string | null;
+  error: string | null;
+  node_id: string;
+}
 
 export interface ScheduledTaskInfo {
   id: number;
@@ -131,6 +157,28 @@ export function runScheduledTaskNow(id: number) {
 
 export function deleteScheduledTask(id: number) {
   return apiFetch<void>(`/api/scheduled-tasks/${id}`, { method: "DELETE" });
+}
+
+/** 某时间窗内按天聚合的执行次数（日历着色）。 */
+export function fetchRunSummary(fromIso: string, toIso: string) {
+  return apiFetch<RunDaySummary[]>(
+    `/api/scheduled-tasks/runs/summary?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+  );
+}
+
+/** 时间轴：时间窗内的执行记录（跨任务，按时间倒序）。 */
+export function fetchRunTimeline(fromIso: string, toIso: string, limit = 200) {
+  return apiFetch<RunTimelineItem[]>(
+    `/api/scheduled-tasks/runs?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&limit=${limit}`,
+  );
+}
+
+/** 取消一次正在跑的执行（后端会 dispose 流并中断 Agent）。 */
+export function cancelRun(runId: number) {
+  return apiFetch<{ runId: number; cancelled: boolean; taskName: string }>(
+    `/api/scheduled-tasks/runs/${runId}/cancel`,
+    { method: "POST" },
+  );
 }
 
 export function listScheduledTaskRuns(id: number, limit = 20) {

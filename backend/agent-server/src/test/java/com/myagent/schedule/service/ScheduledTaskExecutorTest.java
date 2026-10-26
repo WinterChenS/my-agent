@@ -51,7 +51,8 @@ class ScheduledTaskExecutorTest {
                 Mockito.mock(com.myagent.agui.AgentFactory.class), taskService, sessionService, bridge,
                 provider.getBeanProvider(ChannelPushPort.class),
                 Mockito.mock(com.myagent.artifact.service.ArtifactCaptureService.class),
-                Mockito.mock(com.myagent.artifact.service.ArtifactService.class));
+                Mockito.mock(com.myagent.artifact.service.ArtifactService.class),
+                new ScheduledTaskExecutionRegistry());
 
         ScheduledTask task = new ScheduledTask();
         task.setId(1L);

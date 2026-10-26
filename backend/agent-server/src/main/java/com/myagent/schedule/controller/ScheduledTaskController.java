@@ -9,9 +9,11 @@ import com.myagent.schedule.dto.ScheduledTaskRunResponse;
 import com.myagent.schedule.entity.ScheduledTask;
 import com.myagent.schedule.service.ScheduleMath;
 import com.myagent.schedule.service.ScheduledTaskDispatcher;
+import com.myagent.schedule.service.ScheduledTaskExecutionRegistry;
 import com.myagent.schedule.service.ScheduledTaskService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,14 +33,80 @@ public class ScheduledTaskController {
     private final ScheduledTaskService service;
     private final ScheduledTaskDispatcher dispatcher;
     private final com.myagent.agentconfig.mapper.AgentMapper agentMapper;
+    private final ScheduledTaskExecutionRegistry executionRegistry;
+    private final com.myagent.schedule.mapper.ScheduledTaskRunQueryMapper runQueryMapper;
 
     public ScheduledTaskController(
             ScheduledTaskService service,
             ScheduledTaskDispatcher dispatcher,
-            com.myagent.agentconfig.mapper.AgentMapper agentMapper) {
+            com.myagent.agentconfig.mapper.AgentMapper agentMapper,
+            ScheduledTaskExecutionRegistry executionRegistry,
+            com.myagent.schedule.mapper.ScheduledTaskRunQueryMapper runQueryMapper) {
         this.service = service;
         this.dispatcher = dispatcher;
         this.agentMapper = agentMapper;
+        this.executionRegistry = executionRegistry;
+        this.runQueryMapper = runQueryMapper;
+    }
+
+    // ===================== 执行记录（日历 + 时间轴） =====================
+
+    /** 日历：按天聚合的执行次数（count 越多颜色越深）。 */
+    @GetMapping("/runs/summary")
+    public Result<List<Map<String, Object>>> runSummary(
+            @AuthenticationPrincipal JwtPrincipal principal,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(defaultValue = "false") boolean all) {
+        java.time.ZoneId zone = java.time.ZoneId.of("Asia/Shanghai");
+        java.time.OffsetDateTime start = parseTime(from)
+                .orElse(java.time.OffsetDateTime.now(zone).minusDays(60).with(
+                        java.time.LocalTime.MIN.atOffset(java.time.OffsetDateTime.now(zone).getOffset())));
+        java.time.OffsetDateTime end = parseTime(to)
+                .orElse(java.time.OffsetDateTime.now(zone).plusDays(2));
+        return Result.ok(runQueryMapper.summaryByDay(start, end, zone.getId(), ownerScope(principal, all)));
+    }
+
+    /** 时间轴：时间窗内的执行记录（默认最近 24 小时）。 */
+    @GetMapping("/runs")
+    public Result<List<Map<String, Object>>> runTimeline(
+            @AuthenticationPrincipal JwtPrincipal principal,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(defaultValue = "200") int limit,
+            @RequestParam(defaultValue = "false") boolean all) {
+        java.time.OffsetDateTime start = parseTime(from)
+                .orElse(java.time.OffsetDateTime.now().minusHours(24));
+        java.time.OffsetDateTime end = parseTime(to).orElse(java.time.OffsetDateTime.now().plusDays(1));
+        return Result.ok(runQueryMapper.timeline(
+                start, end, ownerScope(principal, all), Math.min(Math.max(limit, 1), 500)));
+    }
+
+    /** 取消一次正在跑的执行（"点晚了"不算错误，返回 cancelled=false）。 */
+    @PostMapping("/runs/{runId}/cancel")
+    public Result<Map<String, Object>> cancelRun(@PathVariable Long runId) {
+        boolean cancelled = executionRegistry.cancel(runId);
+        String taskName = runQueryMapper.taskNameOfRun(runId);
+        return Result.ok(Map.of(
+                "runId", runId,
+                "cancelled", cancelled,
+                "taskName", taskName == null ? "" : taskName));
+    }
+
+    private Long ownerScope(JwtPrincipal principal, boolean all) {
+        boolean admin = principal != null && "ADMIN".equalsIgnoreCase(principal.role());
+        return admin && all ? null : (principal == null ? null : principal.userId());
+    }
+
+    private static java.util.Optional<java.time.OffsetDateTime> parseTime(String value) {
+        if (value == null || value.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        try {
+            return java.util.Optional.of(java.time.OffsetDateTime.parse(value));
+        } catch (Exception ex) {
+            return java.util.Optional.empty();
+        }
     }
 
     /** 计划预览请求（管理页可视化配置时实时调用）。 */

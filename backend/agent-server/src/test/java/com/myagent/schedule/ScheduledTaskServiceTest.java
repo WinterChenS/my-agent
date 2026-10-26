@@ -199,4 +199,37 @@ class ScheduledTaskServiceTest {
 
         assertThatThrownBy(() -> service.require(task.getId())).isInstanceOf(BizException.class);
     }
+
+    @Test
+    void 取消不算失败_不清零也不累加失败计数() {
+        Long agentId = newAgent();
+        ScheduledTask task = service.create(everyMinute(agentId, "取消测试"), 1L);
+
+        // 先失败一次
+        service.finishRun(task.getId(), null, false, null, "失败", 10);
+        // 再取消（success=null）
+        boolean paused = service.finishRun(task.getId(), null, null, "（已取消）", null, 10);
+
+        assertThat(paused).isFalse();
+        ScheduledTask after = service.require(task.getId());
+        assertThat(after.getConsecutiveFailures()).as("取消不是故障").isEqualTo(1);
+        assertThat(after.getStatus()).isEqualTo("ACTIVE");
+        assertThat(after.getLastError()).isNull();
+        assertThat(after.getLeaseUntil()).isNull();
+    }
+
+    @Test
+    void 取消一次性任务后置为完成() {
+        Long agentId = newAgent();
+        ScheduledTask task = service.create(new ScheduledTaskRequest(
+                "一次性取消", agentId, "ONCE", null, null, OffsetDateTime.now().plusMinutes(5),
+                "Asia/Shanghai", "提醒我", "NONE", null, null, null, null), 1L);
+
+        service.finishRun(task.getId(), null, null, null, null, 10);
+
+        ScheduledTask after = service.require(task.getId());
+        assertThat(after.getStatus()).isEqualTo("DONE");
+        assertThat(after.getEnabled()).isFalse();
+        assertThat(after.getNextRunAt()).isNull();
+    }
 }

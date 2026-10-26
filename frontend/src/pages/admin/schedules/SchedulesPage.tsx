@@ -25,6 +25,8 @@ import { listAgentDetails, type AgentDetail } from "@/api/agents";
 import { listChannels, type ChannelAppInfo } from "@/api/channels";
 import { listSessions } from "@/api/sessions";
 import {
+  fetchRunSummary,
+  fetchRunTimeline,
   createScheduledTask,
   deleteScheduledTask,
   listChannelPeers,
@@ -35,10 +37,15 @@ import {
   updateScheduledTask,
   type ScheduledTaskInfo,
   type ScheduledTaskRunInfo,
+  type RunDaySummary,
+  type RunTimelineItem,
   type ScheduleType,
   type TaskTarget,
 } from "@/api/scheduledTasks";
 import ScheduleEditor from "./ScheduleEditor";
+import RunCalendar from "./RunCalendar";
+import { dayKey } from "@/lib/schedule/calendar";
+import RunTimeline from "./RunTimeline";
 
 interface SessionOption {
   id: number;
@@ -123,6 +130,12 @@ export default function SchedulesPage() {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
+  // ===== 执行记录：日历（按天次数）+ 时间轴 =====
+  const [month, setMonth] = useState(() => new Date());
+  const [selectedDay, setSelectedDay] = useState(() => dayKey(new Date()));
+  const [daySummary, setDaySummary] = useState<RunDaySummary[]>([]);
+  const [timeline, setTimeline] = useState<RunTimelineItem[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
   const [runsOf, setRunsOf] = useState<ScheduledTaskInfo | null>(null);
   const [runs, setRuns] = useState<ScheduledTaskRunInfo[]>([]);
 
@@ -148,6 +161,7 @@ export default function SchedulesPage() {
 
   useEffect(() => {
     void reload();
+    // reloadRuns 依赖 month/selectedDay，这里不需要跟着变（记录区有自己的 effect）
   }, [reload]);
 
   // 选了渠道就拉它已绑定的接收人（含手工绑定的、还没聊过天的用户）
@@ -173,6 +187,32 @@ export default function SchedulesPage() {
       alive = false;
     };
   }, [form?.channelAppId]);
+
+  /** 日历数据：整月一次拉取（含首尾补白的邻月日期）。 */
+  const reloadRuns = useCallback(async () => {
+    setRunsLoading(true);
+    try {
+      const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
+      const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 1);
+      const [summary, dayRuns] = await Promise.all([
+        fetchRunSummary(monthStart.toISOString(), monthEnd.toISOString()),
+        fetchRunTimeline(
+          new Date(`${selectedDay}T00:00:00`).toISOString(),
+          new Date(`${selectedDay}T23:59:59.999`).toISOString(),
+        ),
+      ]);
+      setDaySummary(summary);
+      setTimeline(dayRuns);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "加载执行记录失败");
+    } finally {
+      setRunsLoading(false);
+    }
+  }, [month, selectedDay]);
+
+  useEffect(() => {
+    void reloadRuns();
+  }, [reloadRuns]);
 
   const agentOptions = useMemo(
     () => agents.filter((a) => a.permissionMode !== "REQUIRE_APPROVAL"),
@@ -389,6 +429,34 @@ export default function SchedulesPage() {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      {/* 执行记录：左日历 + 右时间轴 */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base">执行记录</CardTitle>
+          <Button variant="ghost" size="sm" onClick={() => void reloadRuns()} disabled={runsLoading}>
+            <RefreshCw className={`mr-1 h-3.5 w-3.5 ${runsLoading ? "animate-spin" : ""}`} />
+            刷新记录
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-[300px_1fr]">
+            <RunCalendar
+              month={month}
+              summary={daySummary}
+              selected={selectedDay}
+              onSelect={setSelectedDay}
+              onMonthChange={setMonth}
+            />
+            <RunTimeline
+              runs={timeline}
+              loading={runsLoading}
+              day={selectedDay}
+              onCanceled={() => void reloadRuns()}
+            />
+          </div>
         </CardContent>
       </Card>
 

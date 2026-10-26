@@ -50,6 +50,8 @@ public class ScheduledTaskExecutor {
     private final ObjectProvider<ChannelPushPort> pushPort;
     private final com.myagent.artifact.service.ArtifactCaptureService artifactCaptureService;
     private final com.myagent.artifact.service.ArtifactService artifactService;
+    /** 正在跑的执行，支持从界面取消。 */
+    private final ScheduledTaskExecutionRegistry executionRegistry;
 
     public ScheduledTaskExecutor(
             AgentFactory agentFactory,
@@ -58,7 +60,8 @@ public class ScheduledTaskExecutor {
             com.myagent.agui.channel.ChannelSessionBridge sessionBridge,
             ObjectProvider<ChannelPushPort> pushPort,
             com.myagent.artifact.service.ArtifactCaptureService artifactCaptureService,
-            com.myagent.artifact.service.ArtifactService artifactService) {
+            com.myagent.artifact.service.ArtifactService artifactService,
+            ScheduledTaskExecutionRegistry executionRegistry) {
         this.agentFactory = agentFactory;
         this.taskService = taskService;
         this.sessionService = sessionService;
@@ -66,6 +69,7 @@ public class ScheduledTaskExecutor {
         this.pushPort = pushPort;
         this.artifactCaptureService = artifactCaptureService;
         this.artifactService = artifactService;
+        this.executionRegistry = executionRegistry;
     }
 
     /**
@@ -83,18 +87,29 @@ public class ScheduledTaskExecutor {
             ChatSession session = taskService.ensureSession(task);
             // 产物快照：定时任务常要"生成报告文档并发出"，所以跑完要把新文件一起发
             java.util.Map<String, Long> before = snapshot(task);
-            answer = runAgent(task, session);
+            answer = runAgent(task, session, run.getId());
             java.util.List<Long> produced = captureArtifacts(task, session, before, runId);
             deliver(task, session, answer, produced);
             log.info("定时任务执行成功 id={} name={} 耗时={}ms 输出长度={} 产物={}",
                     task.getId(), task.getName(), System.currentTimeMillis() - started,
                     answer == null ? 0 : answer.length(), produced.size());
         } catch (Exception ex) {
-            error = rootMessage(ex);
-            log.warn("定时任务执行失败 id={} name={}: {}", task.getId(), task.getName(), error, ex);
+            if (executionRegistry.wasCancelled(run.getId())) {
+                // 用户主动取消：记「已取消」，不算失败（不计入连续失败次数）
+                error = null;
+            } else {
+                error = rootMessage(ex);
+                log.warn("定时任务执行失败 id={} name={}: {}", task.getId(), task.getName(), error, ex);
+            }
+        }
+        boolean cancelled = executionRegistry.wasCancelled(run.getId());
+        executionRegistry.unregister(run.getId());
+        if (cancelled) {
+            log.info("定时任务执行已取消 id={} name={} 已生成 {} 字", task.getId(), task.getName(),
+                    answer == null ? 0 : answer.length());
         }
         boolean paused = taskService.finishRun(
-                task.getId(), run.getId(), error == null, answer, error,
+                task.getId(), run.getId(), cancelled ? null : (error == null), answer, error,
                 System.currentTimeMillis() - started);
         if (paused) {
             notifyPaused(task, error);
@@ -103,7 +118,7 @@ public class ScheduledTaskExecutor {
 
     // ===================== agent =====================
 
-    private String runAgent(ScheduledTask task, ChatSession session) {
+    private String runAgent(ScheduledTask task, ChatSession session, Long runDbId) {
         HarnessAgent agent = agentFactory.build(task.getAgentId());
         Msg userMsg = Msg.builder()
                 .role(MsgRole.USER)
@@ -118,10 +133,31 @@ public class ScheduledTaskExecutor {
                 .incremental(true)
                 .build();
         StringBuilder answer = new StringBuilder();
-        agent.stream(List.of(userMsg), options, context)
+        // 登记后即可从界面取消：取消会 dispose 这个订阅并中断 Agent
+        ScheduledTaskExecutionRegistry.Handle handle =
+                executionRegistry.register(runDbId, task.getName(), agent, context);
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        handle.subscription.set(agent.stream(List.of(userMsg), options, context)
                 .doOnNext(event -> accumulate(event, answer))
-                .blockLast();
+                .subscribe(
+                        event -> { },
+                        failure::set,
+                        handle::finish));
+        try {
+            // 没有固定超时：定时任务可能跑很久；取消/完成都会 countDown
+            handle.done.await();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("定时任务执行被中断", ex);
+        }
+        if (failure.get() != null && !handle.cancelled.get()) {
+            throw new IllegalStateException(rootMessage(failure.get()), failure.get());
+        }
         String result = answer.toString().strip();
+        if (result.isEmpty() && handle.cancelled.get()) {
+            return "（已取消，未生成内容）";
+        }
         if (result.isEmpty()) {
             throw new IllegalStateException("agent 没有产出可见正文（可能工具调用失败）");
         }

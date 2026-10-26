@@ -232,13 +232,14 @@ public class ScheduledTaskService {
      * @return true 表示本次失败触发了自动暂停
      */
     @Transactional
-    public boolean finishRun(Long taskId, Long runId, boolean success, String output, String error,
+    public boolean finishRun(Long taskId, Long runId, Boolean success, String output, String error,
             long durationMs) {
+        boolean cancelled = success == null;
         ScheduledTask task = taskMapper.selectById(taskId);
         ScheduledTaskRun run = runId == null ? null : runMapper.selectById(runId);
         OffsetDateTime now = OffsetDateTime.now();
         if (run != null) {
-            run.setStatus(success ? "SUCCESS" : "FAILED");
+            run.setStatus(cancelled ? "CANCELLED" : (Boolean.TRUE.equals(success) ? "SUCCESS" : "FAILED"));
             run.setFinishedAt(now);
             run.setDurationMs(durationMs);
             run.setOutputPreview(truncate(output, 2000));
@@ -253,7 +254,15 @@ public class ScheduledTaskService {
         task.setRunCount((task.getRunCount() == null ? 0 : task.getRunCount()) + 1);
         task.setUpdatedAt(now);
         boolean paused = false;
-        if (success) {
+        if (cancelled) {
+            // 取消：清掉租约与错误即可；不改连续失败计数（取消不是故障），一次性任务也不再跑
+            task.setLastError(null);
+            if (ScheduleMath.TYPE_ONCE.equalsIgnoreCase(task.getScheduleType())) {
+                task.setStatus("DONE");
+                task.setEnabled(false);
+                task.setNextRunAt(null);
+            }
+        } else if (success) {
             task.setConsecutiveFailures(0);
             task.setLastError(null);
             if (ScheduleMath.TYPE_ONCE.equalsIgnoreCase(task.getScheduleType())) {
