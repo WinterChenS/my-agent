@@ -84,5 +84,5 @@ tools/llm-stub/dump*.txt
 e2e/.stub-started-by-tests
 
 # 本地调试产物（logs/ 下的临时脚本与抓包）
-/logs/tmp/
+/logs/
 *.sse

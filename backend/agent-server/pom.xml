@@ -20,7 +20,7 @@
   <properties>
     <java.version>21</java.version>
     <!-- 门禁 G1：AgentScope 相关版本统一为 2.0.3 -->
-    <agentscope.version>2.0.3</agentscope.version>
+    <agentscope.version>2.0.4</agentscope.version>
     <mybatis-plus.version>3.5.7</mybatis-plus.version>
     <jjwt.version>0.12.6</jjwt.version>
     <jasypt.version>3.0.5</jasypt.version>
