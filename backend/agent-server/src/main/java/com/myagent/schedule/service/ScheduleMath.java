@@ -104,6 +104,19 @@ public final class ScheduleMath {
      *
      * @param overdueMinutes 落后超过多少分钟算"错过"（由调用方按任务粒度给，默认 5 分钟）
      */
+    /**
+     * 是否"落后太多"（超过宽限）：与策略无关，只判时间。
+     *
+     * <p>为什么要单独一个方法：{@code shouldCoalesce} 只在 COALESCE 策略下有意义，
+     * 而 SKIP 策略同样需要判断"这次是不是错过了"。
+     */
+    public static boolean isOverdue(OffsetDateTime scheduledAt, OffsetDateTime now, int graceMinutes) {
+        if (scheduledAt == null || now == null) {
+            return false;
+        }
+        return scheduledAt.isBefore(now.minusMinutes(Math.max(1, graceMinutes)));
+    }
+
     public static boolean shouldCoalesce(
             String misfirePolicy, OffsetDateTime scheduledAt, OffsetDateTime now, int overdueMinutes) {
         if (scheduledAt == null) {

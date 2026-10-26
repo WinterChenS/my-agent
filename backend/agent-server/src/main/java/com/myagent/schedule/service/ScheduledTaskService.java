@@ -34,6 +34,9 @@ public class ScheduledTaskService {
     /** 连续失败多少次自动暂停（并通知创建人）。 */
     static final int AUTO_PAUSE_AFTER_FAILURES = 3;
 
+    /** 落后超过多少分钟算「错过」触发（超过后按 misfirePolicy 决定补跑还是跳过）。 */
+    static final int MISFIRE_GRACE_MINUTES = 5;
+
     private final ScheduledTaskMapper taskMapper;
     private final ScheduledTaskRunMapper runMapper;
     private final AgentMapper agentMapper;
@@ -157,25 +160,35 @@ public class ScheduledTaskService {
             return List.of();
         }
         OffsetDateTime now = OffsetDateTime.now();
+        List<ScheduledTask> claimed = new java.util.ArrayList<>(due.size());
         for (ScheduledTask task : due) {
             OffsetDateTime scheduledAt = task.getNextRunAt();
-            // 错过太久且策略是 SKIP：直接跳到下一个周期（base=now），避免恢复瞬间被雪崩；
-            // COALESCE 则按"现在就是这次触发"处理（base 略微回退，保证严格晚于上次计划时刻）
-            boolean overdue = scheduledAt != null && scheduledAt.isBefore(now.minusMinutes(5))
-                    && "SKIP".equalsIgnoreCase(task.getMisfirePolicy());
-            OffsetDateTime base = overdue ? now : now.minusSeconds(1);
-            OffsetDateTime next = computeNext(task, base);
+            // 错过太久（超过 #MISFIRE_GRACE_MINUTES）且策略是 SKIP：**真的跳过**这次，
+            // 只把 next_run_at 推到下一个周期。否则恢复瞬间会被积压的任务同时打爆。
+            if ("SKIP".equalsIgnoreCase(task.getMisfirePolicy())
+                    && ScheduleMath.isOverdue(scheduledAt, now, MISFIRE_GRACE_MINUTES)) {
+                OffsetDateTime next = computeNext(task, now);
+                task.setNextRunAt(next);
+                task.setLeaseUntil(null);
+                task.setUpdatedAt(now);
+                task.setLastError("错过计划时间（" + scheduledAt + "），按策略 SKIP 跳过本次");
+                taskMapper.updateById(task);
+                log.info("定时任务错过触发已跳过 id={} 计划={} 下次={}", task.getId(), scheduledAt, next);
+                continue;
+            }
+            OffsetDateTime next = computeNext(task, now.minusSeconds(1));
             task.setLastRunAt(now);
             task.setNextRunAt(next);
             task.setLeaseUntil(now.plusMinutes(leaseMinutes));
             task.setUpdatedAt(now);
             if (next == null) {
-                // 一次性任务：等执行完再由 finish 决定 DONE / ERROR
+                // 一次性任务：等执行完再由 finishRun 决定 DONE / ERROR
                 task.setEnabled(false);
             }
             taskMapper.updateById(task);
+            claimed.add(task);
         }
-        return due;
+        return claimed;
     }
 
     /** 回收租约过期与残留的 RUNNING 记录（节点崩溃留下的）。 */
@@ -299,6 +312,10 @@ public class ScheduledTaskService {
             case ScheduleMath.TYPE_ONCE -> {
                 if (request.onceAt() == null) {
                     throw BizException.badRequest("ONCE 需要 onceAt（执行时间）");
+                }
+                if (request.onceAt().isBefore(OffsetDateTime.now().minusSeconds(5))) {
+                    throw BizException.badRequest(
+                            "一次性任务的执行时间必须晚于当前时间（收到 " + request.onceAt() + "）");
                 }
             }
             default -> {
