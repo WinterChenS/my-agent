@@ -40,13 +40,18 @@ public class ScheduleTaskTool implements AgentTool {
     private final ChatSessionMapper sessionMapper;
     private final com.myagent.agui.channel.ChannelSessionBridge sessionBridge;
 
+    /** 把"钉钉 / 张三"这类模糊说法解析成确定的 (渠道, 接收人)；解析不出就拒绝创建。 */
+    private final com.myagent.channelconfig.service.ChannelTargetResolver targetResolver;
+
     public ScheduleTaskTool(
             ScheduledTaskService taskService,
             ChatSessionMapper sessionMapper,
-            com.myagent.agui.channel.ChannelSessionBridge sessionBridge) {
+            com.myagent.agui.channel.ChannelSessionBridge sessionBridge,
+            com.myagent.channelconfig.service.ChannelTargetResolver targetResolver) {
         this.taskService = taskService;
         this.sessionMapper = sessionMapper;
         this.sessionBridge = sessionBridge;
+        this.targetResolver = targetResolver;
     }
 
     @Override
@@ -60,8 +65,11 @@ public class ScheduleTaskTool implements AgentTool {
                 + "用户说「每天/每周/每隔多久…帮我做…」「X 分钟后提醒我」时用它。"
                 + "三种计划：cron（5 或 6 段，如每天 9 点 = \"0 9 * * *\"）"
                 + "、everyMinutes（每 N 分钟）、onceInMinutes（N 分钟后一次性）。"
-                + "target 默认按当前位置决定：在 IM 会话里创建就发回 IM，在网页里创建就写回本会话；"
-                + "可选 IM / SESSION / NONE 显式指定。"
+                + "target：IM（推到 IM）/ SESSION（写回本会话）/ NONE（只记录）；不填时按当前位置决定。"
+                + "**要发到 IM 时必须给出 channel 和 recipient**（用户说\"发我钉钉\"时也要指定），"
+                + "不清楚有哪些可选就先调 list_im_targets 查；"
+                + "如果 channel/recipient 匹配不上或有多个候选，本工具会拒绝创建并返回候选清单——"
+                + "这时要问用户选哪一个，**不要自己猜**（猜错会把消息发给别人）。"
                 + "prompt 要写成**独立可执行**的指令（到点没人补充上下文），例如"
                 + "「把昨天 uploads 里的销售表汇总成 3 条要点」。"
                 + "任务执行时如果你生成了文件（报告文档、图表等），平台会自动把它们随结果一起发出去。"
@@ -82,6 +90,10 @@ public class ScheduleTaskTool implements AgentTool {
                 "description", "多少分钟后执行一次（一次性任务，与 cron/everyMinutes 三选一）"));
         properties.put("timezone", Map.of("type", "string",
                 "description", "cron 的时区，默认 Asia/Shanghai"));
+        properties.put("channel", Map.of("type", "string",
+                "description", "推送到 IM 时的渠道：渠道名称或 id（如 钉钉机器人 / 2）；可用 list_im_targets 查"));
+        properties.put("recipient", Map.of("type", "string",
+                "description", "推送到 IM 时的接收人：名称或 peerKey；可用 list_im_targets 查"));
         properties.put("target", Map.of("type", "string",
                 "enum", List.of("IM", "SESSION", "NONE"),
                 "description", "结果发到哪里：IM=推送到钉钉等，SESSION=写回当前会话，NONE=只记录"));
@@ -142,9 +154,36 @@ public class ScheduleTaskTool implements AgentTool {
 
         // 默认目标：IM 会话 → 推回该 IM；Web 会话 → 写回本会话
         String target = asString(input.get("target"));
+        ChannelPeer sessionPeer = sessionBridge.peerOfSession(session.getId());
         if (target == null || target.isBlank()) {
-            ChannelPeer peer = sessionBridge.peerOfSession(session.getId());
-            target = peer == null ? "SESSION" : "IM";
+            target = sessionPeer == null ? "SESSION" : "IM";
+        }
+        Long channelAppId = null;
+        String peerKey = null;
+        String targetText = "本会话";
+        if ("IM".equalsIgnoreCase(target)) {
+            com.myagent.channelconfig.service.ChannelTargetResolver.Resolution resolution =
+                    targetResolver.resolve(
+                            asString(input.get("channel")),
+                            asString(input.get("recipient")),
+                            sessionPeer == null ? null : sessionPeer.getChannelAppId(),
+                            sessionPeer == null ? null : sessionPeer.getPeerKey());
+            if (!resolution.ok()) {
+                // 关键约束：宁可拒绝，也不猜错人
+                String nl = String.valueOf((char) 10);
+                StringBuilder problem = new StringBuilder();
+                problem.append("没有创建任务：").append(resolution.problem()).append(nl);
+                if (!resolution.options().isEmpty()) {
+                    problem.append("候选：").append(nl);
+                    resolution.options().forEach(option -> problem.append("  - ").append(option).append(nl));
+                }
+                problem.append(nl).append("请让用户明确指定「渠道」和「接收人」后重试（参数 channel / recipient），")
+                        .append("或先调 list_im_targets 看可选清单。不要自己猜。");
+                return text(problem.toString());
+            }
+            channelAppId = resolution.channelAppId();
+            peerKey = resolution.peerKey();
+            targetText = resolution.describe();
         }
 
         ScheduledTaskRequest request = new ScheduledTaskRequest(
@@ -158,8 +197,8 @@ public class ScheduleTaskTool implements AgentTool {
                 asString(input.get("prompt")),
                 target,
                 session.getId(),
-                null,
-                null,
+                channelAppId,
+                peerKey,
                 asString(input.get("misfirePolicy")));
         ScheduledTask task = taskService.create(request, Long.valueOf(userId));
         log.info("会话里创建了定时任务 id={} 会话={} 目标={} 计划={}",
@@ -171,8 +210,7 @@ public class ScheduleTaskTool implements AgentTool {
         out.append("- 计划: ").append(ScheduleMath.describe(task.getScheduleType(),
                 task.getCronExpr(), task.getIntervalMinutes(), task.getOnceAt(), task.getTimezone())).append('\n');
         out.append("- 下次执行: ").append(task.getNextRunAt() == null ? "-" : task.getNextRunAt()).append('\n');
-        out.append("- 结果发送到: ").append("IM".equalsIgnoreCase(task.getTargetType())
-                ? "当前 IM 会话" : "当前网页会话").append('\n');
+        out.append("- 结果发送到: ").append(targetText).append('\n');
         for (ScheduledTask existing : taskService.list(Long.valueOf(userId))) {
             if (!existing.getId().equals(task.getId())
                     && existing.getName().equals(task.getName())

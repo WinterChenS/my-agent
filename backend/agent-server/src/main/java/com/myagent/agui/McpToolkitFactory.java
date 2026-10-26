@@ -45,19 +45,24 @@ public class McpToolkitFactory {
 
     private final com.myagent.schedule.tool.ManageScheduledTaskTool manageScheduledTaskTool;
 
+    /** 列出可用 IM 推送目标（渠道 + 接收人），供 schedule_task 选准目标。 */
+    private final com.myagent.schedule.tool.ListImTargetsTool listImTargetsTool;
+
     public McpToolkitFactory(
             com.myagent.agui.skillimport.SkillInstallTool skillInstallTool,
             com.myagent.agui.channel.SendImMessageTool sendImMessageTool,
             com.myagent.agui.shell.RunCommandTool executeTool,
             com.myagent.agui.shell.RunCommandTool runCommandTool,
             com.myagent.schedule.tool.ScheduleTaskTool scheduleTaskTool,
-            com.myagent.schedule.tool.ManageScheduledTaskTool manageScheduledTaskTool) {
+            com.myagent.schedule.tool.ManageScheduledTaskTool manageScheduledTaskTool,
+            com.myagent.schedule.tool.ListImTargetsTool listImTargetsTool) {
         this.skillInstallTool = skillInstallTool;
         this.sendImMessageTool = sendImMessageTool;
         this.executeTool = executeTool;
         this.runCommandTool = runCommandTool;
         this.scheduleTaskTool = scheduleTaskTool;
         this.manageScheduledTaskTool = manageScheduledTaskTool;
+        this.listImTargetsTool = listImTargetsTool;
     }
 
     /** 平台 transport → 官方 McpServerConfig.transport 字面量。 */
@@ -94,6 +99,7 @@ public class McpToolkitFactory {
             // 定时任务：对话里创建/管理（"每天9点把汇总发我"）
             toolkit.registerAgentTool(scheduleTaskTool);
             toolkit.registerAgentTool(manageScheduledTaskTool);
+            toolkit.registerAgentTool(listImTargetsTool);
             log.info("已注册 {} 个 AG-UI 卡片工具 + install_skill + send_im_message + execute/run_command"
                     + " + schedule_task/manage_scheduled_task", DemoCardTools.tools().size());
         }
