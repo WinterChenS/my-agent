@@ -28,7 +28,10 @@ public class WorkspaceArtifactScanner {
 
     /** 相对工作区根、需要排除的路径片段。 */
     private static final List<String> EXCLUDED_SEGMENTS = List.of(
-            "/agents/", "/sessions/", "/default/", "/memory/", "/.skills-cache/", "/uploads/");
+            "/agents/", "/sessions/", "/default/", "/memory/", "/.skills-cache/", "/uploads/",
+            // 命令执行带来的依赖目录：venv / node_modules / 缓存。这些是运行环境的产物，
+            // 不是用户要的交付物；不排除的话点一次「跑个脚本」会往产物区塞几千条记录。
+            "/.venv/", "/venv/", "/node_modules/", "/__pycache__/", "/.cache/", "/.npm/", "/.git/");
 
     private static final Set<String> EXCLUDED_NAMES = Set.of(
             ".DS_Store",

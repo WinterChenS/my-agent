@@ -67,14 +67,23 @@ public class ShellRunner {
         return WINDOWS;
     }
 
+    /** 在给定工作目录执行一条命令（不额外改 PATH）。 */
+    public Result run(String command, Path cwd, int timeoutSeconds) {
+        return run(command, cwd, timeoutSeconds, null);
+    }
+
     /**
-     * 在给定工作目录执行一条命令。
+     * 在给定工作目录执行一条命令，可把若干目录**前置**到 PATH。
+     *
+     * <p>前置 PATH 的用途：让 {@code python}/{@code pip} 解析到该用户自己的虚拟环境，
+     * 这样模型写 {@code python analyze.py} 就行，不用拼带空格的绝对路径（跨平台引号是坑）。
      *
      * @param command 完整命令行（调用方负责拼参数；本类直接交给 shell 执行）
      * @param cwd 工作目录（不存在会创建）
      * @param timeoutSeconds 超时秒数；<=0 用默认值
+     * @param pathPrefix 前置到 PATH 的目录（可为空）
      */
-    public Result run(String command, Path cwd, int timeoutSeconds) {
+    public Result run(String command, Path cwd, int timeoutSeconds, java.util.List<Path> pathPrefix) {
         if (command == null || command.isBlank()) {
             return new Result(-1, "", "命令为空", false, 0);
         }
@@ -102,7 +111,7 @@ public class ShellRunner {
         try {
             ProcessBuilder builder = new ProcessBuilder(argv);
             builder.directory(workDir.toFile());
-            builder.environment().putAll(childEnvironment());
+            builder.environment().putAll(childEnvironment(pathPrefix));
             builder.redirectErrorStream(false);
             process = builder.start();
 
@@ -147,11 +156,19 @@ public class ShellRunner {
         }
     }
 
-    /** 子进程环境：保留 PATH/HOME 等，强制 UTF-8 输出。 */
-    private static Map<String, String> childEnvironment() {
+    /** 子进程环境：保留 PATH/HOME 等，强制 UTF-8 输出，并把给定目录前置到 PATH。 */
+    private static Map<String, String> childEnvironment(java.util.List<Path> pathPrefix) {
         Map<String, String> env = new LinkedHashMap<>();
         ProcessBuilder probe = new ProcessBuilder();
         env.putAll(probe.environment());
+        if (pathPrefix != null && !pathPrefix.isEmpty()) {
+            StringBuilder path = new StringBuilder();
+            for (Path dir : pathPrefix) {
+                path.append(dir).append(java.io.File.pathSeparator);
+            }
+            path.append(env.getOrDefault("PATH", ""));
+            env.put("PATH", path.toString());
+        }
         // Python 的 stdout 编码：不设的话 Windows 下中文直接乱码/报错
         env.put("PYTHONIOENCODING", "utf-8");
         env.put("PYTHONUNBUFFERED", "1");

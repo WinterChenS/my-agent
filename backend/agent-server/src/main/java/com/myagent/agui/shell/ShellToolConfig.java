@@ -17,17 +17,31 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class ShellToolConfig {
 
+    /** 每用户一份 Python venv（自动装包不污染系统环境）。 */
+    @Bean
+    public PythonEnv pythonEnv(
+            AguiProperties aguiProperties,
+            @Value("${myagent.shell.python-venv:true}") boolean venvEnabled) {
+        return new PythonEnv(
+                java.nio.file.Path.of(aguiProperties.workspaceRoot()).toAbsolutePath().normalize(),
+                venvEnabled);
+    }
+
     @Bean
     public RunCommandTool executeTool(
             AguiProperties aguiProperties,
-            @Value("${myagent.shell.enabled:true}") boolean enabled) {
-        return new RunCommandTool(aguiProperties, "execute", enabled);
+            PythonEnv pythonEnv,
+            @Value("${myagent.shell.enabled:true}") boolean enabled,
+            @Value("${myagent.shell.auto-install-python-deps:true}") boolean autoInstall) {
+        return new RunCommandTool(aguiProperties, "execute", enabled, pythonEnv, autoInstall);
     }
 
     @Bean
     public RunCommandTool runCommandTool(
             AguiProperties aguiProperties,
-            @Value("${myagent.shell.enabled:true}") boolean enabled) {
-        return new RunCommandTool(aguiProperties, "run_command", enabled);
+            PythonEnv pythonEnv,
+            @Value("${myagent.shell.enabled:true}") boolean enabled,
+            @Value("${myagent.shell.auto-install-python-deps:true}") boolean autoInstall) {
+        return new RunCommandTool(aguiProperties, "run_command", enabled, pythonEnv, autoInstall);
     }
 }

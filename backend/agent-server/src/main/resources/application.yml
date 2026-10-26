@@ -39,6 +39,14 @@ myagent:
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
     bucket: ${MINIO_BUCKET:agent-platform}
     max-file-size-mb: ${MINIO_MAX_FILE_MB:50}
+  # 命令执行（技术方案 §19）：跨平台 shell + 每用户 Python venv + 缺包自动安装
+  shell:
+    # 总开关；关掉后 execute/run_command 仍在但直接返回"未启用"
+    enabled: ${MYAGENT_SHELL_ENABLED:true}
+    # 每用户一份 .venv（<workspace>/<userId>/.venv），自动装包不污染系统 Python
+    python-venv: ${MYAGENT_SHELL_PYTHON_VENV:true}
+    # 报 ModuleNotFoundError 时自动 pip install 到该用户 venv 并重试一次
+    auto-install-python-deps: ${MYAGENT_SHELL_AUTO_INSTALL:true}
   # 从仓库链接导入标准 Skill（管理页 / 聊天 install_skill 共用）
   skill-import:
     # 归档下载上限（MB）

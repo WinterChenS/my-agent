@@ -33,12 +33,22 @@ public class RunCommandTool implements AgentTool {
     private final AguiProperties aguiProperties;
     private final String name;
     private final boolean enabled;
+    private final PythonEnv pythonEnv;
+    /** 缺 Python 包时是否自动 pip install（默认开；装到该用户自己的 venv 里，不动系统环境）。 */
+    private final boolean autoInstallPythonDeps;
     private final ShellRunner runner = new ShellRunner();
 
-    public RunCommandTool(AguiProperties aguiProperties, String name, boolean enabled) {
+    public RunCommandTool(
+            AguiProperties aguiProperties,
+            String name,
+            boolean enabled,
+            PythonEnv pythonEnv,
+            boolean autoInstallPythonDeps) {
         this.aguiProperties = aguiProperties;
         this.name = name;
         this.enabled = enabled;
+        this.pythonEnv = pythonEnv;
+        this.autoInstallPythonDeps = autoInstallPythonDeps;
     }
 
     @Override
@@ -56,7 +66,9 @@ public class RunCommandTool implements AgentTool {
                 + "工作目录默认是你的工作区，上传的文件在 uploads/ 下（例如 uploads/数据.xlsx）。"
                 + "命令必须是非交互式的（不要 sleep 等输入、不要开浏览器）；默认 60 秒超时，可用 timeoutSeconds 调整（上限 600）。"
                 + "返回内容包含退出码、标准输出、标准错误；失败时先看 stderr。"
-                + "写完脚本要执行就用它，例如 command=\"python3 analyze.py\"（Windows 上一般是 python analyze.py）。";
+                + "写完脚本要执行就用它，例如 command=\"python analyze.py\"。"
+                + "python/pip 已指向**你自己的虚拟环境**（首次自动创建），缺第三方库时可以直接 "
+                + "`python -m pip install 包名`；平台也会在报 ModuleNotFoundError 时自动尝试装一次。";
     }
 
     @Override
@@ -115,8 +127,25 @@ public class RunCommandTool implements AgentTool {
         }
         int timeout = asInt(param.getInput().get("timeoutSeconds"), ShellRunner.DEFAULT_TIMEOUT_SECONDS);
 
+        java.util.Optional<Path> pythonBin = pythonEnv.binDir(userId);
+        java.util.List<Path> pathPrefix = pythonBin.map(java.util.List::of).orElse(null);
+
         log.info("执行命令 userId={} cwd={} cmd={}", userId, cwd, abbreviate(command));
-        ShellRunner.Result result = runner.run(command, cwd, timeout);
+        ShellRunner.Result result = runner.run(command, cwd, timeout, pathPrefix);
+
+        // 缺包自动补装一次：模型经常直接写 pandas/numpy，环境里没有 → 我们自己装到 venv 再重试
+        java.util.Optional<String> missing = PythonEnv.missingModule(result.stderr());
+        if (!result.ok() && missing.isPresent() && autoInstallPythonDeps) {
+            String module = missing.get();
+            if (pythonEnv.pipInstall(userId, cwd, module)) {
+                log.info("补装 {} 后重试命令 userId={}", module, userId);
+                ShellRunner.Result retry = runner.run(command, cwd, timeout, pathPrefix);
+                return text("（缺少 " + module + "，已自动安装到你的虚拟环境并重试一次）\n"
+                        + format(retry, cwd, command));
+            }
+            return text("（缺少 Python 包 " + module + "，自动安装失败；可以自己跑 "
+                    + "`python -m pip install " + module + "` 再试）\n" + format(result, cwd, command));
+        }
         return text(format(result, cwd, command));
     }
 
