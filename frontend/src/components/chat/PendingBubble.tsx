@@ -1,24 +1,30 @@
 /**
- * 「正在思考」占位气泡。
+ * 「正在思考」的轻量提示（**不是气泡**）。
  *
- * <p>为什么需要它：模型在首字之前可能要想很久（推理型模型尤其明显），
- * 这期间一条 assistant 消息都还没产生 —— 界面上只有用户自己的气泡，看着像"没反应"。
- * 所以在这一轮开始后先放一个占位气泡，等真实内容到了它自然消失（由 ChatPage 的条件控制）。
+ * <p>为什么不用气泡：用户实测指出——先放一个空气泡占位、后面思考/工具卡插在它下面，
+ * 接着正文又补进**上面**那条气泡里，视觉顺序完全错乱；而且一个空的气泡本身也很怪。
+ * 现在改成一行浅色提示（三点动画 + 文案），不参与消息流的位置关系，
+ * 真实内容一到就整行消失（由 ChatPage 的条件控制）。
  *
- * <p>样式刻意与 {@link MessageBubble} 的助手气泡保持一致（左对齐、卡片底 + 细边框、同圆角），
- * 这样"占位 → 真内容"的切换不会跳变。
+ * <p>这样做还有个好处：正文永远从"当前末尾"开始渲染，不会被一个提前插入的气泡抢走位置。
  */
-export function PendingBubble({ label = "正在思考…" }: { label?: string }) {
+export function PendingIndicator({ label = "正在思考…" }: { label?: string }) {
   return (
-    <div className="flex w-full justify-start" data-testid="pending-bubble">
-      <div className="bg-card text-card-foreground flex max-w-[min(48rem,85%)] items-center gap-2 rounded-2xl rounded-bl-md border px-4 py-2.5 text-sm shadow-sm">
-        <span className="flex items-center gap-1" aria-hidden>
-          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full [animation-delay:-0.3s]" />
-          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full [animation-delay:-0.15s]" />
-          <span className="bg-muted-foreground/60 size-1.5 animate-bounce rounded-full" />
-        </span>
-        <span className="text-muted-foreground text-xs">{label}</span>
-      </div>
+    <div
+      className="text-muted-foreground flex items-center gap-2 py-1 text-xs"
+      data-testid="pending-bubble"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="flex items-center gap-1" aria-hidden>
+        <span className="bg-muted-foreground/50 size-1.5 animate-bounce rounded-full [animation-delay:-0.3s]" />
+        <span className="bg-muted-foreground/50 size-1.5 animate-bounce rounded-full [animation-delay:-0.15s]" />
+        <span className="bg-muted-foreground/50 size-1.5 animate-bounce rounded-full" />
+      </span>
+      <span>{label}</span>
     </div>
   );
 }
+
+/** 兼容旧名（已有引用/测试仍可用）。 */
+export const PendingBubble = PendingIndicator;

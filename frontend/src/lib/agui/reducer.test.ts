@@ -149,6 +149,8 @@ describe("reduceEvent：错误与状态", () => {
         },
       } as unknown as AguiEventLike,
       { type: "TEXT_MESSAGE_START", messageId: "old" },
+      // 现在 START 不再插入空气泡（见 reducer 注释），要产生历史文本得给内容
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "old", delta: "历史回答" },
     ]);
     const approved = markApproval(decided, "i1", "approved");
 
@@ -440,4 +442,76 @@ describe("reduceEvent：同 runId 只保留一条助手气泡（接续 vs 流）
     const assistants = state.items.filter((i) => i.kind === "text" && i.role === "assistant");
     expect(assistants).toHaveLength(2);
   });
+
+describe("reduceEvent：正文要落在思考/工具之后（不建空气泡）", () => {
+  /**
+   * 用户实测的错乱场景：
+   *   TEXT_MESSAGE_START（无内容）→ 思考 → 工具 → 正文增量
+   * 旧实现会把空气泡放在最上面，正文全部追加到它里面，看起来像"顺序反了"。
+   */
+  const events: AguiEventLike[] = [
+    { type: "RUN_STARTED", runId: "r1" } as AguiEventLike,
+    { type: "TEXT_MESSAGE_START", messageId: "seg1" } as AguiEventLike,
+    { type: "REASONING_MESSAGE_START", messageId: "think-1" } as AguiEventLike,
+    { type: "REASONING_MESSAGE_CONTENT", messageId: "think-1", delta: "先想一想" } as AguiEventLike,
+    { type: "REASONING_MESSAGE_END", messageId: "think-1" } as AguiEventLike,
+    { type: "TOOL_CALL_START", toolCallId: "t1", toolCallName: "list_im_targets" } as AguiEventLike,
+    { type: "TOOL_CALL_END", toolCallId: "t1" } as AguiEventLike,
+    { type: "TEXT_MESSAGE_CONTENT", messageId: "seg1", delta: "这是正文" } as AguiEventLike,
+    { type: "TEXT_MESSAGE_END", messageId: "seg1" } as AguiEventLike,
+  ];
+
+  it("不会出现空的气泡占位", () => {
+    const state = events.reduce(reduceEvent, initialChatState);
+    const emptyTexts = state.items.filter(
+      (i) => i.kind === "text" && i.role === "assistant" && !i.content,
+    );
+    expect(emptyTexts).toHaveLength(0);
+  });
+
+  it("正文气泡排在思考块与工具卡之后", () => {
+    const state = events.reduce(reduceEvent, initialChatState);
+    const kinds = state.items.map((i) => i.kind);
+    const textIndex = state.items.findIndex((i) => i.kind === "text" && i.role === "assistant");
+
+    expect(textIndex).toBeGreaterThan(kinds.indexOf("thinking"));
+    expect(textIndex).toBeGreaterThan(kinds.indexOf("tool"));
+    // 最后一条就是正文（顺序：思考 → 工具 → 正文）
+    expect(kinds[kinds.length - 1]).toBe("text");
+  });
+
+  it("工具之后再来一段正文时，另起一条气泡（不追加到上面那条）", () => {
+    const state = [
+      { type: "RUN_STARTED", runId: "r1" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_START", messageId: "seg1" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "seg1", delta: "第一段" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_END", messageId: "seg1" } as AguiEventLike,
+      { type: "TOOL_CALL_START", toolCallId: "t1", toolCallName: "echo" } as AguiEventLike,
+      { type: "TOOL_CALL_END", toolCallId: "t1" } as AguiEventLike,
+      // 第二段：有的服务端不发 START，直接来 CONTENT
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "seg2", delta: "第二段" } as AguiEventLike,
+    ].reduce(reduceEvent, initialChatState);
+
+    const texts = state.items.filter((i) => i.kind === "text" && i.role === "assistant");
+    expect(texts).toHaveLength(2);
+    expect((texts[0] as { content: string }).content).toBe("第一段");
+    expect((texts[1] as { content: string }).content).toBe("第二段");
+    // 第一条不能把第二段吞进去
+    expect((texts[0] as { content: string }).content).not.toContain("第二段");
+  });
+
+  it("服务端漏发 TEXT_MESSAGE_END 时，工具一插入就视为该段结束", () => {
+    const state = [
+      { type: "RUN_STARTED", runId: "r1" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "seg1", delta: "第一段" } as AguiEventLike,
+      // 没有 END，直接来了工具
+      { type: "TOOL_CALL_START", toolCallId: "t1", toolCallName: "echo" } as AguiEventLike,
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "seg2", delta: "第二段" } as AguiEventLike,
+    ].reduce(reduceEvent, initialChatState);
+
+    const texts = state.items.filter((i) => i.kind === "text" && i.role === "assistant");
+    expect(texts).toHaveLength(2);
+    expect((texts[1] as { content: string }).content).toBe("第二段");
+  });
+});
 });

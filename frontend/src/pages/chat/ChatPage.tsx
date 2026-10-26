@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MessageBubble } from "@/components/chat/MessageBubble";
-import { PendingBubble } from "@/components/chat/PendingBubble";
+import { PendingIndicator } from "@/components/chat/PendingBubble";
 import { ArtifactBrowserPopover } from "@/components/chat/ArtifactBrowserPopover";
 import { ArtifactBox } from "@/components/chat/ArtifactBox";
 import { ArtifactPreviewPanel } from "@/components/chat/ArtifactPreviewPanel";
@@ -1226,7 +1226,7 @@ export default function ChatPage() {
         <div className={isEmptyState ? "hidden" : "flex-1 overflow-auto"}>
           <div data-testid="chat-column" className="mx-auto w-full max-w-3xl space-y-4 p-4">
             {renderItemNodes()}
-            {showPendingBubble && <PendingBubble />}
+            {showPendingBubble && <PendingIndicator />}
             <div ref={bottomRef} />
           </div>
         </div>

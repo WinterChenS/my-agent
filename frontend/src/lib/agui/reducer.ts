@@ -38,42 +38,42 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
 
     case "TEXT_MESSAGE_START": {
       /*
-       * 同一轮（同 runId）已经有一条助手气泡时**复用它**，不要新建。
+       * 关键约定：**不在这里插入空气泡**。
        *
-       * 为什么：这一轮的文字可能同时来自两处 —— 实时 SSE 流，以及"接续正在跑的 run"
-       * （切回会话/刷新后按 /run 轮询把已生成的文本补上）。两者先后不定，
-       * 若各建一条，界面上就会出现**两个气泡装着同一轮的内容**（实测：全量里表现为
-       * 顺序断言多出一条 assistant 气泡）。归并键就是 runId。
+       * 踩过的坑（用户实测）：模型有时先发 TEXT_MESSAGE_START（没有内容）、再发思考/工具事件，
+       * 最后才补正文。如果 START 就建一条空气泡，它会停在思考块/工具卡**上方**，
+       * 后续正文全被追加到那条"上面"的气泡里，看起来顺序完全错乱。
+       *
+       * 现在的策略：
+       *  - 同 messageId 已有条目 → 标记 streaming（沿用）；
+       *  - 同一轮还有一条**可继续**的助手气泡（正在流式、且是最后一条）→ 沿用它；
+       *  - 否则什么都不建，等第一个非空 CONTENT 到来时在**当前末尾**新建。
+       *    这样正文永远出现在它该在的位置（思考/工具之后）。
        */
-      const sameRun = state.runId
-        ? state.items.find(
-            (item) => item.kind === "text" && item.role === "assistant" && item.runId === state.runId,
-          )
+      const existing = event.messageId
+        ? state.items.find((item) => item.kind === "text" && item.id === event.messageId)
         : undefined;
-      if (sameRun) {
+      if (existing) {
         return {
           ...state,
           items: state.items.map((item) =>
-            item === sameRun
+            item === existing ? { ...item, streaming: true } : item,
+          ),
+        };
+      }
+      const continuable = continuableTextIndex(state.items, state.runId);
+      if (continuable !== -1) {
+        return {
+          ...state,
+          items: state.items.map((item, index) =>
+            index === continuable && item.kind === "text"
               ? { ...item, id: event.messageId ?? item.id, streaming: true }
               : item,
           ),
         };
       }
-      return {
-        ...state,
-        items: [
-          ...state.items,
-          {
-            kind: "text",
-            id: event.messageId ?? `assistant-${state.items.length}`,
-            role: "assistant",
-            content: "",
-            streaming: true,
-            runId: state.runId,
-          },
-        ],
-      };
+      // 不建条目：等内容来（见 upsertText）
+      return state;
     }
 
     /*
@@ -129,15 +129,26 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
         items: upsertText(state.items, event.messageId, event.delta ?? "", state.runId),
       };
 
-    case "TEXT_MESSAGE_END":
+    case "TEXT_MESSAGE_END": {
+      const byId = state.items.some(
+        (item) => item.kind === "text" && item.id === event.messageId,
+      );
+      const target = byId
+        ? -1
+        : continuableTextIndex(state.items, state.runId);
       return {
         ...state,
-        items: state.items.map((item) =>
-          item.kind === "text" && item.id === event.messageId
-            ? { ...item, streaming: false }
-            : item,
-        ),
+        items: state.items.map((item, index) => {
+          if (item.kind !== "text") {
+            return item;
+          }
+          if (byId ? item.id === event.messageId : index === target) {
+            return { ...item, streaming: false };
+          }
+          return item;
+        }),
       };
+    }
 
     case "TOOL_CALL_START":
       return {
@@ -394,6 +405,27 @@ function applyCustom(state: ChatState, event: AguiEventLike): ChatState {
   };
 }
 
+/**
+ * 找到"还能继续追加正文"的那条助手气泡：同一轮、正在流式、且是列表里的最后一条。
+ *
+ * <p>为什么必须是最后一条：一旦思考块/工具卡插到它后面，说明这一段正文已经结束，
+ * 后续文字属于**新的一段**，应该在末尾新起气泡（用户实测：否则新内容会跑到上面去）。
+ */
+function continuableTextIndex(items: ChatItem[], runId?: string | null): number {
+  if (!runId || items.length === 0) {
+    return -1;
+  }
+  const last = items.length - 1;
+  const tail = items[last];
+  if (tail.kind !== "text" || tail.role !== "assistant") {
+    return -1;
+  }
+  if (tail.runId !== runId || !tail.streaming) {
+    return -1;
+  }
+  return last;
+}
+
 function upsertText(
   items: ChatItem[],
   messageId: string | undefined,
@@ -402,13 +434,10 @@ function upsertText(
 ): ChatItem[] {
   const index = items.findIndex((item) => item.kind === "text" && item.id === messageId);
   if (index === -1) {
-    // 同一轮已有气泡（可能来自"接续"）：把增量并进去，**不新建**（理由见 TEXT_MESSAGE_START）
-    const sameRun =
-      runId == null
-        ? -1
-        : items.findIndex(
-            (item) => item.kind === "text" && item.role === "assistant" && item.runId === runId,
-          );
+    // 同一轮还有一条"可继续"的助手气泡（接续先建、或本段还没结束）：并进去，不新建。
+    // 注意：只有**最后一条**且在流式中才算可继续——工具/思考插到后面之后就必须新起一条，
+    // 否则正文会被追加到上面那条旧气泡里（用户实测的顺序错乱）。
+    const sameRun = continuableTextIndex(items, runId);
     if (sameRun !== -1) {
       return items.map((item, i) =>
         i === sameRun && item.kind === "text"
