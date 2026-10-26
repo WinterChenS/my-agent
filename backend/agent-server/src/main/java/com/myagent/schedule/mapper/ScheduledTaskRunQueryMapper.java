@@ -49,6 +49,10 @@ public interface ScheduledTaskRunQueryMapper {
             @Param("owner") Long owner,
             @Param("limit") int limit);
 
+    /** 取一条执行记录对应的任务 id（重新执行用）。 */
+    @Select("SELECT task_id FROM scheduled_task_run WHERE id = #{runId}")
+    Long taskIdOfRun(@Param("runId") Long runId);
+
     /** 取一条执行记录的任务名（取消接口回显用）。 */
     @Select("SELECT t.name FROM scheduled_task_run r JOIN scheduled_task t ON t.id = r.task_id WHERE r.id = #{runId}")
     String taskNameOfRun(@Param("runId") Long runId);

@@ -42,6 +42,7 @@ public class ScheduledTaskService {
     private final AgentMapper agentMapper;
     private final ChatSessionMapper sessionMapper;
     private final ChatSessionService sessionService;
+    private final com.myagent.schedule.mapper.ScheduledTaskRunQueryMapper runQueryMapper;
     private final long leaseMinutes;
 
     public ScheduledTaskService(
@@ -50,12 +51,14 @@ public class ScheduledTaskService {
             AgentMapper agentMapper,
             ChatSessionMapper sessionMapper,
             ChatSessionService sessionService,
+            com.myagent.schedule.mapper.ScheduledTaskRunQueryMapper runQueryMapper,
             @Value("${myagent.schedule.lease-minutes:10}") long leaseMinutes) {
         this.taskMapper = taskMapper;
         this.runMapper = runMapper;
         this.agentMapper = agentMapper;
         this.sessionMapper = sessionMapper;
         this.sessionService = sessionService;
+        this.runQueryMapper = runQueryMapper;
         this.leaseMinutes = Math.max(1, leaseMinutes);
     }
 
@@ -133,6 +136,26 @@ public class ScheduledTaskService {
     public void delete(Long id) {
         require(id);
         taskMapper.deleteById(id);
+    }
+
+    /**
+     * 「重新执行」某条历史执行记录：按 runId 找回任务，校验状态后交给调度器立刻再跑一次。
+     *
+     * <p>与 {@link #prepareManualRun} 的区别：这里允许 {@code DONE}（一次性任务跑完还能再跑一次），
+     * 但同样不允许 {@code PAUSED}（用户明确暂停的任务不该被一次点击偷偷激活）。
+     */
+    @Transactional
+    public ScheduledTask prepareRerun(Long runId) {
+        Long taskId = runId == null ? null : runQueryMapper.taskIdOfRun(runId);
+        if (taskId == null) {
+            throw BizException.notFound("执行记录不存在: " + runId);
+        }
+        ScheduledTask task = require(taskId);
+        if ("PAUSED".equals(task.getStatus())) {
+            throw BizException.badRequest("任务「" + task.getName()
+                    + "」当前是暂停状态，请先恢复再重新执行");
+        }
+        return task;
     }
 
     /** 手动立即执行：不改 next_run_at，只清出错状态，交给执行器跑一次。 */

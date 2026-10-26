@@ -232,4 +232,51 @@ class ScheduledTaskServiceTest {
         assertThat(after.getEnabled()).isFalse();
         assertThat(after.getNextRunAt()).isNull();
     }
+
+    @Test
+    void 按执行记录可以重新执行_返回原任务() {
+        Long agentId = newAgent();
+        ScheduledTask task = service.create(everyMinute(agentId, "可重跑"), 1L);
+        Long runId = service.startRun(task.getId(), "node-1", "CRON").getId();
+        service.finishRun(task.getId(), runId, true, "第一次", null, 10);
+
+        ScheduledTask forRerun = service.prepareRerun(runId);
+
+        assertThat(forRerun.getId()).isEqualTo(task.getId());
+        assertThat(forRerun.getName()).isEqualTo("可重跑");
+    }
+
+    @Test
+    void 一次性任务跑完也能重新执行() {
+        Long agentId = newAgent();
+        ScheduledTask task = service.create(new ScheduledTaskRequest(
+                "一次性重跑", agentId, "ONCE", null, null, OffsetDateTime.now().plusMinutes(5),
+                "Asia/Shanghai", "提醒我", "NONE", null, null, null, null), 1L);
+        Long runId = service.startRun(task.getId(), "node-1", "CRON").getId();
+        service.finishRun(task.getId(), runId, true, "完成", null, 10);
+        // 一次性任务成功后是 DONE；重跑应当允许
+        assertThat(service.require(task.getId()).getStatus()).isEqualTo("DONE");
+
+        assertThat(service.prepareRerun(runId).getId()).isEqualTo(task.getId());
+    }
+
+    @Test
+    void 暂停中的任务不允许从记录里重跑() {
+        Long agentId = newAgent();
+        ScheduledTask task = service.create(everyMinute(agentId, "暂停中"), 1L);
+        Long runId = service.startRun(task.getId(), "node-1", "CRON").getId();
+        service.finishRun(task.getId(), runId, true, "一次", null, 10);
+        service.setStatus(task.getId(), "PAUSED");
+
+        assertThatThrownBy(() -> service.prepareRerun(runId))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("暂停");
+    }
+
+    @Test
+    void 执行记录不存在时报404() {
+        assertThatThrownBy(() -> service.prepareRerun(999999L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("执行记录不存在");
+    }
 }

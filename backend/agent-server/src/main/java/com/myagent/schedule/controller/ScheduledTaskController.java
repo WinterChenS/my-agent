@@ -82,6 +82,18 @@ public class ScheduledTaskController {
                 start, end, ownerScope(principal, all), Math.min(Math.max(limit, 1), 500)));
     }
 
+    /** 重新执行某条历史记录：按记录找回任务，立刻再跑一次。 */
+    @PostMapping("/runs/{runId}/rerun")
+    public Result<Map<String, Object>> rerun(@PathVariable Long runId) {
+        ScheduledTask task = service.prepareRerun(runId);
+        dispatcher.runNow(task);
+        return Result.ok(Map.of(
+                "runId", runId,
+                "taskId", task.getId(),
+                "taskName", task.getName() == null ? "" : task.getName(),
+                "triggered", true));
+    }
+
     /** 取消一次正在跑的执行（"点晚了"不算错误，返回 cancelled=false）。 */
     @PostMapping("/runs/{runId}/cancel")
     public Result<Map<String, Object>> cancelRun(@PathVariable Long runId) {

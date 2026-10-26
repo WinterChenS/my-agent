@@ -1,8 +1,8 @@
 import { toast } from "sonner";
-import { Ban, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
+import { Ban, CheckCircle2, Clock, Loader2, RotateCcw, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cancelRun, type RunStatus, type RunTimelineItem } from "@/api/scheduledTasks";
+import { cancelRun, rerunRun, type RunStatus, type RunTimelineItem } from "@/api/scheduledTasks";
 
 function statusIcon(status: RunStatus) {
   switch (status) {
@@ -48,6 +48,18 @@ interface Props {
  * {@code interrupt}，落库状态记为「已取消」（不算失败，不影响自动暂停）。
  */
 export default function RunTimeline({ runs, loading, day, onCanceled }: Props) {
+  async function handleRerun(run: RunTimelineItem) {
+    try {
+      await rerunRun(run.id);
+      toast.success(`已重新执行「${run.task_name}」，结果稍后出现在时间轴`);
+      // 新记录要等执行线程落库，稍等一下再刷新
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      onCanceled?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "重新执行失败");
+    }
+  }
+
   async function handleCancel(run: RunTimelineItem) {
     try {
       const result = await cancelRun(run.id);
@@ -108,11 +120,18 @@ export default function RunTimeline({ runs, loading, day, onCanceled }: Props) {
                     </div>
                   )}
                 </div>
-                {run.status === "RUNNING" && (
-                  <Button size="sm" variant="outline" onClick={() => void handleCancel(run)}>
-                    取消执行
-                  </Button>
-                )}
+                <div className="flex shrink-0 gap-1">
+                  {run.status === "RUNNING" ? (
+                    <Button size="sm" variant="outline" onClick={() => void handleCancel(run)}>
+                      取消执行
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => void handleRerun(run)}>
+                      <RotateCcw className="mr-1 size-3.5" />
+                      重新执行
+                    </Button>
+                  )}
+                </div>
               </div>
             </li>
           ))}

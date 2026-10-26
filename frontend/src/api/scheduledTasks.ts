@@ -173,6 +173,14 @@ export function fetchRunTimeline(fromIso: string, toIso: string, limit = 200) {
   );
 }
 
+/** 重新执行某条历史记录（按记录找回任务，立刻再跑一次）。 */
+export function rerunRun(runId: number) {
+  return apiFetch<{ runId: number; taskId: number; taskName: string; triggered: boolean }>(
+    `/api/scheduled-tasks/runs/${runId}/rerun`,
+    { method: "POST" },
+  );
+}
+
 /** 取消一次正在跑的执行（后端会 dispose 流并中断 Agent）。 */
 export function cancelRun(runId: number) {
   return apiFetch<{ runId: number; cancelled: boolean; taskName: string }>(
