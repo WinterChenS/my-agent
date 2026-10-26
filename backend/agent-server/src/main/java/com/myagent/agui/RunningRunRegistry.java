@@ -53,6 +53,16 @@ public class RunningRunRegistry {
         volatile long detachedAt;
         /** 宽限期定时任务（断线后启动，回来时取消）。 */
         volatile ScheduledFuture<?> graceTask;
+        /**
+         * 显式「停止」时要执行的收尾动作（由控制器注册：dispose 掉 SSE 订阅 + 落库）。
+         *
+         * <p>为什么光调 {@code agent.interrupt()} 不够（实测 2026-10-26）：它只是给 Agent 置一个中断标志，
+         * 由 Agent 在**下一次迭代**检查——而模型那一轮可能还在吐字（实测一篇散文要 40 秒才结束）。
+         * 这段时间同一 threadId 再发消息，AG-UI 扩展会直接拒绝：
+         * {@code Thread already has an active run ... (AGUI_INTERRUPT_CONTRACT_ERROR)}，
+         * 用户看到的就是「点了取消就再也发不出去」。
+         */
+        volatile Runnable cancelAction;
     }
 
     /** 给前端轮询用的快照。 */
@@ -104,6 +114,7 @@ public class RunningRunRegistry {
         handle.finished = false;
         handle.error = null;
         handle.detachedAt = 0L;
+        handle.cancelAction = null; // 上一轮的收尾动作不能留到这一轮（否则停止会误杀新 run）
         ScheduledFuture<?> grace = handle.graceTask;
         if (grace != null) {
             grace.cancel(false);
@@ -113,6 +124,23 @@ public class RunningRunRegistry {
         if (agentRunService != null) {
             agentRunService.start(threadId, runId);
         }
+    }
+
+    /**
+     * 注册本轮「停止」的收尾动作（dispose SSE 订阅 + 落库）。
+     *
+     * <p>由控制器在订阅之后调用：dispose 会让官方管线的 doFinally 执行（SignalType.CANCEL），
+     * 从而释放该 threadId 的 active run —— 这正是下一次发送能成功的前提。
+     */
+    public void registerCancelAction(String threadId, String runId, Runnable action) {
+        if (threadId == null) {
+            return;
+        }
+        RunHandle handle = runs.computeIfAbsent(threadId, key -> new RunHandle());
+        if (handle.runId != null && runId != null && !handle.runId.equals(runId)) {
+            return; // 迟到的注册：这一轮已经不是当前 run 了
+        }
+        handle.cancelAction = action;
     }
 
     /** 官方 AgentResolver 解析出实例时登记。 */
@@ -249,6 +277,17 @@ public class RunningRunRegistry {
             return false;
         }
         handle.stopped.set(true);
+        // 先执行收尾动作（dispose → 官方管线取消 → 释放 thread），再做 Agent 中断。
+        // 顺序反了的话：Agent 中断要等下一次迭代才生效，中间这段时间用户再发消息仍然会被拒。
+        Runnable cancel = handle.cancelAction;
+        handle.cancelAction = null;
+        if (cancel != null) {
+            try {
+                cancel.run();
+            } catch (Exception ex) {
+                log.warn("停止收尾失败 threadId={}: {}", threadId, ex.toString());
+            }
+        }
         RuntimeContext context = handle.context;
         try {
             // Agent 接口只有 interrupt()/interrupt(Msg)；带上下文的 interrupt 在 ReActAgent 上（HarnessAgent 继承它）

@@ -184,4 +184,51 @@ class RunningRunRegistryTest {
         assertThat(registry.interrupt("t-order")).as("beginRun 之后停止必须仍然可用").isTrue();
         verify(agent).interrupt();
     }
+
+    @Test
+    void 停止会执行注册的收尾动作_并先于等待Agent中断() {
+        RunningRunRegistry registry = new RunningRunRegistry(60_000);
+        Agent agent = mock(Agent.class);
+        registry.registerAgent("t-cancel", agent);
+        registry.beginRun("t-cancel", "run-1");
+
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        registry.registerCancelAction("t-cancel", "run-1", calls::incrementAndGet);
+
+        assertThat(registry.interrupt("t-cancel")).isTrue();
+        // 收尾动作必须立刻执行（dispose → 官方管线释放 thread），否则用户"停止后马上再发"会被拒
+        assertThat(calls.get()).isEqualTo(1);
+        // 只执行一次：重复点停止不会重复落库
+        registry.interrupt("t-cancel");
+        assertThat(calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    void 新一轮run会清掉上一轮的收尾动作() {
+        RunningRunRegistry registry = new RunningRunRegistry(60_000);
+        registry.registerAgent("t-clear", mock(Agent.class));
+        registry.beginRun("t-clear", "run-1");
+
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        registry.registerCancelAction("t-clear", "run-1", calls::incrementAndGet);
+        // 新的一轮开始：上一轮的 cancelAction 不能残留，否则停止会误杀新 run
+        registry.beginRun("t-clear", "run-2");
+
+        registry.interrupt("t-clear");
+        assertThat(calls.get()).isZero();
+    }
+
+    @Test
+    void 迟到的收尾注册不会覆盖当前run() {
+        RunningRunRegistry registry = new RunningRunRegistry(60_000);
+        registry.registerAgent("t-late", mock(Agent.class));
+        registry.beginRun("t-late", "run-2");
+
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        // run-1 的注册迟到（它已经不是当前轮）
+        registry.registerCancelAction("t-late", "run-1", calls::incrementAndGet);
+
+        registry.interrupt("t-late");
+        assertThat(calls.get()).isZero();
+    }
 }

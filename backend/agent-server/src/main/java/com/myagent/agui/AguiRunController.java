@@ -193,6 +193,19 @@ public class AguiRunController {
         // AG-UI 协议校正：RUN_ERROR 是终态，之后不能再发任何事件（官方扩展会多发一个 RUN_FINISHED，
         // 官方客户端因此报 "Cannot send event type 'RUN_FINISHED'..."）。规则与单测见 AguiStreamGuard。
         AguiStreamGuard streamGuard = new AguiStreamGuard();
+        // 停止时要 dispose 的就是它：先占个位，订阅返回后再填（subscribe 内部可能同步回调）
+        java.util.concurrent.atomic.AtomicReference<Disposable> subscriptionRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        runningRuns.registerCancelAction(threadId, runId, () -> {
+            Disposable running = subscriptionRef.get();
+            if (running != null && !running.isDisposed()) {
+                running.dispose();
+            }
+            // dispose 不会触发 onComplete，所以这里要**自己**落库：
+            // 已生成的内容 + 「已停止」标记（否则用户点了停止，这一段答案就丢了）
+            finish(emitter, session.getId(), userId, threadId, runId,
+                    workspaceSnapshot, assistantText, customEventNames, interrupts, finished);
+        });
         Disposable subscription = requestProcessor
                 .process(contextRequest)
                 .events()
@@ -213,6 +226,7 @@ public class AguiRunController {
                         },
                         () -> finish(emitter, session.getId(), userId, threadId, input.getRunId(),
                                 workspaceSnapshot, assistantText, customEventNames, interrupts, finished));
+        subscriptionRef.set(subscription);
 
         // Phase 14：客户端断开（刷新页面/切页/关标签页）时**不要立刻** dispose + 中断——
         // 实测那样做会让这一轮永远不落库（finish() 不执行 → 答案丢失，用户看到"对话没有接续"）。
@@ -298,7 +312,11 @@ public class AguiRunController {
             List<String> customEventNames,
             List<AguiEvent.Interrupt> interrupts,
             java.util.concurrent.atomic.AtomicBoolean finished) {
-        finished.set(true);
+        // 幂等：停止走的是 cancelAction，正常结束走 onComplete/onError，两条路可能同时到达
+        // （例如 dispose 的瞬间上游正好 complete）——重复落库会多出一条空助手消息。
+        if (!finished.compareAndSet(false, true)) {
+            return;
+        }
         // Phase 14：收尾时先标记完成（取消宽限期定时器），避免"已落库还被判为断开超时"而误中断
         runningRuns.markFinished(threadId);
         // 是否被用户手动停止（停止入口会置位）——落进消息 meta，刷新回放也能标注「已停止」
