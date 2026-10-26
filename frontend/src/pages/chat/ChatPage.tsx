@@ -14,6 +14,7 @@ import { isImageArtifact, listArtifacts, type ArtifactInfo } from "@/api/artifac
 import { canPreviewArtifact } from "@/lib/artifacts/previewKind";
 import { PREVIEW_PANEL_DEFAULT } from "@/lib/chat/previewPanelWidth";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
+import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import {
   SkillMentionInput,
   type SkillMentionInputHandle,
@@ -1093,6 +1094,13 @@ export default function ChatPage() {
             <ToolCallGroup key={group[0].id} items={group} />
           ),
         );
+        continue;
+      }
+
+      if (item.kind === "thinking") {
+        // 思考过程：思考中展开、结束自动折叠（不落库，刷新后消失）
+        nodes.push(<ThinkingBlock key={item.id} item={item} />);
+        i += 1;
         continue;
       }
 

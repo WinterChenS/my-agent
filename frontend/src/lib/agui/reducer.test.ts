@@ -306,6 +306,67 @@ describe("reduceEvent：子 Agent 事件（Phase 12 / D26）", () => {
   });
 });
 
+describe("reduceEvent：REASONING_*（思考过程）", () => {
+  it("按 messageId 归并思考增量，结束后 streaming=false", () => {
+    const state = applyAll([
+      { type: "RUN_STARTED", runId: "r1" },
+      { type: "REASONING_START" },
+      { type: "REASONING_MESSAGE_START", messageId: "rs1" },
+      { type: "REASONING_MESSAGE_CONTENT", messageId: "rs1", delta: "先看" },
+      { type: "REASONING_MESSAGE_CONTENT", messageId: "rs1", delta: "需求" },
+      { type: "REASONING_MESSAGE_END", messageId: "rs1" },
+      { type: "REASONING_END" },
+      { type: "RUN_FINISHED" },
+    ]);
+
+    const thinking = state.items.filter((item) => item.kind === "thinking");
+    expect(thinking).toHaveLength(1);
+    expect(thinking[0].kind === "thinking" && thinking[0].content).toBe("先看需求");
+    // 折叠与否由前端组件根据 streaming 决定：结束后必须是 false
+    expect(thinking[0].kind === "thinking" && thinking[0].streaming).toBe(false);
+  });
+
+  it("一段回复里可以有多段思考，顺序与到达顺序一致", () => {
+    const state = applyAll([
+      { type: "RUN_STARTED", runId: "r1" },
+      { type: "REASONING_MESSAGE_START", messageId: "a" },
+      { type: "REASONING_MESSAGE_CONTENT", messageId: "a", delta: "第一步" },
+      { type: "REASONING_MESSAGE_END", messageId: "a" },
+      { type: "TEXT_MESSAGE_START", messageId: "m1" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "开始做" },
+      { type: "REASONING_MESSAGE_START", messageId: "b" },
+      { type: "REASONING_MESSAGE_CONTENT", messageId: "b", delta: "第二步" },
+      { type: "REASONING_MESSAGE_END", messageId: "b" },
+      { type: "RUN_FINISHED" },
+    ]);
+
+    expect(state.items.map((item) => item.kind)).toEqual(["thinking", "text", "thinking"]);
+  });
+
+  it("缺少 START 的增量也能兜住；REASONING_END 收掉所有还在流式的块", () => {
+    const state = applyAll([
+      { type: "RUN_STARTED", runId: "r1" },
+      { type: "REASONING_MESSAGE_CONTENT", messageId: "x", delta: "直接来" },
+      { type: "REASONING_END" },
+    ]);
+    const thinking = state.items.filter((item) => item.kind === "thinking");
+    expect(thinking).toHaveLength(1);
+    expect(thinking[0].kind === "thinking" && thinking[0].content).toBe("直接来");
+    expect(thinking[0].kind === "thinking" && thinking[0].streaming).toBe(false);
+  });
+
+  it("断流时 RUN_FINISHED 也会收掉思考块，不会永远显示思考中", () => {
+    const state = applyAll([
+      { type: "RUN_STARTED", runId: "r1" },
+      { type: "REASONING_MESSAGE_CONTENT", messageId: "x", delta: "想到一半" },
+      // 没有 REASONING_END / MESSAGE_END，直接结束
+      { type: "RUN_FINISHED" },
+    ]);
+    const thinking = state.items.find((item) => item.kind === "thinking");
+    expect(thinking && thinking.kind === "thinking" && thinking.streaming).toBe(false);
+  });
+});
+
 describe("replayMessages：已停止标记（Phase 12 / D25）", () => {
   it("aguiMeta.stopped=true 时助手气泡标注已停止", () => {
     const state = replayMessages([

@@ -88,6 +88,19 @@ export type ChatItem =
       message: string | null;
       status: ApprovalStatus;
     }
+  | {
+      /**
+       * 模型的思考过程（AG-UI {@code REASONING_*} 事件）。
+       *
+       * <p>只在**本轮实时流**里出现，不落库（刷新后就没有了）——思考内容体积大、
+       * 且多数场景只是「过程感」，没必要进历史。
+       */
+      kind: "thinking";
+      id: string;
+      content: string;
+      /** 还在流式接收；收到结束事件后置 false（前端据此从「展开」变「折叠」）。 */
+      streaming: boolean;
+    }
   | SubagentItem
   | { kind: "error"; id: string; message: string; code: string | null };
 

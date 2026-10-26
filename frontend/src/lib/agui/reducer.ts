@@ -76,6 +76,53 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
       };
     }
 
+    /*
+     * 思考过程（REASONING_*，官方 enableReasoning 打开后才会下发）。
+     *
+     * 官方/客户端约定：
+     *   REASONING_START          —— 本轮开始思考（无内容）
+     *   REASONING_MESSAGE_START  —— 开始一条思考消息（带 messageId）
+     *   REASONING_MESSAGE_CONTENT—— 增量 delta（逐 token）
+     *   REASONING_MESSAGE_END    —— 该条思考结束
+     *   REASONING_END            —— 思考阶段整体结束
+     *
+     * 一条回复里可能有**多段**思考（每次工具调用前后各一段），按 messageId 各成一条，
+     * 顺序与到达顺序一致，这样思考块会自然落在它对应的文本/工具卡之前。
+     */
+    case "REASONING_START":
+      // START 只是「开始思考了」的信号，没有内容：**不建条目**，
+      // 否则会和紧接着的 MESSAGE_START 各建一条，界面上出现两个空的思考块。
+      return state;
+
+    case "REASONING_MESSAGE_START":
+      return { ...state, items: upsertThinking(state.items, event.messageId, "", true) };
+
+    case "REASONING_MESSAGE_CONTENT":
+    case "REASONING_MESSAGE_CHUNK":
+      return {
+        ...state,
+        items: upsertThinking(state.items, event.messageId, event.delta ?? "", true),
+      };
+
+    case "REASONING_MESSAGE_END":
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.kind === "thinking" && item.id === thinkingId(event.messageId)
+            ? { ...item, streaming: false }
+            : item,
+        ),
+      };
+
+    case "REASONING_END":
+      // 兜底：结束阶段把所有还在 streaming 的思考块收掉（个别服务端不发 MESSAGE_END）
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.kind === "thinking" && item.streaming ? { ...item, streaming: false } : item,
+        ),
+      };
+
     case "TEXT_MESSAGE_CONTENT":
       return {
         ...state,
@@ -165,10 +212,48 @@ export function reduceEvent(state: ChatState, event: AguiEventLike): ChatState {
   }
 }
 
+/** 思考块的稳定 id：同一条思考消息多次增量都落到同一个条目。 */
+function thinkingId(messageId: string | undefined): string {
+  return `thinking-${messageId ?? "run"}`;
+}
+
+/**
+ * 把一段思考增量合并进条目列表：没有就新建（按到达顺序 push），有就追加。
+ *
+ * <p>为什么新建时**不**插到最前面：思考发生在其对应的文本/工具卡之前，按到达顺序 push
+ * 才能保证「思考 → 文本 → 工具 → 思考 → 文本」这样的真实顺序不乱。
+ */
+function upsertThinking(
+  items: ChatItem[],
+  messageId: string | undefined,
+  delta: string,
+  streaming: boolean,
+): ChatItem[] {
+  const id = thinkingId(messageId);
+  const index = items.findIndex((item) => item.kind === "thinking" && item.id === id);
+  if (index < 0) {
+    return [
+      ...items,
+      { kind: "thinking", id, content: delta, streaming },
+    ];
+  }
+  const current = items[index] as Extract<ChatItem, { kind: "thinking" }>;
+  const next: ChatItem = {
+    ...current,
+    content: current.content + delta,
+    streaming: current.streaming || streaming,
+  };
+  return items.map((item, i) => (i === index ? next : item));
+}
+
 function applyRunFinished(state: ChatState, event: AguiEventLike): ChatState {
   const interrupts = event.outcome?.interrupts ?? [];
+  // 结束就把思考块收掉：否则断流/异常时它会永远显示「思考中…」
+  const settled = state.items.map((item) =>
+    item.kind === "thinking" && item.streaming ? { ...item, streaming: false } : item,
+  );
   if (interrupts.length === 0) {
-    return { ...state, status: "finished" };
+    return { ...state, status: "finished", items: settled };
   }
   // 需要人工审批：把每个 interrupt 变成一张审批卡（工具名/入参来自 metadata）
   const cards: ChatItem[] = interrupts.map((interrupt, index) => ({
@@ -180,7 +265,7 @@ function applyRunFinished(state: ChatState, event: AguiEventLike): ChatState {
     message: interrupt.message ?? null,
     status: "pending" as const,
   }));
-  return { ...state, status: "finished", items: [...state.items, ...cards] };
+  return { ...state, status: "finished", items: [...settled, ...cards] };
 }
 
 /** 审批卡状态更新（决策后由页面调用）。 */
