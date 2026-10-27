@@ -110,7 +110,8 @@ class AgentConfigServiceTest {
 
         assertThat(updated.skillIds()).isEmpty();
         assertThat(updated.mcpServerIds()).containsExactly(mcpServerId);
-        assertThat(updated.maxIterations()).isEqualTo(20); // 默认值
+        // 默认值来自配置 myagent.agent.default-max-iterations（默认 100）
+        assertThat(updated.maxIterations()).isEqualTo(100);
     }
 
     @Test

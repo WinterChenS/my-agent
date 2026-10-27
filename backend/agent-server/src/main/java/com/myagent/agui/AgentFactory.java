@@ -228,6 +228,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         if (model.getTopP() != null) {
             options.topP(model.getTopP().doubleValue());
         }
+        // 重试/超时：必须带上，否则 agent 级 options 会把模型层的配置"盖空"，
+        // 表现为配了 3 次却只重试 2 次（实测）
+        options.executionConfig(modelFactory.executionConfig());
 
         // Skill：官方仓库 + 按绑定过滤（只暴露该 Agent 绑定的启用 Skill）
         // 技能集合 = Agent 绑定的 + 会话级选中的（D21），去重后交给官方 SkillFilter

@@ -65,7 +65,7 @@ const EMPTY: FormState = {
   maxTokens: "",
   permissionMode: "ALWAYS_ALLOW",
   // 技能/工具类任务很吃步数（读几份文档 + 跑几次命令就十几个），默认给宽一点
-  maxIterations: "30",
+  maxIterations: "100",
   dailyQuota: "",
   monthlyQuota: "",
   quotaCurrency: "CNY",
@@ -400,11 +400,11 @@ export default function AgentsPage() {
                   max={200}
                   value={form.maxIterations}
                   onChange={(e) => setForm({ ...form, maxIterations: e.target.value })}
-                  placeholder="留空=默认 20"
+                  placeholder="留空=默认 100"
                 />
                 <span className="text-muted-foreground block text-xs">
                   一轮对话里最多允许「模型思考 → 调工具 → 看结果」循环几次。
-                  技能 / 命令执行类任务很吃步数（只读几份文档就能吃掉一半），建议 ≥ 30；
+                  技能 / 命令执行类任务很吃步数（只读几份文档就能吃掉一半），建议 ≥ 30（默认 100）；
                   纯问答 5~10 够用。用满时会中断本轮并返回已完成的部分。
                 </span>
               </label>

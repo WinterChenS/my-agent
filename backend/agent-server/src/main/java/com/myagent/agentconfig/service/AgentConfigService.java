@@ -26,7 +26,8 @@ public class AgentConfigService {
     private static final Set<String> PERMISSION_MODES =
             Set.of("ALWAYS_ALLOW", "ALWAYS_DENY", "REQUIRE_APPROVAL");
     private static final Set<String> STATUSES = Set.of("ENABLED", "DISABLED");
-    private static final int DEFAULT_MAX_ITERATIONS = 20;
+    /** 默认最大迭代步数：技能/命令类任务很吃步数，默认给 100（可用 myagent.agent.default-max-iterations 调）。 */
+    private final int defaultMaxIterations;
 
     private final AgentMapper agentMapper;
     private final AgentSkillMapper agentSkillMapper;
@@ -42,13 +43,17 @@ public class AgentConfigService {
             AgentMcpServerMapper agentMcpServerMapper,
             LlmModelMapper llmModelMapper,
             AgentCacheInvalidator cacheInvalidator,
-            com.myagent.agentconfig.mapper.AgentUserMapper agentUserMapper) {
+            com.myagent.agentconfig.mapper.AgentUserMapper agentUserMapper,
+            @org.springframework.beans.factory.annotation.Value(
+                            "${myagent.agent.default-max-iterations:100}")
+                    int defaultMaxIterations) {
         this.agentMapper = agentMapper;
         this.agentSkillMapper = agentSkillMapper;
         this.agentMcpServerMapper = agentMcpServerMapper;
         this.llmModelMapper = llmModelMapper;
         this.cacheInvalidator = cacheInvalidator;
         this.agentUserMapper = agentUserMapper;
+        this.defaultMaxIterations = Math.max(1, defaultMaxIterations);
     }
 
     /**
@@ -245,7 +250,7 @@ public class AgentConfigService {
         agent.setMaxTokens(request.maxTokens());
         agent.setPermissionMode(normalize(request.permissionMode()));
         agent.setMaxIterations(
-                request.maxIterations() == null ? DEFAULT_MAX_ITERATIONS : request.maxIterations());
+                request.maxIterations() == null ? defaultMaxIterations : request.maxIterations());
         agent.setStatus(StringUtils.hasText(request.status())
                 ? request.status().trim().toUpperCase()
                 : "ENABLED");

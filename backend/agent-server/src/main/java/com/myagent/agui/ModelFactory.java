@@ -19,6 +19,86 @@ import org.springframework.util.StringUtils;
 @Component
 public class ModelFactory {
 
+    /**
+     * 模型调用重试配置（用官方 {@link ExecutionConfig}，不自研重试）。
+     *
+     * <p>官方 {@code ExecutionConfig.MODEL_DEFAULTS} 就是 maxAttempts=3 / 初始 2s / 指数退避 / 上限 30s，
+     * 这里把它**显式传进 GenerateOptions**，并允许用 {@code myagent.model.retry.*} 覆盖——
+     * 之前不传时框架只在部分路径套用默认值（实测日志里出现过 attempt 1/2）。
+     */
+    private final int retryMaxAttempts;
+    private final long retryInitialBackoffMs;
+    private final long retryMaxBackoffMs;
+    private final double retryMultiplier;
+    private final long retryTimeoutMinutes;
+    /** 是否把"没有 HTTP 状态码"的模型失败也当作可重试（默认 true）。 */
+    private final boolean retryOnUnknownStatus;
+
+    /** 最终使用的重试判定：官方谓词 + （可选）无状态码的模型错误。 */
+    private final java.util.function.Predicate<Throwable> retryOn;
+
+    public ModelFactory(
+            @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.max-retries:3}")
+                    int retryMaxRetries,
+            @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.initial-backoff-ms:2000}")
+                    long retryInitialBackoffMs,
+            @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.max-backoff-ms:30000}")
+                    long retryMaxBackoffMs,
+            @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.multiplier:2.0}")
+                    double retryMultiplier,
+            @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.timeout-minutes:5}")
+                    long retryTimeoutMinutes,
+            @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.on-unknown-status:true}")
+                    boolean retryOnUnknownStatus) {
+        // 语义：max-retries 是"重试次数"（不含首次），框架的 maxAttempts = 重试 + 1
+        this.retryMaxAttempts = Math.max(0, retryMaxRetries) + 1;
+        this.retryInitialBackoffMs = Math.max(0, retryInitialBackoffMs);
+        this.retryMaxBackoffMs = Math.max(this.retryInitialBackoffMs, retryMaxBackoffMs);
+        this.retryMultiplier = retryMultiplier <= 0 ? 2.0 : retryMultiplier;
+        this.retryTimeoutMinutes = Math.max(1, retryTimeoutMinutes);
+        this.retryOnUnknownStatus = retryOnUnknownStatus;
+        this.retryOn = retryOnUnknownStatus
+                ? error -> io.agentscope.core.model.ExecutionConfig.RETRYABLE_ERRORS.test(error)
+                        || isStatuslessModelError(error)
+                : io.agentscope.core.model.ExecutionConfig.RETRYABLE_ERRORS;
+    }
+
+    /**
+     * 供 AgentFactory 复用同一份重试/超时配置。
+     *
+     * <p>为什么必须复用：AgentFactory 会自己 new 一个 {@code GenerateOptions}（放 temperature/maxTokens），
+     * 若它不带 executionConfig，框架 merge 时可能退回到更小的默认值——实测出现过"配 3 次只重试 2 次"。
+     */
+    public io.agentscope.core.model.ExecutionConfig executionConfig() {
+        return io.agentscope.core.model.ExecutionConfig.builder()
+                .timeout(java.time.Duration.ofMinutes(retryTimeoutMinutes))
+                .maxAttempts(retryMaxAttempts)
+                .initialBackoff(java.time.Duration.ofMillis(retryInitialBackoffMs))
+                .maxBackoff(java.time.Duration.ofMillis(retryMaxBackoffMs))
+                .backoffMultiplier(retryMultiplier)
+                .retryOn(retryOn)
+                .build();
+    }
+
+    /** 无 HTTP 状态码的模型调用失败（连不上 / 流被关闭 / 解析中断…）。 */
+    static boolean isStatuslessModelError(Throwable error) {
+        Throwable current = error;
+        int depth = 0;
+        while (current != null && depth++ < 6) {
+            if (current instanceof io.agentscope.core.model.ModelHttpException http
+                    && http.getStatusCode() == null) {
+                return true;
+            }
+            if (current instanceof java.net.ConnectException
+                    || current instanceof java.net.SocketException
+                    || current instanceof java.io.EOFException) {
+                return true;
+            }
+            current = current.getCause() == current ? null : current.getCause();
+        }
+        return false;
+    }
+
     /** 走 OpenAI 兼容协议的类型。 */
     private static final String TYPE_OPENAI = "OPENAI";
     private static final String TYPE_OPENAI_COMPATIBLE = "OPENAI_COMPATIBLE";
@@ -97,6 +177,19 @@ public class ModelFactory {
      */
     private GenerateOptions buildOptions(Map<String, Object> params) {
         GenerateOptions.Builder builder = GenerateOptions.builder();
+        // 官方重试/超时配置（默认 3 次，指数退避），可用 myagent.model.retry.* 调整
+        builder.executionConfig(io.agentscope.core.model.ExecutionConfig.builder()
+                .timeout(java.time.Duration.ofMinutes(retryTimeoutMinutes))
+                .maxAttempts(retryMaxAttempts)
+                .initialBackoff(java.time.Duration.ofMillis(retryInitialBackoffMs))
+                .maxBackoff(java.time.Duration.ofMillis(retryMaxBackoffMs))
+                .backoffMultiplier(retryMultiplier)
+                // 官方 RETRYABLE_ERRORS 覆盖 429 / 5xx / 超时 / IOException；
+                // 但**连不上、流被对端关闭**这类没有 HTTP 状态码的失败它判为"不可重试"
+                // （isRetryableHttpStatus 对 statusCode==null 返回 false），
+                // 而这恰恰是最常见的抖动。这里用官方 retryOn 谓词把"无状态码的模型调用失败"补进来。
+                .retryOn(retryOn)
+                .build());
         if (params != null) {
             Object temperature = params.get("temperature");
             if (temperature instanceof Number number) {
