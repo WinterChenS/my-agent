@@ -39,6 +39,51 @@ myagent:
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
     bucket: ${MINIO_BUCKET:agent-platform}
     max-file-size-mb: ${MINIO_MAX_FILE_MB:50}
+  # 定时任务（技术方案 §21）：分布式靠 PG 的 SELECT ... FOR UPDATE SKIP LOCKED 抢占
+  schedule:
+    # 总开关（关掉后不 tick，也不执行；工具仍可创建任务）
+    enabled: ${MYAGENT_SCHEDULE_ENABLED:true}
+    # tick 间隔（毫秒）
+    tick-millis: ${MYAGENT_SCHEDULE_TICK_MS:10000}
+    # 每轮最多认领多少条
+    batch-size: ${MYAGENT_SCHEDULE_BATCH:10}
+    # 执行线程数（独立于 Web 线程池）
+    worker-threads: ${MYAGENT_SCHEDULE_WORKERS:4}
+    # 排队上限；满了本轮跳过，任务下轮再抢
+    queue-capacity: ${MYAGENT_SCHEDULE_QUEUE:100}
+    # 执行租约（分钟）：未过期时其它节点不会抢同一任务
+    lease-minutes: ${MYAGENT_SCHEDULE_LEASE_MIN:10}
+  # 命令执行（技术方案 §19）：跨平台 shell + 每用户 Python venv + 缺包自动安装
+  shell:
+    # 总开关；关掉后 execute/run_command 仍在但直接返回"未启用"
+    enabled: ${MYAGENT_SHELL_ENABLED:true}
+    # 每用户一份 .venv（<workspace>/<userId>/.venv），自动装包不污染系统 Python
+    python-venv: ${MYAGENT_SHELL_PYTHON_VENV:true}
+    # 报 ModuleNotFoundError 时自动 pip install 到该用户 venv 并重试一次
+    auto-install-python-deps: ${MYAGENT_SHELL_AUTO_INSTALL:true}
+  # 从仓库链接导入标准 Skill（管理页 / 聊天 install_skill 共用）
+  skill-import:
+    # 归档下载上限（MB）。
+    # 原始安全默认值是 20；实测 tt-a1i/archify 的 GitHub 归档为 50.9MB（codeload zip 53.4MB），
+    # 20MB 会直接拒绝。这里放宽到 64MB（仍能挡住几百 MB 的恶意/误传归档）。
+    # 想收回默认值：部署时设 SKILL_IMPORT_MAX_ARCHIVE_MB=20 即可，无需改代码。
+    max-archive-mb: ${SKILL_IMPORT_MAX_ARCHIVE_MB:64}
+    # 单个资源文件上限（KB）。技能目录内超限会明确报错（残技能不如不装）；
+    # 技能目录外的超大文件（README 截图、演示视频）直接忽略，不拖垮整个导入。
+    # 保持 2048 不变：archify 技能目录内最大的文件只有 0.97MB，用不着放宽。
+    max-file-kb: ${SKILL_IMPORT_MAX_FILE_KB:2048}
+    # 解压后总大小上限（MB）。
+    # 原始安全默认值是 64；archify 解压后 99.4MB（去掉超单文件上限被跳过的根目录 archify.zip 约 94MB），
+    # 64MB 会在解包阶段失败。放宽到 128MB（约 1.3 倍余量）。
+    max-total-mb: ${SKILL_IMPORT_MAX_TOTAL_MB:128}
+    # 归档条目上限
+    max-entries: ${SKILL_IMPORT_MAX_ENTRIES:4000}
+    # 单个技能的资源文件数量上限
+    max-resources-per-skill: ${SKILL_IMPORT_MAX_RESOURCES:300}
+    # 下载超时（秒）
+    timeout-seconds: ${SKILL_IMPORT_TIMEOUT_SECONDS:60}
+    # 私有仓库 / 私有制品库的 token（可选，不配按匿名访问）
+    token: ${SKILL_IMPORT_TOKEN:}
   jwt:
     secret: ${JWT_SECRET:dev-only-jwt-secret-change-me-0123456789abcdef}
     expire-minutes: 720

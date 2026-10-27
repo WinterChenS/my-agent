@@ -24,6 +24,20 @@ public interface AgentSkillMapper {
     @Select("SELECT skill_id FROM agent_skill WHERE agent_id = #{agentId} ORDER BY skill_id")
     List<Long> findSkillIds(@Param("agentId") Long agentId);
 
+    /** 该技能被多少个 Agent 绑定（0 = 导入后还没绑，对话里用不了）。 */
+    @Select("SELECT count(*) FROM agent_skill WHERE skill_id = #{skillId}")
+    long countAgentsBySkillId(@Param("skillId") Long skillId);
+
+    /** 批量：技能 id → 绑定它的 Agent 数量（列表页用，避免 N+1）。 */
+    @Select({
+        "<script>",
+        "SELECT skill_id, count(*) AS cnt FROM agent_skill WHERE skill_id IN",
+        "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+        "GROUP BY skill_id",
+        "</script>"
+    })
+    java.util.List<java.util.Map<String, Object>> countAgentsBySkillIds(@Param("ids") java.util.List<Long> ids);
+
     /** 绑定前校验 Skill 是否存在。 */
     @Select("SELECT count(*) FROM skill WHERE id = #{skillId}")
     long countExistingSkill(@Param("skillId") Long skillId);

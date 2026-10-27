@@ -33,6 +33,8 @@ public class SecurityConfig {
         "/api/agents/**",
         "/api/skills/**",
         "/api/mcp-servers/**",
+        // IM 渠道（钉钉/飞书）：读要登录、写要 ADMIN
+        "/api/channels/**",
         // 用户管理（C1）：读要登录、写要 ADMIN。注意配额接口 /api/users/{id}/quota 也在这条路径下，
         // 它自身还额外判了 ADMIN（见 QuotaController）。
         "/api/users/**"
@@ -68,6 +70,8 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/auth/login", "/api/health")
                         .permitAll()
+                        // 定时任务：登录即可，普通用户只能看到/管理自己的（服务层按 created_by 过滤）
+                        .requestMatchers("/api/scheduled-tasks/**").authenticated()
                         .requestMatchers(HttpMethod.GET, CONFIG_PATHS).authenticated()
                         .requestMatchers(CONFIG_PATHS).hasRole("ADMIN")
                         .anyRequest().authenticated())

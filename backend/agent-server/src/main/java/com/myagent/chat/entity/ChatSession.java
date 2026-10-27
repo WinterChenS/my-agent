@@ -24,6 +24,12 @@ public class ChatSession {
     /** AG-UI 的 threadId，与 user_id 组合唯一。 */
     private String threadId;
 
+    /** 会话来源：WEB / DINGTALK / FEISHU（IM 渠道会话在这里区分）。 */
+    private String origin;
+
+    /** 来源标识（渠道应用名 + peer），仅用于展示。 */
+    private String originRef;
+
     private OffsetDateTime lastActiveAt;
 
     private OffsetDateTime createdAt;
@@ -76,6 +82,22 @@ public class ChatSession {
 
     public void setThreadId(String threadId) {
         this.threadId = threadId;
+    }
+
+    public String getOrigin() {
+        return origin;
+    }
+
+    public void setOrigin(String origin) {
+        this.origin = origin;
+    }
+
+    public String getOriginRef() {
+        return originRef;
+    }
+
+    public void setOriginRef(String originRef) {
+        this.originRef = originRef;
     }
 
     public OffsetDateTime getLastActiveAt() {

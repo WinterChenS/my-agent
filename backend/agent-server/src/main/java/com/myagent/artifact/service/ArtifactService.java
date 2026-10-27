@@ -116,6 +116,31 @@ public class ArtifactService {
     // ===================== 写入 =====================
 
     /** 处理聊天上传：路由存储 + 去重 + 物化到会话工作区。 */
+    /**
+     * 直接取产物字节（不看存储位置）。
+     *
+     * <p>为什么需要：{@link #download} 对 MinIO 的产物只返回**预签名 URL**（bytes 为 null），
+     * 而 IM 渠道要把文件原样上传给钉钉/飞书，必须拿到真实字节。
+     * 实测踩过：直接用 download() 发图，bytes 为 null 被静默跳过 —— 用户看到"发了张图但没收到"。
+     */
+    /** 取产物的文件名（IM 渠道发送媒体时要用它判断图片/文件）。 */
+    public String fileNameOf(Long userId, Long artifactId) {
+        return requireOwnedArtifact(userId, artifactId).getFileName();
+    }
+
+    public byte[] contentBytes(Long userId, Long artifactId) {
+        Artifact artifact = requireOwnedArtifact(userId, artifactId);
+        if ("DB".equals(artifact.getStorage())) {
+            return (artifact.getContent() == null ? "" : artifact.getContent())
+                    .getBytes(StandardCharsets.UTF_8);
+        }
+        try {
+            return minio.get(artifact.getMinioObjectKey());
+        } catch (Exception ex) {
+            throw BizException.badRequest("读取产物内容失败: " + ex.getMessage());
+        }
+    }
+
     public ArtifactResponse upload(Long userId, Long sessionId, MultipartFile file) {
         ChatSession session = requireOwned(userId, sessionId);
         if (file == null || file.isEmpty()) {

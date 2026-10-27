@@ -49,4 +49,33 @@ class AgentPromptGuidanceTest {
         assertThat(out).contains("## 交互卡片（本平台能力，请主动使用）");
         assertThat(out).contains("## 长期记忆（本平台能力，请正确使用）");
     }
+
+    @Test
+    void 技能指引讲清三件事_用skill_id加载_别在磁盘找SKILL_md_没绑定时怎么答() {
+        String out = AgentFactory.withSkillGuidance("原始提示");
+
+        assertThat(out).startsWith("原始提示");
+        assertThat(out).contains("## 技能（Skills）使用规则（重要）");
+        // ① 必须用 skill-id，不能用 name（用户实测踩过：用 name 调必然 Skill not found）
+        assertThat(out).contains("<skill-id>");
+        assertThat(out).contains("_myagent");
+        assertThat(out).contains("Skill not found");
+        // ② 用户消息里的 [[skill:xxx]] 是技能名，要映射到 skill-id
+        assertThat(out).contains("[[skill:xxx]]");
+        // ③ 技能正文不落盘，别用 list_files / glob 找 SKILL.md
+        assertThat(out).contains("磁盘上不会有 SKILL.md");
+        assertThat(out).contains("glob");
+        // ④ 清单里没有 = 未绑定，要告诉用户去绑定，而不是猜 id
+        assertThat(out).contains("未绑定");
+        assertThat(out).contains("Agent 配置");
+        // ⑤ 不要再引导用 / 选技能：/ 的候选现在只列本 Agent 绑定的技能，对未绑定技能没有出口
+        assertThat(out).doesNotContain("输入框用 `/`");
+    }
+
+    @Test
+    void 没有原始提示时技能指引单独成立() {
+        assertThat(AgentFactory.withSkillGuidance(null)).startsWith("## 技能");
+        assertThat(AgentFactory.withSkillGuidance("   ")).startsWith("## 技能");
+    }
+
 }

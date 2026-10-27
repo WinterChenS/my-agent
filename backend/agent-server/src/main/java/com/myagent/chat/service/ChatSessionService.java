@@ -182,6 +182,7 @@ public class ChatSessionService {
                 session.getAgentId(),
                 session.getTitle(),
                 session.getThreadId(),
+                session.getOrigin() == null ? "WEB" : session.getOrigin(),
                 session.getLastActiveAt(),
                 session.getCreatedAt());
     }

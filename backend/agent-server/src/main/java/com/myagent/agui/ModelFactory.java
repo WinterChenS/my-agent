@@ -84,7 +84,17 @@ public class ModelFactory {
         return builder.build();
     }
 
-    /** 采样参数：temperature / maxTokens，均为可选。 */
+    /**
+     * 采样参数：temperature / maxTokens / topP / topK，以及**思考强度**。
+     *
+     * <p>{@code reasoningEffort} 是 2026-10-26 实测补上的：网关上的 {@code deepseek-v4.1-flash}
+     * 默认**不返回** {@code reasoning_content}（{@code reasoning_tokens=0}），必须显式传
+     * {@code reasoning_effort: "high"} 才会思考。不传就永远看不到思考过程——
+     * 看起来像"前端不显示"，实际是模型压根没想。
+     *
+     * <p>{@code additionalBodyParams} 是逃生口：厂商自定义参数（如 {@code thinking}、
+     * {@code chat_template_kwargs}）不用改代码就能透传。
+     */
     private GenerateOptions buildOptions(Map<String, Object> params) {
         GenerateOptions.Builder builder = GenerateOptions.builder();
         if (params != null) {
@@ -104,6 +114,26 @@ public class ModelFactory {
             Object topK = params.get("topK");
             if (topK instanceof Number number) {
                 builder.topK(number.intValue());
+            }
+            // 思考强度：两种写法都认（camel / snake），值走官方 reasoningEffort（low / medium / high）
+            Object effort = params.containsKey("reasoningEffort")
+                    ? params.get("reasoningEffort")
+                    : params.get("reasoning_effort");
+            if (effort instanceof String text && !text.isBlank()) {
+                builder.reasoningEffort(text.trim());
+            }
+            Object thinkingBudget = params.get("thinkingBudget");
+            if (thinkingBudget instanceof Number number) {
+                builder.thinkingBudget(number.intValue());
+            }
+            // 厂商自定义参数直通（body 里原样带上去）
+            Object additional = params.get("additionalBodyParams");
+            if (additional instanceof Map<?, ?> map) {
+                map.forEach((key, value) -> {
+                    if (key != null && value != null) {
+                        builder.additionalBodyParam(String.valueOf(key), value);
+                    }
+                });
             }
         }
         return builder.build();

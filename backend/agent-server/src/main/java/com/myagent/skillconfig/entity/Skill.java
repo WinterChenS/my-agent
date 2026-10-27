@@ -22,6 +22,15 @@ public class Skill {
 
     private String status;
 
+    /** 导入来源（仓库地址）；手工创建的 Skill 为空。 */
+    private String sourceUrl;
+
+    /** 导入来源的分支 / 标签。 */
+    private String sourceRef;
+
+    /** name + 正文 + 资源的 SHA-256，用于判断内容是否真的变了。 */
+    private String contentHash;
+
     private OffsetDateTime createdAt;
 
     private OffsetDateTime updatedAt;
@@ -72,6 +81,30 @@ public class Skill {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getSourceUrl() {
+        return sourceUrl;
+    }
+
+    public void setSourceUrl(String sourceUrl) {
+        this.sourceUrl = sourceUrl;
+    }
+
+    public String getSourceRef() {
+        return sourceRef;
+    }
+
+    public void setSourceRef(String sourceRef) {
+        this.sourceRef = sourceRef;
+    }
+
+    public String getContentHash() {
+        return contentHash;
+    }
+
+    public void setContentHash(String contentHash) {
+        this.contentHash = contentHash;
     }
 
     public OffsetDateTime getCreatedAt() {

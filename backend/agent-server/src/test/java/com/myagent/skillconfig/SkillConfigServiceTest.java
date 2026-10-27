@@ -138,4 +138,52 @@ class SkillConfigServiceTest {
                         new SkillRequest("  ", "说明", "正文", "ENABLED")))
                 .hasMessageContaining("名称不能为空");
     }
+
+    @Test
+    void 按Agent过滤技能列表_只返回它绑定的() {
+        // 两个技能：一个绑到 Agent，一个不绑
+        SkillResponse bound = newSkill("bound-" + System.nanoTime(), "绑定的");
+        SkillResponse loose = newSkill("loose-" + System.nanoTime(), "没绑的");
+
+        Long agentDbId = createAgentWithSkill(bound.id());
+
+        List<SkillResponse> records = skillConfigService
+                .list(1, 100, "ENABLED", agentDbId, null)
+                .records();
+        assertThat(records).extracting(SkillResponse::name).contains(bound.name());
+        assertThat(records).extracting(SkillResponse::name).doesNotContain(loose.name());
+
+        // 不传 agentId 时行为不变（管理页要看全量）
+        assertThat(skillConfigService.list(1, 100, null).records())
+                .extracting(SkillResponse::name)
+                .contains(bound.name(), loose.name());
+    }
+
+    /** 建一个只绑定给定技能的 Agent，返回它的主键（与其它用例同一套建 provider/model 的写法）。 */
+    private Long createAgentWithSkill(Long skillId) {
+        String suffix = String.valueOf(System.nanoTime());
+        Long providerId = modelConfigService
+                .createProvider(new ProviderRequest(
+                        "bind-provider-" + suffix, "OPENAI_COMPATIBLE", "http://localhost:8099/v1", "k", "ENABLED"))
+                .id();
+        Long modelId = modelConfigService
+                .createModel(new ModelRequest(
+                        providerId, "bind-model-" + suffix, null, null, null, null, null, null, null, null, null, null,
+                        "ENABLED", null))
+                .id();
+        return agentConfigService
+                .create(new AgentRequest(
+                        "bind-agent-" + suffix,
+                        "bind-agent-" + suffix,
+                        "p",
+                        modelId,
+                        null,
+                        null,
+                        "ALWAYS_ALLOW",
+                        null, null, null, null,
+                        "ENABLED",
+                        List.of(skillId),
+                        List.of()))
+                .id();
+    }
 }

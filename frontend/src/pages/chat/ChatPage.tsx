@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MessageBubble } from "@/components/chat/MessageBubble";
-import { PendingBubble } from "@/components/chat/PendingBubble";
+import { PendingIndicator } from "@/components/chat/PendingBubble";
 import { ArtifactBrowserPopover } from "@/components/chat/ArtifactBrowserPopover";
 import { ArtifactBox } from "@/components/chat/ArtifactBox";
 import { ArtifactPreviewPanel } from "@/components/chat/ArtifactPreviewPanel";
@@ -14,6 +14,7 @@ import { isImageArtifact, listArtifacts, type ArtifactInfo } from "@/api/artifac
 import { canPreviewArtifact } from "@/lib/artifacts/previewKind";
 import { PREVIEW_PANEL_DEFAULT } from "@/lib/chat/previewPanelWidth";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
+import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import {
   SkillMentionInput,
   type SkillMentionInputHandle,
@@ -243,13 +244,27 @@ export default function ChatPage() {
       });
   }, []);
 
+  /**
+   * `/` 候选技能 = **当前 Agent 绑定的**启用技能。
+   *
+   * <p>为什么按 Agent 过滤（2026-10-23 用户反馈）：模型的 `<available_skills>` 只含绑定的技能，
+   * 未绑定的在对话里根本调不到。以前这里拉的是全平台 ENABLED 技能，用户选了没绑定的，
+   * 模型只会回一句"技能加载失败"。
+   *
+   * <p>会话已有 agentId 时以会话为准（下拉框只影响新会话）。
+   */
+  const skillsForAgent = session?.agentId ?? agentId;
   useEffect(() => {
-    listSkills(1, 100, "ENABLED")
+    if (skillsForAgent == null) {
+      setSkills([]);
+      return;
+    }
+    listSkills(1, 100, "ENABLED", skillsForAgent)
       .then((page) => setSkills(page.records))
       .catch(() => {
         /* 技能拉取失败不影响聊天 */
       });
-  }, []);
+  }, [skillsForAgent]);
 
   // 兜底：会话状态一变就同步 ref（openSession/startNewSession 里还会同步设一次，避免时序空档）
   useEffect(() => {
@@ -1082,6 +1097,13 @@ export default function ChatPage() {
         continue;
       }
 
+      if (item.kind === "thinking") {
+        // 思考过程：思考中展开、结束自动折叠（不落库，刷新后消失）
+        nodes.push(<ThinkingBlock key={item.id} item={item} />);
+        i += 1;
+        continue;
+      }
+
       if (item.kind === "subagent") {
         nodes.push(<SubagentCard key={item.id} item={item} />);
       } else if (item.kind === "text") {
@@ -1204,7 +1226,7 @@ export default function ChatPage() {
         <div className={isEmptyState ? "hidden" : "flex-1 overflow-auto"}>
           <div data-testid="chat-column" className="mx-auto w-full max-w-3xl space-y-4 p-4">
             {renderItemNodes()}
-            {showPendingBubble && <PendingBubble />}
+            {showPendingBubble && <PendingIndicator />}
             <div ref={bottomRef} />
           </div>
         </div>

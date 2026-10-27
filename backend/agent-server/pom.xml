@@ -20,7 +20,7 @@
   <properties>
     <java.version>21</java.version>
     <!-- 门禁 G1：AgentScope 相关版本统一为 2.0.3 -->
-    <agentscope.version>2.0.3</agentscope.version>
+    <agentscope.version>2.0.4</agentscope.version>
     <mybatis-plus.version>3.5.7</mybatis-plus.version>
     <jjwt.version>0.12.6</jjwt.version>
     <jasypt.version>3.0.5</jasypt.version>
@@ -48,8 +48,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-redis</artifactId>
     </dependency>
+    <!-- 官方钉钉渠道的出站客户端用 WebClient；MVC 与 WebFlux 共存时 Boot 仍用 Servlet 栈 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webflux</artifactId>
+    </dependency>
 
-    <!-- ===== AgentScope Java 2.0.3（门禁 G1） ===== -->
+    <!-- ===== AgentScope Java 2.0.4（门禁 G1） ===== -->
     <dependency>
       <groupId>io.agentscope</groupId>
       <artifactId>agentscope-harness</artifactId>
@@ -73,6 +78,17 @@
     <dependency>
       <groupId>io.agentscope</groupId>
       <artifactId>agentscope-extensions-model-anthropic</artifactId>
+      <version>${agentscope.version}</version>
+    </dependency>
+    <!-- IM 渠道（钉钉）：官方渠道实现，Stream 长连接 + 入站媒体元数据 + 出站文本 -->
+    <dependency>
+      <groupId>io.agentscope</groupId>
+      <artifactId>agentscope-extensions-channel-dingtalk</artifactId>
+      <version>${agentscope.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.agentscope</groupId>
+      <artifactId>agentscope-extensions-channel-common</artifactId>
       <version>${agentscope.version}</version>
     </dependency>
     <dependency>

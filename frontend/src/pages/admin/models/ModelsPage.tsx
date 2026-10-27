@@ -64,6 +64,15 @@ interface ModelForm {
   /** tier1-upgrades ①：是否支持图片输入 */
   multimodal: boolean;
   status: "ENABLED" | "DISABLED";
+  /**
+   * 思考强度（reasoning_effort）：留空 = 不传，模型按自己的默认来。
+   *
+   * <p>实测（2026-10-26）：网关上的 deepseek-v4.1-flash **默认不思考**（reasoning_tokens=0），
+   * 必须显式传 reasoning_effort=high 才会返回 reasoning_content。不填就永远看不到思考过程。
+   */
+  reasoningEffort: string;
+  /** 原样保留 params 里我们没做表单的键（以前编辑模型会把整份 params 清空）。 */
+  params: Record<string, unknown>;
 }
 
 const EMPTY_PROVIDER: ProviderForm = {
@@ -90,6 +99,8 @@ const EMPTY_MODEL: ModelForm = {
   priceCurrency: "CNY",
   multimodal: false,
   status: "ENABLED",
+  reasoningEffort: "",
+  params: {},
 };
 
 export default function ModelsPage() {
@@ -187,7 +198,11 @@ export default function ModelsPage() {
       providerId: modelForm.providerId,
       modelId: modelForm.modelId.trim(),
       displayName: modelForm.displayName.trim() || null,
-      params: {} as Record<string, unknown>,
+      params: {
+        ...modelForm.params,
+        // 空 = 不传，让模型用自己的默认；有值才覆盖
+        ...(modelForm.reasoningEffort ? { reasoningEffort: modelForm.reasoningEffort } : {}),
+      },
       temperature: num(modelForm.temperature),
       topP: num(modelForm.topP),
       contextWindow: num(modelForm.contextWindow),
@@ -470,6 +485,10 @@ export default function ModelsPage() {
                             priceCurrency: m.priceCurrency ?? "CNY",
                             multimodal: m.multimodal === true,
                             status: m.status,
+                            reasoningEffort: String(
+                              params.reasoningEffort ?? params.reasoning_effort ?? "",
+                            ),
+                            params,
                           });
                           setModelDialog(true);
                         }}
@@ -546,8 +565,12 @@ export default function ModelsPage() {
                                 priceOutput: m.priceOutput != null ? String(m.priceOutput) : "",
                                 priceCache: m.priceCache != null ? String(m.priceCache) : "",
                                 priceCurrency: m.priceCurrency ?? "CNY",
-                            multimodal: m.multimodal === true,
+                                multimodal: m.multimodal === true,
                                 status: m.status,
+                                reasoningEffort: String(
+                                  params.reasoningEffort ?? params.reasoning_effort ?? "",
+                                ),
+                                params,
                               });
                               setModelDialog(true);
                             }}
@@ -716,6 +739,25 @@ export default function ModelsPage() {
                   onChange={(e) => setModelForm({ ...modelForm, topP: e.target.value })}
                   placeholder="(0,1]，如 0.9"
                 />
+              </label>
+              <label className="space-y-1 text-sm">
+                思考强度（reasoning_effort）
+                <select
+                  className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                  data-testid="model-reasoning-effort"
+                  value={modelForm.reasoningEffort}
+                  onChange={(e) =>
+                    setModelForm({ ...modelForm, reasoningEffort: e.target.value })
+                  }
+                >
+                  <option value="">不传（模型默认）</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+                <span className="text-muted-foreground text-xs">
+                  留空 = 不思考（多数模型默认如此）；要看到思考过程选 high
+                </span>
               </label>
               <label className="space-y-1 text-sm">
                 上下文长度（tokens）
