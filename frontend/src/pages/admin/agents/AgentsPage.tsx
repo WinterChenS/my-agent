@@ -64,7 +64,8 @@ const EMPTY: FormState = {
   temperature: "0.7",
   maxTokens: "",
   permissionMode: "ALWAYS_ALLOW",
-  maxIterations: "10",
+  // 技能/工具类任务很吃步数（读几份文档 + 跑几次命令就十几个），默认给宽一点
+  maxIterations: "30",
   dailyQuota: "",
   monthlyQuota: "",
   quotaCurrency: "CNY",
@@ -392,13 +393,28 @@ export default function AgentsPage() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                maxIterations
+                最大迭代步数（maxIterations）
                 <Input
+                  type="number"
+                  min={1}
+                  max={200}
                   value={form.maxIterations}
                   onChange={(e) => setForm({ ...form, maxIterations: e.target.value })}
+                  placeholder="留空=默认 20"
                 />
+                <span className="text-muted-foreground block text-xs">
+                  一轮对话里最多允许「模型思考 → 调工具 → 看结果」循环几次。
+                  技能 / 命令执行类任务很吃步数（只读几份文档就能吃掉一半），建议 ≥ 30；
+                  纯问答 5~10 够用。用满时会中断本轮并返回已完成的部分。
+                </span>
               </label>
             </div>
+            {form.maxIterations.trim() && Number(form.maxIterations) < 10 && (
+              <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-700">
+                最大迭代步数只有 {form.maxIterations} 步：技能 / 命令执行类任务很可能中途就"步数用尽"。
+                建议设为 30 以上（上限 200）。
+              </p>
+            )}
             {maxTokensWarning(form.maxTokens) && (
               <p className="rounded-md bg-amber-50 p-2 text-xs text-amber-700">
                 ⚠️ {maxTokensWarning(form.maxTokens)}

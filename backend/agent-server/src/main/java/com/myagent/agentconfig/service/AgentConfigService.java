@@ -212,6 +212,10 @@ public class AgentConfigService {
         if (request.maxTokens() != null && request.maxTokens() <= 0) {
             throw BizException.badRequest("maxTokens 必须为正整数");
         }
+        if (request.maxIterations() != null && request.maxIterations() > 200) {
+            throw BizException.badRequest(
+                    "maxIterations 最大 200（一轮里「思考→调工具→看结果」的循环次数，配太大会跑很久）");
+        }
         if (request.maxIterations() != null && request.maxIterations() <= 0) {
             throw BizException.badRequest("maxIterations 必须为正整数");
         }
