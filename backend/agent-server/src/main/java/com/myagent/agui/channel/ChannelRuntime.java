@@ -57,6 +57,7 @@ public class ChannelRuntime implements ChannelPushPort {
     private final Map<String, ImChannelBuilder> builders = new HashMap<>();
 
     private final ChannelManager channelManager = new ChannelManager();
+    private final ImTextSplitter textSplitter;
     /** 串行执行起停，避免"改配置 + 手动重启"并发把渠道建成两份。 */
     private final ScheduledExecutorService worker =
             Executors.newSingleThreadScheduledExecutor(r -> {
@@ -73,7 +74,8 @@ public class ChannelRuntime implements ChannelPushPort {
             ChannelPeerMapper peerMapper,
             com.myagent.agui.AguiProperties aguiProperties,
             java.util.List<ImChannelBuilder> builderBeans,
-            JdbcTemplate jdbc) {
+            JdbcTemplate jdbc,
+            ImTextSplitter textSplitter) {
         for (ImChannelBuilder builder : builderBeans) {
             builders.put(builder.channelType().toUpperCase(java.util.Locale.ROOT), builder);
         }
@@ -84,6 +86,7 @@ public class ChannelRuntime implements ChannelPushPort {
         this.peerMapper = peerMapper;
         this.aguiProperties = aguiProperties;
         this.jdbc = jdbc;
+        this.textSplitter = textSplitter;
     }
 
     // ===================== 生命周期 =====================
@@ -154,7 +157,9 @@ public class ChannelRuntime implements ChannelPushPort {
             // 先验一次凭据：官方长连接客户端鉴权失败只在后台重试并打日志，
             // 管理页会一直显示"运行中"，用户根本不知道是凭据错了。
             builder.preflight(app, config);
-            Channel channel = builder.build(app, config, new ImChannelBuilder.BuildContext(jdbc));
+            // 包一层出站分片：IM 单条消息有硬上限，超长要拆成多条发，不能截断（用户反馈）
+            Channel channel = new ChunkingChannel(
+                    builder.build(app, config, new ImChannelBuilder.BuildContext(jdbc)), textSplitter);
             channel.init(gateway);
             channel.start();
             channelManager.register(channel);

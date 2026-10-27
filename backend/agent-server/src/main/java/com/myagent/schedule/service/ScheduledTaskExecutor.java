@@ -38,10 +38,10 @@ public class ScheduledTaskExecutor {
     private static final Logger log = LoggerFactory.getLogger(ScheduledTaskExecutor.class);
 
     /**
-     * 正文长度上限（两个地方共用）：推送到 IM 的正文、执行记录里保存的输出摘要。
+     * 执行记录里保存的输出摘要长度上限（**只影响记录/界面预览，不再截断 IM 推送**）。
      *
-     * <p>为什么统一：用户看到的是"定时任务字数上限"，如果推送 3500、记录 2000，
-     * 界面上截断的地方和实际发出去的地方不一致，很容易误判"是不是没生成完"。
+     * <p>IM 推送现在按 {@code myagent.channel.max-text-chars} 拆成多条发送（用户反馈"不要截断"），
+     * 所以这里保留的阈值只用于数据库里的 output_preview。
      * 默认 **3000**，可用 {@code myagent.schedule.max-text-chars} 调整。
      */
     static final int DEFAULT_MAX_TEXT_CHARS = 3000;
@@ -83,11 +83,12 @@ public class ScheduledTaskExecutor {
         this.executionRegistry = executionRegistry;
         this.maxTextChars = maxTextChars <= 0 ? DEFAULT_MAX_TEXT_CHARS : maxTextChars;
         // 启动时打一行，部署后能直接核对"字数上限到底是多少"（排障时省得翻配置）
-        log.info("定时任务字数上限 = {} 字符（myagent.schedule.max-text-chars，用于执行记录摘要与 IM 推送）",
+        log.info(
+                "定时任务记录摘要上限 = {} 字符（myagent.schedule.max-text-chars）；IM 推送不截断，超长按渠道上限分条发送",
                 this.maxTextChars);
     }
 
-    /** 生效的字数上限（记录 / 推送共用；单测与日志用）。 */
+    /** 生效的记录摘要上限（单测与日志用）。 */
     int maxTextChars() {
         return maxTextChars;
     }
@@ -253,9 +254,10 @@ public class ScheduledTaskExecutor {
             appId = peer.getChannelAppId();
             peerKey = peer.getPeerKey();
         }
-        // 正文一条 + 本轮产物（报告文档/图片）逐个发出
-        int sent = port.push(appId, peerKey, truncate(answer, maxTextChars), produced);
-        log.info("定时任务已推送到 IM taskId={} appId={} peer={} 条数={} 附件={}",
+        // 正文按 IM 单条上限拆成多条发送（不再截断），再附上本轮产物（报告文档/图片）。
+        // 拆片在渠道层（ChunkingChannel）统一做，这里传完整正文即可。
+        int sent = port.push(appId, peerKey, answer, produced);
+        log.info("定时任务已推送到 IM taskId={} appId={} peer={} 消息条数={}（超长会自动分片） 附件={}",
                 task.getId(), appId, peerKey, sent, produced.size());
     }
 

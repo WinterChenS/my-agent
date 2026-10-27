@@ -53,6 +53,11 @@ myagent:
       # 实测：deepseek 代理中途断流被官方扩展包成 BadRequestException(400)，
       # 官方的 400 判定 = 不重试，于是直接报错。这条开关专治它（真正的参数错不带 streaming 字样，不会被误伤）。
       on-stream-failure: ${MYAGENT_MODEL_RETRY_ON_STREAM_FAILURE:true}
+  # IM 渠道出站
+  channel:
+    # 单条 IM 消息的字符上限：超过就**拆成多条依次发送**（不再截断丢内容）。
+    # 钉钉文本上限约 20000 字节（≈6000 汉字），2000 字符留足余量也避免刷屏；飞书/其他平台同理。
+    max-text-chars: ${MYAGENT_CHANNEL_MAX_TEXT_CHARS:2000}
   # 上下文压缩（官方 CompactionConfig）：
   # 阈值按「模型窗口 x trigger-ratio」算，默认 90% —— 即用掉九成才压缩。
   # 以前是「固定 120000 与窗口 60% 取小」，导致 1M 窗口的模型在 11% 就被压缩，大窗口等于白买。

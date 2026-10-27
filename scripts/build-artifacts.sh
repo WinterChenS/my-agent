@@ -25,7 +25,10 @@ echo "    -> $ARTIFACTS/app.jar ($(du -h "$ARTIFACTS/app.jar" | cut -f1))"
 
 echo "==> 构建前端 dist"
 cd "$ROOT/frontend"
-npm ci --no-audit --no-fund
+# 已经有 node_modules 就直接 build（本机 dev server 正在用它们，npm ci 会锁文件失败）
+if [ ! -d node_modules ]; then
+  npm ci --no-audit --no-fund
+fi
 npm run build
 rm -rf "$ARTIFACTS/dist"
 cp -r dist "$ARTIFACTS/dist"
