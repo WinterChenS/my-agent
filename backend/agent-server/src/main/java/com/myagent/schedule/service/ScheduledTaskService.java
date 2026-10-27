@@ -45,6 +45,9 @@ public class ScheduledTaskService {
     private final com.myagent.schedule.mapper.ScheduledTaskRunQueryMapper runQueryMapper;
     private final long leaseMinutes;
 
+    /** 执行记录里保存的输出摘要长度上限（与推送共用同一个配置项）。 */
+    private final int maxTextChars;
+
     public ScheduledTaskService(
             ScheduledTaskMapper taskMapper,
             ScheduledTaskRunMapper runMapper,
@@ -52,7 +55,8 @@ public class ScheduledTaskService {
             ChatSessionMapper sessionMapper,
             ChatSessionService sessionService,
             com.myagent.schedule.mapper.ScheduledTaskRunQueryMapper runQueryMapper,
-            @Value("${myagent.schedule.lease-minutes:10}") long leaseMinutes) {
+            @Value("${myagent.schedule.lease-minutes:10}") long leaseMinutes,
+            @Value("${myagent.schedule.max-text-chars:3000}") int maxTextChars) {
         this.taskMapper = taskMapper;
         this.runMapper = runMapper;
         this.agentMapper = agentMapper;
@@ -60,6 +64,8 @@ public class ScheduledTaskService {
         this.sessionService = sessionService;
         this.runQueryMapper = runQueryMapper;
         this.leaseMinutes = Math.max(1, leaseMinutes);
+        this.maxTextChars = maxTextChars <= 0
+                ? ScheduledTaskExecutor.DEFAULT_MAX_TEXT_CHARS : maxTextChars;
     }
 
     // ===================== 查询 =====================
@@ -265,7 +271,7 @@ public class ScheduledTaskService {
             run.setStatus(cancelled ? "CANCELLED" : (Boolean.TRUE.equals(success) ? "SUCCESS" : "FAILED"));
             run.setFinishedAt(now);
             run.setDurationMs(durationMs);
-            run.setOutputPreview(truncate(output, 2000));
+            run.setOutputPreview(truncate(output, maxTextChars));
             run.setError(truncate(error, 2000));
             runMapper.updateById(run);
         }
@@ -416,10 +422,12 @@ public class ScheduledTaskService {
         return created;
     }
 
+    /** 截断并留明确标记（用户/排障时能一眼看出"是被截了"而不是没生成完）。 */
     private static String truncate(String text, int max) {
         if (text == null) {
             return null;
         }
-        return text.length() <= max ? text : text.substring(0, max) + "…";
+        String marker = String.valueOf((char) 10) + "…（内容过长，已截断）";
+        return text.length() <= max ? text : text.substring(0, max) + marker;
     }
 }

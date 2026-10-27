@@ -53,6 +53,9 @@ myagent:
     queue-capacity: ${MYAGENT_SCHEDULE_QUEUE:100}
     # 执行租约（分钟）：未过期时其它节点不会抢同一任务
     lease-minutes: ${MYAGENT_SCHEDULE_LEASE_MIN:10}
+    # 正文长度上限（字符）：执行记录里保存的输出摘要 + 推送到 IM 的正文，两处共用。
+    # 原来是「记录 2000 / 推送 3500」两套不同数字，界面上容易误判"没生成完"，现统一为 3000。
+    max-text-chars: ${MYAGENT_SCHEDULE_MAX_TEXT_CHARS:3000}
   # 命令执行（技术方案 §19）：跨平台 shell + 每用户 Python venv + 缺包自动安装
   shell:
     # 总开关；关掉后 execute/run_command 仍在但直接返回"未启用"

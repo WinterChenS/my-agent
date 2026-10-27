@@ -52,7 +52,8 @@ class ScheduledTaskExecutorTest {
                 provider.getBeanProvider(ChannelPushPort.class),
                 Mockito.mock(com.myagent.artifact.service.ArtifactCaptureService.class),
                 Mockito.mock(com.myagent.artifact.service.ArtifactService.class),
-                new ScheduledTaskExecutionRegistry());
+                new ScheduledTaskExecutionRegistry(Runnable::run),
+                ScheduledTaskExecutor.DEFAULT_MAX_TEXT_CHARS);
 
         ScheduledTask task = new ScheduledTask();
         task.setId(1L);

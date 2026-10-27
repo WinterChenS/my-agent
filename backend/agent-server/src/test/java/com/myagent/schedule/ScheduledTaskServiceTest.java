@@ -279,4 +279,20 @@ class ScheduledTaskServiceTest {
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("执行记录不存在");
     }
+
+    @Test
+    void 执行记录的输出摘要按3000字截断_不再沿用2000() {
+        Long agentId = newAgent();
+        ScheduledTask task = service.create(everyMinute(agentId, "长文本"), 1L);
+        Long runId = service.startRun(task.getId(), "node-1", "MANUAL").getId();
+        // 4000 字：3000 以内保留，超出截断并打标记
+        String longText = "秋".repeat(4000);
+
+        service.finishRun(task.getId(), runId, true, longText, null, 10);
+
+        String preview = service.runs(task.getId(), 5).get(0).getOutputPreview();
+        assertThat(preview).startsWith("秋".repeat(3000));
+        assertThat(preview.length()).as("3000 字 + 截断提示").isLessThan(4000);
+        assertThat(preview).contains("已截断");
+    }
 }
