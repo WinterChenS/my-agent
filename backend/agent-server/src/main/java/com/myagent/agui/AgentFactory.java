@@ -282,6 +282,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 // 而后者是整串字面量匹配（整句/多词 → 0 命中）→ 模型就说“没有记录”。
                 .middleware(new com.myagent.agui.middleware.MemoryHintMiddleware(
                         java.nio.file.Path.of(aguiProperties.workspaceRoot())))
+                // 技能文件落盘目录：官方的 <available_skills> 不带 files-root，
+                // 模型要跑 bin/xxx.mjs 时只能全盘搜（实测会把迭代步数耗光）
+                .middleware(new com.myagent.agui.middleware.SkillFilesHintMiddleware(
+                        java.nio.file.Path.of(aguiProperties.workspaceRoot())))
                 // 诊断开关（默认关）：把最终系统提示的形态打日志。
                 // 技能清单没渲染出来时框架是**静默**的，模型只会说「没有可用技能」——
                 // 实测排查这类问题只能靠它（见 PromptDebugMiddleware 注释）。
@@ -348,6 +352,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 "   「该技能没有绑定到当前 Agent」，请到「Agent 配置」里把它绑定上（绑定后本会话即可用）；",
                 "   报 `Skill not found` 时**先调 `list_skills` 核对 id 再重试一次**；仍失败才说明真的没绑定/没启用，",
                 "   不要说「技能文件不存在」，也不要说「没有可用技能清单」。",
+                "6. **省步数**：系统提示的「技能文件位置」已经给出每个技能的实际目录与可执行入口；",
+                "   直接用它跑命令，**不要 dir /s、glob ** 全盘找**，也不要一次把所有 references/schemas/examples 全读一遍：",
+                "   先读 SKILL.md 正文，按需读 1 个示例 + 1 个 schema，然后立刻执行 CLI。",
+                "   迭代步数有限（默认 20），把步数花在「执行」而不是「探索」上。",
                 "5. 技能的正文与 `references/` `scripts/` 都在数据库里，**磁盘上不会有 SKILL.md**：",
                 "   不要用 `list_files` / `glob **/SKILL.md` 判断技能是否存在，只能看 `<available_skills>` 或调工具加载。");
         return base.isEmpty() ? guidance : base + "\n\n" + guidance;

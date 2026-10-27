@@ -44,16 +44,22 @@ public class ListSkillsTool implements AgentTool {
     private final AgentSkillMapper agentSkillMapper;
     private final AgentMapper agentMapper;
     private final ChatSessionMapper sessionMapper;
+    /** 查"这个技能的文件落盘到哪个目录"（官方缓存目录）。 */
+    private final SkillFileLocator fileLocator;
 
     public ListSkillsTool(
             SkillMapper skillMapper,
             AgentSkillMapper agentSkillMapper,
             AgentMapper agentMapper,
-            ChatSessionMapper sessionMapper) {
+            ChatSessionMapper sessionMapper,
+            @org.springframework.beans.factory.annotation.Value("${myagent.workspace-root:./.myagent-workspace}")
+                    String workspaceRoot) {
         this.skillMapper = skillMapper;
         this.agentSkillMapper = agentSkillMapper;
         this.agentMapper = agentMapper;
         this.sessionMapper = sessionMapper;
+        this.fileLocator = new SkillFileLocator(
+                java.nio.file.Path.of(workspaceRoot).toAbsolutePath().normalize());
     }
 
     @Override
@@ -120,6 +126,14 @@ public class ListSkillsTool implements AgentTool {
                 out.append("  说明：").append(desc.length() > 120 ? desc.substring(0, 120) + "…" : desc)
                         .append('\n');
             }
+            // 文件目录：官方 <available_skills> 不带 files-root，模型要跑 bin/xxx.mjs 得知道路径
+            String userId = param.getRuntimeContext() == null
+                    ? null : param.getRuntimeContext().getUserId();
+            fileLocator.locate(userId, skill.getName()).ifPresent(dir -> {
+                out.append("  文件目录：").append(dir.toAbsolutePath().normalize()).append('\n');
+                SkillFileLocator.guessEntrypoint(dir, skill.getName()).ifPresent(entrypoint ->
+                        out.append("  可执行入口：").append(entrypoint).append('\n'));
+            });
         }
         return out.toString();
     }
