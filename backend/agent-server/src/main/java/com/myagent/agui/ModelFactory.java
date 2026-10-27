@@ -104,7 +104,9 @@ public class ModelFactory {
         String[] markers = {
             "in streaming response", "mid-reply", "unexpected eof",
             "connection lost", "connection reset", "broken pipe", "stream closed",
-            "premature end", "unexpected end of stream"
+            "premature end", "unexpected end of stream",
+            // 网络层的中断（IOException 类官方本来就重试，这里补上是为了错误文案也能说明）
+            "connection refused", "connect timed out", "read timed out", "timed out"
         };
         Throwable current = error;
         int depth = 0;

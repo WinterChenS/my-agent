@@ -63,6 +63,8 @@ public class AguiRunController {
     private final com.myagent.quota.service.QuotaService quotaService;
     /** 按资源授权：校验该用户能否使用这个 Agent。 */
     private final com.myagent.agentconfig.service.AgentConfigService agentConfigService;
+    /** 给模型失败文案补"已自动重试 N 次"的说明，避免用户以为没重试。 */
+    private final ModelRetryHint modelRetryHint;
 
     public AguiRunController(
             AguiRequestBodyParser requestParser,
@@ -79,7 +81,8 @@ public class AguiRunController {
             SessionTitleService sessionTitleService,
             MultimodalGuard multimodalGuard,
             com.myagent.quota.service.QuotaService quotaService,
-            com.myagent.agentconfig.service.AgentConfigService agentConfigService) {
+            com.myagent.agentconfig.service.AgentConfigService agentConfigService,
+            ModelRetryHint modelRetryHint) {
         this.requestParser = requestParser;
         this.eventEncoder = eventEncoder;
         this.requestProcessor = requestProcessor;
@@ -95,6 +98,7 @@ public class AguiRunController {
         this.multimodalGuard = multimodalGuard;
         this.quotaService = quotaService;
         this.agentConfigService = agentConfigService;
+        this.modelRetryHint = modelRetryHint;
     }
 
     @PostMapping(value = "/agui/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -217,9 +221,13 @@ public class AguiRunController {
                             recordTokenUsage(event, userId, session.getId(), agentDbId, tokenContext, runId);
                         },
                         error -> {
-                            log.warn("AG-UI run 执行失败 threadId={}: {}", threadId, error.toString());
+                            // 重试用尽时外层只剩 "Retries exhausted"，真正的根因在 cause 链里，日志要看全
+                            log.warn("AG-UI run 执行失败 threadId={}: {} | 根因: {}",
+                                    threadId, error.toString(), rootCauseMessage(error));
                             // tier1-upgrades ③：这一轮的失败原因也要落库（状态记 ERROR）
-                            runningRuns.markError(threadId, String.valueOf(error.getMessage()));
+                            // 落库用对用户可读的文案，别把 Reactor 的内部话术存进去
+                            runningRuns.markError(threadId,
+                                    modelRetryHint.decorate(String.valueOf(error.getMessage())));
                             sendRunError(emitter, threadId, input.getRunId(), error, streamGuard);
                             finish(emitter, session.getId(), userId, threadId, input.getRunId(),
                                     workspaceSnapshot, assistantText, customEventNames, interrupts, finished);
@@ -268,6 +276,7 @@ public class AguiRunController {
     }
 
     private void send(SseEmitter emitter, AguiEvent event, AguiStreamGuard streamGuard) {
+        event = withRetryHint(event);
         if (!streamGuard.shouldSend(event)) {
             // 已进入 RUN_ERROR 终态：后续事件（尤其官方扩展跟着发的 RUN_FINISHED）一律不下发
             log.debug("已进入 RUN_ERROR 终态，丢弃后续事件: {}", event.getType());
@@ -280,6 +289,40 @@ public class AguiRunController {
             // 客户端断开是正常情况：不向上抛，避免影响其他请求。
             log.debug("SSE 发送失败（客户端可能已断开）: {}", ex.getMessage());
         }
+    }
+
+    /** 取异常链最里层的根因信息（重试用尽后根因被包住了）。 */
+    private static String rootCauseMessage(Throwable error) {
+        Throwable current = error;
+        int depth = 0;
+        while (current != null && depth++ < 8) {
+            Throwable cause = current.getCause();
+            // RetryExhaustedException 是 reactor.core.Exceptions 里的包级私有内部类，只能按名字判断
+            if (cause == null || cause == current
+                    || cause.getClass().getSimpleName().contains("RetryExhausted")) {
+                break;
+            }
+            current = cause;
+        }
+        return String.valueOf(current.getMessage());
+    }
+
+    /**
+     * 模型失败时把"已经自动重试过"这件事写进错误文案。
+     *
+     * <p>重试是静默的：日志有 attempt 记录，界面只有一句原始报错，用户会以为"根本没重试"（真实反馈）。
+     * 只对可重试类型的错误追加，参数错这类不该重试的保持原样。
+     */
+    private AguiEvent withRetryHint(AguiEvent event) {
+        if (!(event instanceof AguiEvent.RunError runError)) {
+            return event;
+        }
+        String decorated = modelRetryHint.decorate(runError.message());
+        if (decorated == null || decorated.equals(runError.message())) {
+            return event;
+        }
+        return new AguiEvent.RunError(
+                runError.threadId(), runError.runId(), decorated, runError.code());
     }
 
     private void sendRunError(
@@ -295,7 +338,10 @@ public class AguiRunController {
         try {
             emitter.send(SseEmitter.event()
                     .data(sseSanitizer.stripNulls(eventEncoder.encodeToJson(new AguiEvent.RunError(
-                            threadId, runId, String.valueOf(error.getMessage()), "RUN_FAILED")))));
+                            threadId,
+                            runId,
+                            modelRetryHint.decorate(String.valueOf(error.getMessage())),
+                            "RUN_FAILED")))));
         } catch (Exception ex) {
             log.debug("SSE 错误事件发送失败: {}", ex.getMessage());
         }
