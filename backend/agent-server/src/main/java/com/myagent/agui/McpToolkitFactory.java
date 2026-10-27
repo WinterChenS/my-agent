@@ -36,6 +36,9 @@ public class McpToolkitFactory {
     private final com.myagent.agui.channel.SendImMessageTool sendImMessageTool;
 
     /** 在工作区执行命令/脚本（跨平台；体 Excel 分析这类任务靠它）。 */
+    /** 列出当前 Agent 的技能与准确 skill-id（避免模型用技能名当 id）。 */
+    private final com.myagent.agui.skillimport.ListSkillsTool listSkillsTool;
+
     private final com.myagent.agui.shell.RunCommandTool executeTool;
 
     private final com.myagent.agui.shell.RunCommandTool runCommandTool;
@@ -52,12 +55,14 @@ public class McpToolkitFactory {
             com.myagent.agui.skillimport.SkillInstallTool skillInstallTool,
             com.myagent.agui.channel.SendImMessageTool sendImMessageTool,
             com.myagent.agui.shell.RunCommandTool executeTool,
+            com.myagent.agui.skillimport.ListSkillsTool listSkillsTool,
             com.myagent.agui.shell.RunCommandTool runCommandTool,
             com.myagent.schedule.tool.ScheduleTaskTool scheduleTaskTool,
             com.myagent.schedule.tool.ManageScheduledTaskTool manageScheduledTaskTool,
             com.myagent.schedule.tool.ListImTargetsTool listImTargetsTool) {
         this.skillInstallTool = skillInstallTool;
         this.sendImMessageTool = sendImMessageTool;
+        this.listSkillsTool = listSkillsTool;
         this.executeTool = executeTool;
         this.runCommandTool = runCommandTool;
         this.scheduleTaskTool = scheduleTaskTool;
@@ -91,6 +96,7 @@ public class McpToolkitFactory {
             // 「从仓库链接安装 Skill」对每个 Agent 开放：用户可能在任意会话里丢一个仓库地址过来。
             // 写操作由权限模式兜底（REQUIRE_APPROVAL 会自动给它弹审批卡）。
             toolkit.registerAgentTool(skillInstallTool);
+            toolkit.registerAgentTool(listSkillsTool);
             // IM 渠道：Agent 能主动推送（只在 IM 会话里生效，Web 会话调用会返回说明）
             toolkit.registerAgentTool(sendImMessageTool);
             // 跨平台命令执行：模型要跑 python 分析表格时靠它（名字按模型习惯挂了两个）
