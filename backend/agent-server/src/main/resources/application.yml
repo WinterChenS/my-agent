@@ -49,6 +49,10 @@ myagent:
       # 是否把"没有 HTTP 状态码"的失败（连不上、流被对端关闭）也当作可重试。
       # 官方默认判为不可重试，但那是最常见的抖动，默认打开。
       on-unknown-status: ${MYAGENT_MODEL_RETRY_ON_UNKNOWN_STATUS:true}
+      # 是否把"流到一半断掉"的失败也当作可重试。
+      # 实测：deepseek 代理中途断流被官方扩展包成 BadRequestException(400)，
+      # 官方的 400 判定 = 不重试，于是直接报错。这条开关专治它（真正的参数错不带 streaming 字样，不会被误伤）。
+      on-stream-failure: ${MYAGENT_MODEL_RETRY_ON_STREAM_FAILURE:true}
   # HarnessAgent 工作区根目录（运行时状态，已 gitignore）。生产用 MYAGENT_WORKSPACE 指向持久化磁盘。
   workspace-root: ${MYAGENT_WORKSPACE:./.myagent-workspace}
   # 产物对象存储（技术方案 §12.2）。凭据由环境变量注入。

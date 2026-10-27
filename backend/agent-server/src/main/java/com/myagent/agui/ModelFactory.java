@@ -34,6 +34,9 @@ public class ModelFactory {
     /** 是否把"没有 HTTP 状态码"的模型失败也当作可重试（默认 true）。 */
     private final boolean retryOnUnknownStatus;
 
+    /** 是否把"流到一半断掉"的失败也当作可重试（默认 true）。 */
+    private final boolean retryTransientStream;
+
     /** 最终使用的重试判定：官方谓词 + （可选）无状态码的模型错误。 */
     private final java.util.function.Predicate<Throwable> retryOn;
 
@@ -49,7 +52,9 @@ public class ModelFactory {
             @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.timeout-minutes:5}")
                     long retryTimeoutMinutes,
             @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.on-unknown-status:true}")
-                    boolean retryOnUnknownStatus) {
+                    boolean retryOnUnknownStatus,
+            @org.springframework.beans.factory.annotation.Value("${myagent.model.retry.on-stream-failure:true}")
+                    boolean retryTransientStream) {
         // 语义：max-retries 是"重试次数"（不含首次），框架的 maxAttempts = 重试 + 1
         this.retryMaxAttempts = Math.max(0, retryMaxRetries) + 1;
         this.retryInitialBackoffMs = Math.max(0, retryInitialBackoffMs);
@@ -57,10 +62,11 @@ public class ModelFactory {
         this.retryMultiplier = retryMultiplier <= 0 ? 2.0 : retryMultiplier;
         this.retryTimeoutMinutes = Math.max(1, retryTimeoutMinutes);
         this.retryOnUnknownStatus = retryOnUnknownStatus;
-        this.retryOn = retryOnUnknownStatus
-                ? error -> io.agentscope.core.model.ExecutionConfig.RETRYABLE_ERRORS.test(error)
-                        || isStatuslessModelError(error)
-                : io.agentscope.core.model.ExecutionConfig.RETRYABLE_ERRORS;
+        this.retryTransientStream = retryTransientStream;
+        this.retryOn = error ->
+                io.agentscope.core.model.ExecutionConfig.RETRYABLE_ERRORS.test(error)
+                        || (retryOnUnknownStatus && isStatuslessModelError(error))
+                        || (retryTransientStream && isTransientStreamFailure(error));
     }
 
     /**
@@ -78,6 +84,43 @@ public class ModelFactory {
                 .backoffMultiplier(retryMultiplier)
                 .retryOn(retryOn)
                 .build();
+    }
+
+    /**
+     * "流到一半断掉"的失败——**这类最容易被误判成不可重试**。
+     *
+     * <p>实测（deepseek-日抛 代理）：模型在 SSE 中途断开，官方 openai 扩展把它包成
+     * {@code BadRequestException(400)}：{@code OpenAI API error in streaming response: deepseek-日抛:
+     * connection lost mid-reply (unexpected EOF)}。因为状态码是 400，官方谓词与我们"无状态码"补丁都不命中，
+     * 于是一次都不重试——而这明显是抖动，不是参数错误。
+     *
+     * <p>判据：<b>消息里带"发生在流里"的痕迹</b>。真正的 400（参数错/额度不足/key 无效）用的是
+     * {@code "OpenAI API error: ..."}，不带 streaming 字样，因此不会被误伤。
+     */
+    static boolean isTransientStreamFailure(Throwable error) {
+        // 注意："during streaming" 不能用——官方把**所有**流式请求的 HTTP 错误都写成
+        // "HTTP transport error during streaming: ..."，包含真正的 400（参数错），
+        // 那样连 400 都会重试（实测踩过）。只认"响应已经开始之后才断掉"的痕迹。
+        String[] markers = {
+            "in streaming response", "mid-reply", "unexpected eof",
+            "connection lost", "connection reset", "broken pipe", "stream closed",
+            "premature end", "unexpected end of stream"
+        };
+        Throwable current = error;
+        int depth = 0;
+        while (current != null && depth++ < 6) {
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase(java.util.Locale.ROOT);
+                for (String marker : markers) {
+                    if (lower.contains(marker)) {
+                        return true;
+                    }
+                }
+            }
+            current = current.getCause() == current ? null : current.getCause();
+        }
+        return false;
     }
 
     /** 无 HTTP 状态码的模型调用失败（连不上 / 流被关闭 / 解析中断…）。 */

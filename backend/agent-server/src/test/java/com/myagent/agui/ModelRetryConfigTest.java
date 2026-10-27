@@ -21,7 +21,11 @@ class ModelRetryConfigTest {
         private final Integer status;
 
         FakeHttpError(Integer status) {
-            super("fake model error " + status);
+            this(status, "fake model error " + status);
+        }
+
+        FakeHttpError(Integer status, String message) {
+            super(message);
             this.status = status;
         }
 
@@ -51,6 +55,29 @@ class ModelRetryConfigTest {
     }
 
     @Test
+    void 流到一半断掉视为可重试_哪怕被包成400() {
+        // 真实实测的原话：deepseek 代理中途断流，官方扩展包成 BadRequestException(400)
+        var midStream = new FakeHttpError(400,
+                "OpenAI API error in streaming response: deepseek-日抛: connection lost mid-reply (unexpected EOF)");
+        assertThat(ModelFactory.isTransientStreamFailure(midStream)).isTrue();
+        assertThat(ModelFactory.isTransientStreamFailure(new RuntimeException("w", midStream))).isTrue();
+        assertThat(ModelFactory.isTransientStreamFailure(new java.io.IOException("connection reset"))).isTrue();
+        assertThat(ModelFactory.isTransientStreamFailure(new java.io.IOException("unexpected EOF"))).isTrue();
+    }
+
+    @Test
+    void 真正的400不被当作可重试() {
+        // 官方的通用包装："HTTP transport error during streaming: HTTP request failed with status 400 | ..."
+        // 里面带 "during streaming"，若拿它当判据会把所有 400 都重试（实测踩过）
+        var real400 = new FakeHttpError(400,
+                "HTTP transport error during streaming: HTTP request failed with status 400"
+                        + " | {\"error\": {\"message\": \"invalid request: messages must not be empty\"}}");
+        assertThat(ModelFactory.isTransientStreamFailure(real400)).isFalse();
+        assertThat(ModelFactory.isTransientStreamFailure(new FakeHttpError(400, "invalid api key"))).isFalse();
+        assertThat(ModelFactory.isTransientStreamFailure(new IllegalArgumentException("bad input"))).isFalse();
+    }
+
+    @Test
     void 官方默认值与我们的默认值一致_都是3次() {
         // 官方 ExecutionConfig.MODEL_DEFAULTS：maxAttempts=3 / 初始 2s / 上限 30s / x2
         assertThat(ExecutionConfig.MODEL_DEFAULTS.getMaxAttempts()).isEqualTo(3);
@@ -61,7 +88,7 @@ class ModelRetryConfigTest {
     @Test
     void 构造时按配置生成重试策略() {
         // max-retries=3 → 框架 maxAttempts=4（首次 + 3 次重试）
-        ModelFactory factory = new ModelFactory(3, 500, 5000, 3.0, 2, true);
+        ModelFactory factory = new ModelFactory(3, 500, 5000, 3.0, 2, true, true);
         io.agentscope.core.model.GenerateOptions options = invokeBuildOptions(factory);
 
         ExecutionConfig config = options.getExecutionConfig();
