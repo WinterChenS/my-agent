@@ -108,6 +108,17 @@ public class ChannelAppController {
         return Result.ok(service.bindPeer(id, request.peerKey(), request.peerName()));
     }
 
+    /** 修改某个 IM 会话的显示名（「对方」那一列）。 */
+    public record RenamePeerRequest(String peerName) {}
+
+    @PutMapping("/{id}/peers/{peerId}")
+    public Result<ChannelPeerResponse> renamePeer(
+            @PathVariable Long id,
+            @PathVariable Long peerId,
+            @RequestBody RenamePeerRequest request) {
+        return Result.ok(service.renamePeer(id, peerId, request.peerName()));
+    }
+
     @GetMapping("/{id}/peers")
     public Result<List<ChannelPeerResponse>> peers(@PathVariable Long id) {
         return Result.ok(service.peers(id));

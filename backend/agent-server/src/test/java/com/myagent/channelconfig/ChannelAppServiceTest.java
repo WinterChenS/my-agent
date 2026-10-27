@@ -7,6 +7,7 @@ import com.myagent.agentconfig.dto.AgentRequest;
 import com.myagent.agentconfig.service.AgentConfigService;
 import com.myagent.channelconfig.dto.ChannelAppRequest;
 import com.myagent.channelconfig.dto.ChannelAppResponse;
+import com.myagent.channelconfig.dto.ChannelPeerResponse;
 import com.myagent.channelconfig.service.ChannelAppService;
 import com.myagent.common.BizException;
 import com.myagent.modelconfig.dto.ModelRequest;
@@ -141,5 +142,51 @@ class ChannelAppServiceTest {
         assertThat(channelAppService.enabledApps())
                 .extracting(com.myagent.channelconfig.entity.ChannelApp::getId)
                 .doesNotContain(created.id());
+    }
+
+    @Test
+    void 可以修改IM会话的显示名_且不影响推送地址() {
+        Long agentId = newAgent("ALWAYS_ALLOW");
+        ChannelAppResponse app = channelAppService.create(
+                new ChannelAppRequest("DINGTALK", "改名测试", false, agentId, null, dingtalkConfig()), 1L);
+        ChannelPeerResponse peer = channelAppService.bindPeer(app.id(), "staff-123", "你好");
+
+        ChannelPeerResponse renamed = channelAppService.renamePeer(app.id(), peer.id(), "张三");
+
+        assertThat(renamed.peerName()).isEqualTo("张三");
+        // peerKey 是推送地址，改名不能动它
+        assertThat(renamed.peerKey()).isEqualTo("staff-123");
+        assertThat(channelAppService.peers(app.id()))
+                .extracting(ChannelPeerResponse::peerName)
+                .contains("张三");
+    }
+
+    @Test
+    void 名称不能为空_也不能超长() {
+        Long agentId = newAgent("ALWAYS_ALLOW");
+        ChannelAppResponse app = channelAppService.create(
+                new ChannelAppRequest("DINGTALK", "改名校验", false, agentId, null, dingtalkConfig()), 1L);
+        ChannelPeerResponse peer = channelAppService.bindPeer(app.id(), "staff-1", "原名");
+
+        assertThatThrownBy(() -> channelAppService.renamePeer(app.id(), peer.id(), "  "))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不能为空");
+        assertThatThrownBy(() -> channelAppService.renamePeer(app.id(), peer.id(), "x".repeat(200)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("128");
+    }
+
+    @Test
+    void 改别的渠道下的会话会报不存在() {
+        Long agentId = newAgent("ALWAYS_ALLOW");
+        ChannelAppResponse app1 = channelAppService.create(
+                new ChannelAppRequest("DINGTALK", "渠道A", false, agentId, null, dingtalkConfig()), 1L);
+        ChannelAppResponse app2 = channelAppService.create(
+                new ChannelAppRequest("DINGTALK", "渠道B", false, agentId, null, dingtalkConfig()), 1L);
+        ChannelPeerResponse peer = channelAppService.bindPeer(app1.id(), "staff-9", "原名");
+
+        assertThatThrownBy(() -> channelAppService.renamePeer(app2.id(), peer.id(), "张三"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("会话不存在");
     }
 }

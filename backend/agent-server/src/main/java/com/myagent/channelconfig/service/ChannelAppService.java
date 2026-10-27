@@ -137,6 +137,36 @@ public class ChannelAppService {
                 existing.getPeerName(), existing.getChatSessionId(), existing.getLastActiveAt());
     }
 
+    /**
+     * 修改某个 IM 会话的显示名（「对方」）。
+     *
+     * <p>为什么需要：{@code peer_name} 原本是"首次消息文本"或渠道给的原名，
+     * 群里往往显示成一串 id 或一句无关的话，运营要能改成"张三"、"项目群"这种可读名字。
+     * 只改展示名，不动 {@code peer_key}（那是推送地址，改了会发不出去）。
+     */
+    @Transactional
+    public ChannelPeerResponse renamePeer(Long appId, Long peerId, String peerName) {
+        require(appId);
+        if (peerName == null || peerName.isBlank()) {
+            throw BizException.badRequest("名称不能为空");
+        }
+        String name = peerName.trim();
+        if (name.length() > 128) {
+            throw BizException.badRequest("名称最长 128 个字符");
+        }
+        ChannelPeer peer = peerId == null ? null : peerMapper.selectById(peerId);
+        if (peer == null || !appId.equals(peer.getChannelAppId())) {
+            throw BizException.notFound("会话不存在: " + peerId);
+        }
+        peer.setPeerName(name);
+        peer.setUpdatedAt(OffsetDateTime.now());
+        peerMapper.updateById(peer);
+        log.info("已修改 IM 会话显示名 appId={} peerId={} peerKey={} name={}",
+                appId, peerId, peer.getPeerKey(), name);
+        return new ChannelPeerResponse(peer.getId(), peer.getPeerKey(), peer.getPeerKind(),
+                peer.getPeerName(), peer.getChatSessionId(), peer.getLastActiveAt());
+    }
+
     /** 合成推送地址：官方出站客户端会按 {@code channelId:KIND:id} 拆分。 */
     private String peerAddress(ChannelApp app, String peerKey) {
         Map<String, String> config = decryptConfig(app);

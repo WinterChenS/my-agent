@@ -28,6 +28,7 @@ import {
   listChannelPeers,
   listChannels,
   pushChannelMessage,
+  renameChannelPeer,
   restartChannel,
   setChannelEnabled,
   updateChannel,
@@ -119,6 +120,8 @@ export default function ChannelsPage() {
   const [peers, setPeers] = useState<ChannelPeerInfo[]>([]);
   const [pushTo, setPushTo] = useState<{ app: ChannelAppInfo; peerKey: string } | null>(null);
   const [pushText, setPushText] = useState("这是一条来自平台的主动推送测试消息。");
+  /** 正在改名的会话（null = 弹窗关闭） */
+  const [renaming, setRenaming] = useState<{ peer: ChannelPeerInfo; name: string } | null>(null);
 
   const agentOptions = useMemo(
     () => agents.filter((a) => a.permissionMode !== "REQUIRE_APPROVAL"),
@@ -212,6 +215,23 @@ export default function ChannelsPage() {
       setPeers(await listChannelPeers(item.id));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载会话失败");
+    }
+  }
+
+  async function submitRename() {
+    if (!renaming || !peersOf) return;
+    const name = renaming.name.trim();
+    if (!name) {
+      toast.error("名称不能为空");
+      return;
+    }
+    try {
+      await renameChannelPeer(peersOf.id, renaming.peer.id, name);
+      toast.success("已修改显示名");
+      setRenaming(null);
+      setPeers(await listChannelPeers(peersOf.id));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "改名失败");
     }
   }
 
@@ -460,7 +480,20 @@ export default function ChannelsPage() {
               )}
               {peers.map((peer) => (
                 <TableRow key={peer.id}>
-                  <TableCell className="max-w-[260px] truncate">{peer.peerName ?? peer.peerKey}</TableCell>
+                  <TableCell className="max-w-[260px]">
+                    <div className="flex items-center gap-1">
+                      <span className="truncate">{peer.peerName ?? peer.peerKey}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-1"
+                        title="修改显示名"
+                        onClick={() => setRenaming({ peer, name: peer.peerName ?? "" })}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </TableCell>
                   <TableCell>{peer.peerKind === "GROUP" ? "群聊" : "单聊"}</TableCell>
                   <TableCell>{peer.lastActiveAt ? new Date(peer.lastActiveAt).toLocaleString() : "-"}</TableCell>
                   <TableCell className="text-right">
@@ -477,6 +510,32 @@ export default function ChannelsPage() {
               ))}
             </TableBody>
           </Table>
+        </DialogContent>
+      </Dialog>
+
+      {/* 修改「对方」显示名 */}
+      <Dialog open={renaming !== null} onOpenChange={(open) => !open && setRenaming(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>修改显示名</DialogTitle>
+            <DialogDescription>
+              只改这里显示的名字，不会影响推送地址（{renaming?.peer.peerKey}）——改名后照样能发消息。
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renaming?.name ?? ""}
+            onChange={(e) => setRenaming((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+            placeholder="例如：张三 / 项目群"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submitRename();
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenaming(null)}>
+              取消
+            </Button>
+            <Button onClick={() => void submitRename()}>保存</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

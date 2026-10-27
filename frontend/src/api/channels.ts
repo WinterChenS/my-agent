@@ -79,6 +79,14 @@ export function listChannelPeers(id: number) {
   return apiFetch<ChannelPeerInfo[]>(`/api/channels/${id}/peers`);
 }
 
+/** 修改某个 IM 会话的显示名（「对方」列），不影响推送地址。 */
+export function renameChannelPeer(channelId: number, peerId: number, peerName: string) {
+  return apiFetch<ChannelPeerInfo>(`/api/channels/${channelId}/peers/${peerId}`, {
+    method: "PUT",
+    body: JSON.stringify({ peerName }),
+  });
+}
+
 /** 主动推送（管理页验证连通性时用）。 */
 export function pushChannelMessage(id: number, peerKey: string, text: string) {
   return apiFetch<{ sent: number }>(`/api/channels/${id}/push`, {
