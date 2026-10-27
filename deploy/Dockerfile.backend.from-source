@@ -1,0 +1,39 @@
+# 从源码整包构建后端（给网络好的环境 / CI 用）
+#
+# 服务器直连 Maven Central 很慢且会断（实测），所以默认部署走 deploy/Dockerfile.backend（运行时 + 预构建 jar）。
+# 网络正常时可以用这份：
+#   docker build -f deploy/Dockerfile.backend.from-source -t my-agent-backend .
+
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /src
+COPY backend/agent-server/pom.xml ./pom.xml
+RUN mvn -B -q dependency:go-offline
+COPY backend/agent-server/src ./src
+RUN mvn -B -DskipTests package && cp target/agent-server-*.jar /src/app.jar
+
+FROM eclipse-temurin:21-jre-jammy
+
+ENV TZ=Asia/Shanghai LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8 PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv python3-dev \
+        curl ca-certificates tzdata fonts-noto-cjk fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir --break-system-packages \
+        requests httpx pandas numpy openpyxl xlsxwriter python-docx python-pptx \
+        pypdf pillow matplotlib beautifulsoup4 lxml python-dateutil pytz \
+        tabulate pyyaml jinja2 markdown chardet tqdm
+
+RUN python3 -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print('mpl ok')"
+
+WORKDIR /app
+COPY --from=build /src/app.jar /app/app.jar
+RUN mkdir -p /app/workspace
+VOLUME ["/app/workspace"]
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=5 \
+    CMD curl -fsS http://localhost:8080/api/health || exit 1
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=70 -XX:+UseG1GC -Dfile.encoding=UTF-8"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

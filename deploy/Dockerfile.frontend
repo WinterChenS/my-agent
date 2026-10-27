@@ -1,0 +1,18 @@
+# 前端镜像（运行期）：nginx 托管构建好的 dist + 反代后端
+#
+# 构建前先产出产物： ./scripts/build-artifacts.sh
+# 构建镜像（仓库根目录）： docker build -f deploy/Dockerfile.frontend -t my-agent-frontend .
+
+FROM nginx:1.27-alpine
+
+ENV TZ=Asia/Shanghai
+RUN apk add --no-cache tzdata curl && \
+    cp /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY deploy/artifacts/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS http://localhost/ || exit 1

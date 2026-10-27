@@ -1,0 +1,24 @@
+# 构建上下文排除项（node_modules 上百万文件会让 build 慢到不可用）
+.git
+.gitignore
+.comet
+.pi
+.superpowers
+logs
+docs
+skills
+tools
+scripts
+.myagent-workspace
+.env
+*.log
+
+**/node_modules
+# 注意：不要排除 deploy/artifacts/dist —— 那是前端镜像要 COPY 的产物
+frontend/dist
+frontend/e2e
+frontend/coverage
+backend/agent-server/target
+**/.venv
+**/__pycache__
+**/.pytest_cache

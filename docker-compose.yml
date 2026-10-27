@@ -1,0 +1,73 @@
+# my-agent 平台部署（只跑平台自身两个容器）
+#
+# 数据库 / Redis / MinIO 都复用**现有实例**（PG、Redis 在 192.168.3.10，MinIO 在 192.168.3.225），
+# 这里不启动它们，只通过 .env 注入连接信息。
+#
+# 用法：
+#   cd /home/winterchen/docker/my-agent
+#   docker compose up -d --build
+#   docker compose logs -f backend
+#
+# 端口：18080 -> 前端(nginx)；后端只绑 127.0.0.1:18081，外部只能经 nginx 的 /api、/agui 访问
+
+name: my-agent
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+    image: my-agent-backend:latest
+    container_name: my-agent-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Shanghai
+      # 容器内工作区（必须与下面 volumes 的目标一致）
+      MYAGENT_WORKSPACE: /app/workspace
+      # 7GB 内存的机器：JVM 上限 2G，其余留给 Python 脚本与系统
+      JAVA_OPTS: "-Xms768m -Xmx2048m -XX:MaxRAMPercentage=70 -XX:+UseG1GC -Dfile.encoding=UTF-8"
+    volumes:
+      # 用户 venv / 技能缓存(.skills-cache) / 产物 / 记忆 都在这里，**必须持久化**
+      - ./data/workspace:/app/workspace
+    ports:
+      - "127.0.0.1:18081:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+    image: my-agent-frontend:latest
+    container_name: my-agent-frontend
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "18080:80"
+    healthcheck:
+      # nginx 镜像里已有 curl
+      test: ["CMD", "curl", "-fsS", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"

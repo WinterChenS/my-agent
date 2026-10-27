@@ -86,3 +86,6 @@ e2e/.stub-started-by-tests
 # 本地调试产物（logs/ 下的临时脚本与抓包）
 /logs/
 *.sse
+
+# Docker 构建产物（由 scripts/build-artifacts.sh 生成，不入库）
+deploy/artifacts/

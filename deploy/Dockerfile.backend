@@ -1,0 +1,56 @@
+# 后端镜像（运行期）：JDK 21 + Python 3 + 常用库
+#
+# 为什么不在镜像里编译源码：部署服务器到 Maven Central 的链路极慢且经常中断
+# （实测 "Remote host terminated the handshake"、jar 下载被截断），构建必然失败。
+# 所以改成「本地构建产物 → 上传 → 服务器只做运行时镜像」。
+# 需要可重复构建的话用 deploy/Dockerfile.backend.from-source（网络好的环境）。
+#
+# 构建前先产出产物：  ./scripts/build-artifacts.sh
+# 构建镜像（仓库根目录）： docker build -f deploy/Dockerfile.backend -t my-agent-backend .
+
+FROM eclipse-temurin:21-jre-jammy
+
+ENV TZ=Asia/Shanghai \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONIOENCODING=utf-8 \
+    PYTHONUNBUFFERED=1
+
+# Python 是硬需求：ShellRunner 用 python3 跑模型生成的脚本，PythonEnv 还会为每个用户建 venv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python3-dev \
+        curl \
+        ca-certificates \
+        tzdata \
+        fonts-noto-cjk \
+        fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
+# 常用库一次装好（模型写脚本/读表/画图几乎必用），免得每轮对话都现场 pip install
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir --break-system-packages \
+        requests httpx pandas numpy openpyxl xlsxwriter python-docx python-pptx \
+        pypdf pillow matplotlib beautifulsoup4 lxml python-dateutil pytz \
+        tabulate pyyaml jinja2 markdown chardet tqdm
+
+# 预热 matplotlib 字体缓存（中文字体首次扫描很慢，别让用户的第一张图等它）
+RUN python3 -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print('mpl ok')"
+
+WORKDIR /app
+# 产物由 scripts/build-artifacts.sh 生成
+COPY deploy/artifacts/app.jar /app/app.jar
+
+# 工作区：用户 venv、技能缓存 .skills-cache、产物、记忆都在这里 —— 必须挂持久卷
+RUN mkdir -p /app/workspace
+VOLUME ["/app/workspace"]
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=5 \
+    CMD curl -fsS http://localhost:8080/api/health || exit 1
+
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=70 -XX:+UseG1GC -Dfile.encoding=UTF-8"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]
