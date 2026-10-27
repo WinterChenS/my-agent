@@ -22,8 +22,15 @@ public class AguiProperties {
     private static final Logger log = LoggerFactory.getLogger(AguiProperties.class);
 
     private final String workspaceRoot;
-    /** 上下文超过该 token 数即触发官方压缩（CompactionConfig.triggerTokens）。 */
+    /**
+     * 压缩触发阈值的**绝对上限**（token）。0 = 不设上限。
+     *
+     * <p>以前这里是「固定阈值 120000」，与窗口取小——于是 1M 窗口也只到 12 万就压缩（用量条显示 11%），
+     * 等于白白浪费大窗口。现在阈值按 {@link #compactionTriggerRatio} 从窗口算，这个值只当作运维兜底上限。
+     */
     private final int compactionTriggerTokens;
+    /** 压缩触发阈值 = 模型窗口 x 该比例（默认 0.9，即用掉 90% 才压缩）。 */
+    private final double compactionTriggerRatio;
     /** 压缩后保留的 token 数（CompactionConfig.keepTokens）。 */
     private final int compactionKeepTokens;
     /** 单条工具结果超过该字符数就外置到文件、只留预览（ToolResultEvictionConfig.maxResultChars）。 */
@@ -35,7 +42,8 @@ public class AguiProperties {
 
     public AguiProperties(
             @Value("${myagent.workspace-root:./.myagent-workspace}") String workspaceRoot,
-            @Value("${myagent.compaction.trigger-tokens:120000}") int compactionTriggerTokens,
+            @Value("${myagent.compaction.trigger-tokens:0}") int compactionTriggerTokens,
+            @Value("${myagent.compaction.trigger-ratio:0.9}") double compactionTriggerRatio,
             @Value("${myagent.compaction.keep-tokens:32000}") int compactionKeepTokens,
             @Value("${myagent.tool-result.max-chars:30000}") int toolResultMaxChars,
             @Value("${myagent.tool-result.preview-chars:1500}") int toolResultPreviewChars,
@@ -45,11 +53,17 @@ public class AguiProperties {
                 .normalize()
                 .toString();
         this.compactionTriggerTokens = compactionTriggerTokens;
+        this.compactionTriggerRatio = compactionTriggerRatio;
         this.compactionKeepTokens = compactionKeepTokens;
         this.toolResultMaxChars = toolResultMaxChars;
         this.toolResultPreviewChars = toolResultPreviewChars;
         this.contextWindowFallback = contextWindowFallback;
         log.info("Agent 工作区根目录（已规范为绝对路径）: {}", this.workspaceRoot);
+        log.info(
+                "上下文压缩：阈值 = 模型窗口 x {}（上限 {}；0=不限），压缩后保留 {} tokens",
+                this.compactionTriggerRatio,
+                this.compactionTriggerTokens == 0 ? "不限" : this.compactionTriggerTokens,
+                this.compactionKeepTokens);
     }
 
     public String workspaceRoot() {
@@ -58,6 +72,10 @@ public class AguiProperties {
 
     public int compactionTriggerTokens() {
         return compactionTriggerTokens;
+    }
+
+    public double compactionTriggerRatio() {
+        return compactionTriggerRatio;
     }
 
     public int compactionKeepTokens() {

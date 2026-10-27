@@ -299,10 +299,12 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 // 外置到文件、只留预览。没有这两个配置时，上下文会无上限增长——实测出现过
                 // 1.8MB 的会话状态，向模型请求 127 万 tokens 直接被厂商拒绝（context_length_exceeded）。
                 .compaction(CompactionConfig.builder()
-                        // Phase 15：上下文长度（模型窗口）也要生效——压缩阈值取「配置值」与
-                        // 「窗口的 60%」中的较小者，避免窗口小的模型被压爆、窗口大的模型压得过勤。
+                        // 阈值按**模型窗口的 90%** 算（可用 myagent.compaction.trigger-ratio 调）。
+                        // 以前是「固定 120000 与窗口 60% 取小」，结果 1M 窗口也在 12 万就压缩（用量条只显示 11%），
+                        // 大窗口等于白买；现在窗口多大就用多大。
                         .triggerTokens(compactionTriggerFor(model.getContextWindow()))
-                        .keepTokens(aguiProperties.compactionKeepTokens())
+                        // 压缩后保留量不能超过阈值的一半，否则小窗口会出现「压完仍然超额 → 每轮都压」的死循环
+                        .keepTokens(compactionKeepFor(compactionTriggerFor(model.getContextWindow())))
                         .build())
                 .toolResultEviction(ToolResultEvictionConfig.builder()
                         .maxResultChars(aguiProperties.toolResultMaxChars())
@@ -414,7 +416,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         return base.isEmpty() ? guidance : base + "\n\n" + guidance;
     }
 
-    /** 该会话模型的**有效**压缩触发阈值（与运行时一致：配置值与窗口 60% 取小）。 */
+    /** 该会话模型的**有效**压缩触发阈值（与运行时一致：窗口 x trigger-ratio，可被上限压住）。 */
     public int effectiveCompactionTrigger(Long agentDbId) {
         Agent agent = agentDbId == null ? null : agentMapper.selectById(agentDbId);
         LlmModel model = (agent == null || agent.getModelId() == null)
@@ -499,14 +501,36 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 provider.getProviderType(), provider.getBaseUrl(), apiKey, model.getModelId(), params, true);
     }
 
-    /** 压缩触发阈值：配置值与「模型窗口的 60%」取小（模型未配窗口时用配置值）。 */
+    /** 压缩触发阈值（运行时口径）。 */
     private int compactionTriggerFor(Integer contextWindow) {
-        int configured = aguiProperties.compactionTriggerTokens();
-        if (contextWindow == null || contextWindow <= 0) {
-            return configured;
+        return resolveCompactionTrigger(
+                contextWindow,
+                aguiProperties.contextWindowFallback(),
+                aguiProperties.compactionTriggerRatio(),
+                aguiProperties.compactionTriggerTokens());
+    }
+
+    /**
+     * 压缩触发阈值 = 模型窗口 x 比例（默认 0.9），可被绝对上限（{@code trigger-tokens}，0=不限）压住。
+     *
+     * <p>为什么不再用固定阈值：阈值固定在 12 万时，1M 窗口的模型在用量 11% 就被压缩，
+     * 大窗口完全用不上（用户实测反馈）。窗口没配时退回到 {@code context-window-fallback}。
+     */
+    static int resolveCompactionTrigger(Integer contextWindow, int fallbackWindow, double ratio, int cap) {
+        int window = contextWindow != null && contextWindow > 0 ? contextWindow : fallbackWindow;
+        double effectiveRatio = ratio > 0 && ratio < 1 ? ratio : 0.9;
+        int trigger = (int) Math.round(window * effectiveRatio);
+        if (cap > 0) {
+            trigger = Math.min(trigger, cap);
         }
-        int fromWindow = (int) (contextWindow * 0.6);
-        return Math.max(1000, Math.min(configured, fromWindow));
+        // 再小也要留出一点余量，否则一上来就压缩
+        return Math.max(1000, Math.min(trigger, window));
+    }
+
+    /** 压缩后保留量：不超过配置值，也不超过阈值的一半。 */
+    private int compactionKeepFor(int triggerTokens) {
+        int configured = aguiProperties.compactionKeepTokens();
+        return Math.max(500, Math.min(configured, triggerTokens / 2));
     }
 
     /** 权限模式 → AgentScope 权限模式。 */

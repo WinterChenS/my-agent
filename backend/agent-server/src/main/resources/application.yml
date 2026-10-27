@@ -53,6 +53,18 @@ myagent:
       # 实测：deepseek 代理中途断流被官方扩展包成 BadRequestException(400)，
       # 官方的 400 判定 = 不重试，于是直接报错。这条开关专治它（真正的参数错不带 streaming 字样，不会被误伤）。
       on-stream-failure: ${MYAGENT_MODEL_RETRY_ON_STREAM_FAILURE:true}
+  # 上下文压缩（官方 CompactionConfig）：
+  # 阈值按「模型窗口 x trigger-ratio」算，默认 90% —— 即用掉九成才压缩。
+  # 以前是「固定 120000 与窗口 60% 取小」，导致 1M 窗口的模型在 11% 就被压缩，大窗口等于白买。
+  compaction:
+    # 触发比例（0~1）。想更保守可调 0.8。
+    trigger-ratio: ${MYAGENT_COMPACTION_TRIGGER_RATIO:0.9}
+    # 绝对上限（token），0 = 不限制；仅用于运维限成本，正常不用设。
+    trigger-tokens: ${MYAGENT_COMPACTION_TRIGGER_TOKENS:0}
+    # 压缩后保留多少 token（实际会再按「阈值的一半」封顶，避免小窗口压完仍超额）
+    keep-tokens: ${MYAGENT_COMPACTION_KEEP_TOKENS:32000}
+    # 模型没配上下文窗口时的兜底窗口长度
+    context-window-fallback: ${MYAGENT_COMPACTION_WINDOW_FALLBACK:128000}
   # HarnessAgent 工作区根目录（运行时状态，已 gitignore）。生产用 MYAGENT_WORKSPACE 指向持久化磁盘。
   workspace-root: ${MYAGENT_WORKSPACE:./.myagent-workspace}
   # 产物对象存储（技术方案 §12.2）。凭据由环境变量注入。

@@ -112,6 +112,8 @@ export function ContextRing({
             上下文 {usage.estimatedTokens.toLocaleString()} / 窗口{" "}
             {windowTokens > 0 ? windowTokens.toLocaleString() : "—"} tokens（{percent}%）· 触发阈值{" "}
             {usage.triggerTokens.toLocaleString()} tokens
+            {/* 把阈值和窗口的关系写出来：否则大窗口只有 11% 就被压缩时，用户会以为是 bug（实际反馈过） */}
+            {windowTokens > 0 ? `（窗口的 ${Math.round((usage.triggerTokens / windowTokens) * 100)}%）` : ""}
           </span>
         </div>
 
