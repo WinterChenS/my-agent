@@ -11,11 +11,13 @@ import {
   Cpu,
   ScrollText,
   Users,
+  Settings,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { SidebarSection, TabbedSection } from "@/components/admin/SectionNav";
 import { SessionList } from "@/components/chat/SessionList";
 import { useAuthStore } from "@/stores/auth";
 import { useSessionStore } from "@/stores/sessions";
@@ -31,6 +33,7 @@ import LoginPage from "@/pages/login/LoginPage";
 // 聊天页也拆出去：未登录用户先看到的是登录页，没必要为它下载聊天页 + markdown 渲染器等一大票
 const ChatPage = lazy(() => import("@/pages/chat/ChatPage"));
 const MemoryPage = lazy(() => import("@/pages/memory/MemoryPage"));
+// 以下是「主菜单 → tab / 二级菜单」里的分页，仍然各自独立成 chunk
 const AuditPage = lazy(() => import("@/pages/admin/audit/AuditPage"));
 const ModelsPage = lazy(() => import("@/pages/admin/models/ModelsPage"));
 const AgentsPage = lazy(() => import("@/pages/admin/agents/AgentsPage"));
@@ -49,14 +52,60 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/chat", label: "聊天", icon: MessageSquare },
   { to: "/memory", label: "记忆", icon: Brain },
-  { to: "/admin/models", label: "模型", icon: Cpu },
-  { to: "/admin/agents", label: "Agent", icon: Bot },
-  { to: "/admin/skills", label: "Skill", icon: Blocks },
-  { to: "/admin/mcp", label: "MCP", icon: Plug },
-  { to: "/admin/channels", label: "IM 渠道", icon: MessageCircle },
-  { to: "/admin/schedules", label: "定时", icon: CalendarClock },
-  { to: "/admin/audit", label: "审计", icon: ScrollText },
-  { to: "/admin/users", label: "用户", icon: Users },
+  // 同族面板收进一个主菜单，进去后再用 tab / 二级菜单区分（条目只增不减，侧栏不再无限变长）
+  { to: "/admin/model-agents", label: "Agent 与模型", icon: Bot },
+  { to: "/admin/capabilities", label: "技能与 MCP", icon: Blocks },
+  { to: "/admin/schedules", label: "定时任务", icon: CalendarClock },
+  { to: "/admin/settings", label: "系统设置", icon: Settings },
+];
+
+/** 「Agent 与模型」的两个 tab。 */
+const MODEL_AGENT_TABS = [
+  {
+    to: "/admin/model-agents/agents",
+    label: "Agent",
+    icon: Bot,
+    hint: "Agent 配置：人设、模型、权限模式、技能绑定、迭代上限",
+  },
+  {
+    to: "/admin/model-agents/models",
+    label: "模型",
+    icon: Cpu,
+    hint: "模型与供应商：baseUrl、API Key、参数、连通性测试",
+  },
+];
+
+/** 「技能与 MCP」的两个 tab。 */
+const CAPABILITY_TABS = [
+  {
+    to: "/admin/capabilities/skills",
+    label: "Skill",
+    icon: Blocks,
+    hint: "技能仓库与导入、启用状态、资源文件",
+  },
+  {
+    to: "/admin/capabilities/mcp",
+    label: "MCP",
+    icon: Plug,
+    hint: "MCP 服务接入、工具发现与连接状态",
+  },
+];
+
+/** 「系统设置」左侧二级菜单（后续还会继续加条目：模型配额、通知、存储…）。 */
+const SETTINGS_TABS = [
+  {
+    to: "/admin/settings/channels",
+    label: "IM 渠道",
+    icon: MessageCircle,
+    hint: "钉钉/飞书等渠道接入与推送",
+  },
+  {
+    to: "/admin/settings/audit",
+    label: "审计日志",
+    icon: ScrollText,
+    hint: "操作与调用审计",
+  },
+  { to: "/admin/settings/users", label: "用户", icon: Users, hint: "账号与角色管理" },
 ];
 
 /** 占位页：各 Phase 会替换为真实页面。 */
@@ -164,14 +213,67 @@ export default function App() {
           <Route index element={<Navigate to="/chat" replace />} />
           <Route path="chat/:sessionId?" element={<ChatPage />} />
           <Route path="memory" element={<MemoryPage />} />
-          <Route path="admin/models" element={<ModelsPage />} />
-          <Route path="admin/agents" element={<AgentsPage />} />
-          <Route path="admin/skills" element={<SkillsPage />} />
-          <Route path="admin/mcp" element={<McpPage />} />
-          <Route path="admin/channels" element={<ChannelsPage />} />
+
+          {/* Agent 与模型：一个主菜单，两个 tab */}
+          <Route
+            path="admin/model-agents"
+            element={
+              <TabbedSection
+                title="Agent 与模型"
+                description="Agent 是「谁在干活」，模型是「用哪个大脑」；两者一对一绑定。"
+                tabs={MODEL_AGENT_TABS}
+              />
+            }
+          >
+            <Route index element={<Navigate to="agents" replace />} />
+            <Route path="agents" element={<AgentsPage />} />
+            <Route path="models" element={<ModelsPage />} />
+          </Route>
+
+          {/* 技能与 MCP：都是「给 Agent 装能力」，一并放一个主菜单 */}
+          <Route
+            path="admin/capabilities"
+            element={
+              <TabbedSection
+                title="技能与 MCP"
+                description="Skill 是打包好的方法论与资源，MCP 是外部工具服务；都挂在 Agent 上生效。"
+                tabs={CAPABILITY_TABS}
+              />
+            }
+          >
+            <Route index element={<Navigate to="skills" replace />} />
+            <Route path="skills" element={<SkillsPage />} />
+            <Route path="mcp" element={<McpPage />} />
+          </Route>
+
           <Route path="admin/schedules" element={<SchedulesPage />} />
-          <Route path="admin/audit" element={<AuditPage />} />
-          <Route path="admin/users" element={<UsersPage />} />
+
+          {/* 系统设置：左侧二级菜单，后续新增设置项只需往 SETTINGS_TABS 里加一条 */}
+          <Route
+            path="admin/settings"
+            element={
+              <SidebarSection
+                title="系统设置"
+                description="平台级配置，与具体 Agent 无关。"
+                tabs={SETTINGS_TABS}
+                footer="后续还会加更多设置项"
+              />
+            }
+          >
+            <Route index element={<Navigate to="channels" replace />} />
+            <Route path="channels" element={<ChannelsPage />} />
+            <Route path="audit" element={<AuditPage />} />
+            <Route path="users" element={<UsersPage />} />
+          </Route>
+
+          {/* 老地址保留：书签/历史记录不失效 */}
+          <Route path="admin/agents" element={<Navigate to="/admin/model-agents/agents" replace />} />
+          <Route path="admin/models" element={<Navigate to="/admin/model-agents/models" replace />} />
+          <Route path="admin/skills" element={<Navigate to="/admin/capabilities/skills" replace />} />
+          <Route path="admin/mcp" element={<Navigate to="/admin/capabilities/mcp" replace />} />
+          <Route path="admin/channels" element={<Navigate to="/admin/settings/channels" replace />} />
+          <Route path="admin/audit" element={<Navigate to="/admin/settings/audit" replace />} />
+          <Route path="admin/users" element={<Navigate to="/admin/settings/users" replace />} />
           <Route path="*" element={<Placeholder title="页面不存在" />} />
         </Route>
       </Routes>

@@ -156,7 +156,14 @@ public class AgentConfigService {
         // 关联表对 agent 是 ON DELETE CASCADE，但仍显式清理以便审计清晰。
         agentSkillMapper.deleteByAgentId(id);
         agentMcpServerMapper.deleteByAgentId(id);
-        agentMapper.deleteById(id);
+        try {
+            agentMapper.deleteById(id);
+        } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+            // chat_session.agent_id 是外键且不级联：有会话历史的 Agent 删不掉。
+            // 直接把数据库原始报错抛给前端等于让人对着 PSQLException 猜，这里换成可操作的提示。
+            throw com.myagent.common.BizException.conflict(
+                    "该 Agent 还有会话记录，无法删除。请先清理它的会话历史，或改为「停用」。");
+        }
         cacheInvalidator.invalidate(id);
     }
 
