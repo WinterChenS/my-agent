@@ -63,10 +63,45 @@ public class ModelFactory {
         this.retryTimeoutMinutes = Math.max(1, retryTimeoutMinutes);
         this.retryOnUnknownStatus = retryOnUnknownStatus;
         this.retryTransientStream = retryTransientStream;
-        this.retryOn = error ->
-                io.agentscope.core.model.ExecutionConfig.RETRYABLE_ERRORS.test(error)
-                        || (retryOnUnknownStatus && isStatuslessModelError(error))
-                        || (retryTransientStream && isTransientStreamFailure(error));
+        this.retryOn = error -> {
+            boolean retryable = io.agentscope.core.model.ExecutionConfig.RETRYABLE_ERRORS.test(error)
+                    || (retryOnUnknownStatus && isStatuslessModelError(error))
+                    || (retryTransientStream && isTransientStreamFailure(error));
+            if (retryable) {
+                // 供管理台的"重试测试"统计实际发生了几次失败/重试
+                RetryProbeCounter.recordRetryableFailure();
+            }
+            return retryable;
+        };
+    }
+
+    /** 配置的"重试次数"（不含首次）。 */
+    public int maxRetries() {
+        return Math.max(0, retryMaxAttempts - 1);
+    }
+
+    public long initialBackoffMs() {
+        return retryInitialBackoffMs;
+    }
+
+    public long maxBackoffMs() {
+        return retryMaxBackoffMs;
+    }
+
+    public double backoffMultiplier() {
+        return retryMultiplier;
+    }
+
+    public long timeoutMinutes() {
+        return retryTimeoutMinutes;
+    }
+
+    public boolean retryOnUnknownStatus() {
+        return retryOnUnknownStatus;
+    }
+
+    public boolean retryOnStreamFailure() {
+        return retryTransientStream;
     }
 
     /**

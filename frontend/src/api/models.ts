@@ -133,3 +133,41 @@ export function updateModel(id: number, payload: ModelPayload) {
 export function deleteModel(id: number) {
   return apiFetch<void>(`/api/models/${id}`, { method: "DELETE" });
 }
+
+/** 当前生效的模型重试策略（来自后端 myagent.model.retry.*）。 */
+export interface RetryPolicy {
+  maxRetries: number;
+  initialBackoffMs: number;
+  maxBackoffMs: number;
+  multiplier: number;
+  timeoutMinutes: number;
+  retryOnUnknownStatus: boolean;
+  retryOnStreamFailure: boolean;
+  /** 后端拼好的一句话说明，前端直接展示，避免两边各写一份规则 */
+  summary: string;
+}
+
+export interface RetryTestResult {
+  ok: boolean;
+  /** 被判定为可重试的失败次数 */
+  failures: number;
+  /** 实际重试次数 */
+  retries: number;
+  elapsedMs: number;
+  sampleText: string | null;
+  error: string | null;
+}
+
+export function getRetryPolicy() {
+  return apiFetch<RetryPolicy>("/api/models/retry-policy");
+}
+
+/**
+ * 重试测试。
+ * @param simulate true=模拟断流（本地假端点验证重试链路，不消耗真实额度）
+ */
+export function testModelRetry(id: number, simulate = false) {
+  return apiFetch<RetryTestResult>(`/api/models/${id}/retry-test?simulate=${simulate}`, {
+    method: "POST",
+  });
+}

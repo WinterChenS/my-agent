@@ -15,6 +15,7 @@ import com.myagent.modelconfig.entity.LlmProvider;
 import com.myagent.modelconfig.mapper.LlmModelMapper;
 import com.myagent.modelconfig.mapper.LlmProviderMapper;
 import com.myagent.modelconfig.probe.ModelConnectivityProbe;
+import com.myagent.modelconfig.probe.ModelRetryTester;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -35,6 +36,7 @@ public class ModelConfigService {
     private final LlmModelMapper modelMapper;
     private final CryptoService cryptoService;
     private final ModelConnectivityProbe connectivityProbe;
+    private final ModelRetryTester retryTester;
     private final AgentCacheInvalidator cacheInvalidator;
 
     public ModelConfigService(
@@ -42,12 +44,59 @@ public class ModelConfigService {
             LlmModelMapper modelMapper,
             CryptoService cryptoService,
             ModelConnectivityProbe connectivityProbe,
+            ModelRetryTester retryTester,
             AgentCacheInvalidator cacheInvalidator) {
         this.providerMapper = providerMapper;
         this.modelMapper = modelMapper;
         this.cryptoService = cryptoService;
         this.connectivityProbe = connectivityProbe;
+        this.retryTester = retryTester;
         this.cacheInvalidator = cacheInvalidator;
+    }
+
+    /** 当前生效的模型重试策略（管理台展示用）。 */
+    public ModelRetryTester.PolicyView retryPolicy() {
+        return retryTester.policy();
+    }
+
+    /**
+     * 模型重试测试。
+     *
+     * @param modelId 模型 id
+     * @param simulate true=模拟断流（验证重试链路，不碰真实上游）；false=真实调用一次
+     */
+    public ModelRetryTester.TestResult testRetry(Long modelId, boolean simulate) {
+        if (simulate) {
+            return retryTester.simulate();
+        }
+        LlmModel model = modelMapper.selectById(modelId);
+        if (model == null) {
+            throw BizException.notFound("模型不存在: " + modelId);
+        }
+        LlmProvider provider = requireProvider(model.getProviderId());
+        String apiKey = cryptoService.decrypt(provider.getApiKeyCipher());
+        return retryTester.liveTest(
+                provider.getProviderType(),
+                provider.getBaseUrl(),
+                apiKey,
+                model.getModelId(),
+                probeParams(model));
+    }
+
+    /** 测试用的参数：把显式列并入 params，保证测的是真实配置。 */
+    private static Map<String, Object> probeParams(LlmModel model) {
+        Map<String, Object> params = new java.util.HashMap<>(
+                model.getParams() == null ? Map.of() : model.getParams());
+        if (model.getTemperature() != null) {
+            params.put("temperature", model.getTemperature());
+        }
+        if (model.getTopP() != null) {
+            params.put("topP", model.getTopP());
+        }
+        if (model.getMaxTokens() != null) {
+            params.put("maxTokens", model.getMaxTokens());
+        }
+        return params;
     }
 
     // ===================== provider =====================

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, PlugZap, RefreshCw, Trash2, Pencil } from "lucide-react";
+import { Plus, PlugZap, RefreshCw, Trash2, Pencil, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,6 +37,7 @@ import {
   type ProviderType,
 } from "@/api/models";
 import { maxTokensWarning } from "@/lib/utils";
+import { RetryTestDialog } from "@/components/admin/RetryTestDialog";
 
 interface ProviderForm {
   id: number | null;
@@ -113,6 +114,9 @@ export default function ModelsPage() {
   const [modelDialog, setModelDialog] = useState(false);
   const [modelForm, setModelForm] = useState<ModelForm>(EMPTY_MODEL);
   const [testingId, setTestingId] = useState<number | null>(null);
+  /** 重试测试弹窗：非 null 表示打开，并记录要测哪个模型 */
+  const [retryTestModel, setRetryTestModel] = useState<{ id: number; modelId: string } | null>(null);
+  const [retryTestOpen, setRetryTestOpen] = useState(false);
 
   /** 把探针失败原因转成可操作的信息（400/404/401/超时分开给提示）。 */
   function describeFailure(result: { error: string | null }, modelLabel: string) {
@@ -544,6 +548,17 @@ export default function ModelsPage() {
                           <Button
                             size="icon"
                             variant="ghost"
+                            title="重试测试（验证模型出错会不会自动重试）"
+                            onClick={() => {
+                              setRetryTestModel({ id: m.id, modelId: m.modelId });
+                              setRetryTestOpen(true);
+                            }}
+                          >
+                            <RotateCcw className="size-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
                             title="编辑"
                             onClick={() => {
                               const params = (m.params ?? {}) as Record<string, unknown>;
@@ -853,6 +868,8 @@ export default function ModelsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RetryTestDialog open={retryTestOpen} onOpenChange={setRetryTestOpen} model={retryTestModel} />
     </div>
   );
 }
