@@ -244,7 +244,7 @@ export default function App() {
             element={
               <TabbedSection
                 title="能力"
-                description="Skill 是打包好的方法论与资源，MCP 是外部工具服务；都挂在 Agent 上生效。"
+                description="Skill 是打包好的方法论与资源，MCP 是外部工具服务，连接器是你的邮箱等外部账号；都挂在 Agent 上生效。"
                 tabs={CAPABILITY_TABS}
               />
             }
