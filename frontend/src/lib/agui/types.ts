@@ -8,7 +8,10 @@
 export interface ConfirmCardData {
   title: string;
   message: string;
+  /** 候选答案（Agent 给的，用户直接点选）；为空时后端会给「继续/取消」。 */
   options: { label: string; value: string }[];
+  /** 允许用户写候选之外的答案（卡片上出现输入框）。 */
+  allowCustom?: boolean;
   requestId: string;
 }
 

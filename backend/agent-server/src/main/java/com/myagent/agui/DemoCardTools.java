@@ -40,22 +40,40 @@ public final class DemoCardTools {
 
         @Override
         public String getDescription() {
-            // 描述要写清「什么时候用」——否则模型倾向于直接打字问，而不是弹卡片（用户实测反馈）
-            return "向用户展示一张**确认卡**（带「继续 / 取消」按钮），让用户点按钮做决定，而不是让他打字回答。"
-                    + "以下情况**必须**用它，不要只在正文里问一句「是否继续」："
-                    + "① 即将执行不可逆或有风险的操作（删除、覆盖、发布、扣费、改动生产数据）；"
-                    + "② 有多个方案需要用户选一个；③ 缺少只有用户知道的关键信息且答案可以枚举。"
-                    + "参数 question 要写清**后果**，例如「将在生产环境删除订单历史分区（不可恢复），是否继续？」。"
-                    + "调用后用户会看到卡片并点击，卡片结果会作为后续消息回到你这里。";
+            // 描述要写清「什么时候用」+「选项要给具体候选」——否则模型只会问一句、卡片只剩固定的继续/取消
+            // （用户实测反馈：每次弹卡都只有「继续 / 取消」，没法选语气/方案）
+            return "向用户展示一张**选择卡**：把你能想到的候选答案作为按钮交给他点，而不是让他在正文里打字。"
+                    + "用户点哪个，那个选项的文字会作为后续消息回到你这里。"
+                    + "什么时候必须用它："
+                    + "① 不可逆或有风险的操作前确认（删除、覆盖、发布、扣费、改生产数据）；"
+                    + "② 有多个方案/风格/取舍需要用户拍板；"
+                    + "③ 缺少只有用户知道的信息，且答案可以枚举。"
+                    + "**options 要给真正可选的候选**，让用户一眼就能点选，例如："
+                    + "改写语气 → [\"更正式\", \"更亲切\", \"更简短\"]；"
+                    + "发信前确认 → [\"就这样发送\", \"改得更客气\", \"加一句结尾问候\"]；"
+                    + "选方案 → [\"方案A：xxx\", \"方案B：yyy\"]。"
+                    + "不要只问一句然后指望固定的「继续/取消」：那样用户只能回答是/否，选不了具体做法。"
+                    + "只有确实是「干/不干」二选一时才省略 options（默认给 继续/取消）。"
+                    + "question 要写清**后果或取舍**；allowCustom=true 时卡片上还会有输入框，让用户写你自己的选项之外的答案。";
         }
 
         @Override
         public Map<String, Object> getParameters() {
-            Map<String, Object> question = new LinkedHashMap<>();
-            question.put("type", "string");
-            question.put("description", "要向用户确认的问题");
             Map<String, Object> properties = new LinkedHashMap<>();
-            properties.put("question", question);
+            properties.put("question", Map.of(
+                    "type", "string",
+                    "description", "要向用户确认/征询的问题，写清后果或取舍"));
+            properties.put("options", Map.of(
+                    "type", "array",
+                    "items", Map.of("type", "string"),
+                    "description", "候选答案（2-8 个短句，用户直接点选）。"
+                            + "例：[\"更正式\", \"更亲切\", \"更简短\"]；确实只有干/不干时可以不传"));
+            properties.put("title", Map.of(
+                    "type", "string",
+                    "description", "卡片标题，默认「需要你的确认」"));
+            properties.put("allowCustom", Map.of(
+                    "type", "boolean",
+                    "description", "是否允许用户自己输入候选之外的答案（默认 false）"));
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("type", "object");
             schema.put("properties", properties);
@@ -71,19 +89,64 @@ public final class DemoCardTools {
         @Override
         public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
             String question = String.valueOf(param.getInput().getOrDefault("question", "是否继续？"));
+            List<Map<String, Object>> options = toOptions(param.getInput().get("options"));
             Map<String, Object> value = new LinkedHashMap<>();
-            value.put("title", "需要你的确认");
+            value.put("title", orDefault(param.getInput().get("title"), "需要你的选择"));
             value.put("message", question);
-            value.put("options", List.of(
-                    Map.of("label", "继续", "value", "continue"),
-                    Map.of("label", "取消", "value", "cancel")));
+            value.put("options", options);
+            value.put("allowCustom", Boolean.TRUE.equals(param.getInput().get("allowCustom")));
             value.put("requestId", UUID.randomUUID().toString());
 
             return Mono.deferContextual(context -> {
                 AgentEventEmitter.fromContext(context)
                         .ifPresent(emitter -> emitter.emit(new CustomEvent("confirm_card", value)));
-                return Mono.just(result(param, "已向用户展示确认卡，等待用户选择。"));
+                return Mono.just(result(param, "已向用户展示选择卡（选项：" + options.stream()
+                        .map(option -> String.valueOf(option.get("label")))
+                        .toList() + "）。等用户点选后会作为后续消息回到你这里。"));
             });
+        }
+
+        /**
+         * 把模型给的候选答案转成卡片的 options。
+         *
+         * <p>约定：{@code label} 就是回传给模型的文字（所以两者相同），
+         * 这样用户点「更亲切」时模型收到的就是「更亲切」而不是英文字面值。
+         * 没给候选（或给空）时退化成「继续/取消」——这是"干/不干"二选一的默认形态。
+         */
+        static List<Map<String, Object>> toOptions(Object raw) {
+            List<String> labels = new ArrayList<>();
+            if (raw instanceof List<?> list) {
+                for (Object item : list) {
+                    if (item == null) {
+                        continue;
+                    }
+                    String label;
+                    if (item instanceof Map<?, ?> map) {
+                        Object raw2 = map.get("label") != null ? map.get("label") : map.get("value");
+                        label = raw2 == null ? "" : String.valueOf(raw2);
+                    } else {
+                        label = String.valueOf(item);
+                    }
+                    label = label == null ? "" : label.trim();
+                    if (!label.isEmpty()) {
+                        labels.add(label);
+                    }
+                }
+            }
+            if (labels.isEmpty()) {
+                return List.of(
+                        Map.of("label", "继续", "value", "继续"),
+                        Map.of("label", "取消", "value", "取消"));
+            }
+            // 卡片上放太多按钮会挤成一坨；超过 8 个就截断（模型应该给 2-5 个）
+            return labels.stream().limit(8)
+                    .map(label -> Map.<String, Object>of("label", label, "value", label))
+                    .toList();
+        }
+
+        private static String orDefault(Object value, String fallback) {
+            String text = value == null ? "" : String.valueOf(value).trim();
+            return text.isEmpty() ? fallback : text;
         }
     }
 
