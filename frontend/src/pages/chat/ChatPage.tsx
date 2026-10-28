@@ -58,6 +58,7 @@ import { useSessionStore } from "@/stores/sessions";
 import { listSkills, type SkillInfo } from "@/api/skills";
 import { partsAreEmpty, partsSkillIds, partsToText, type MentionPart } from "@/lib/skills/selection";
 import { probeRunningRun } from "@/lib/chat/resumeProbe";
+import { newId } from "@/lib/id";
 
 /** 图片文件 → AG-UI 的 image 内容块（base64 内联；官方适配器会转成 ImageBlock）。 */
 async function fileToImagePart(file: File) {
@@ -701,7 +702,7 @@ export default function ChatPage() {
     if (options.text) {
       agent.messages = [
         {
-          id: crypto.randomUUID(),
+          id: newId(),
           role: "user",
           // 有图片时按 AG-UI 内容块发送：{type:"image", source:{type:"data", value:base64, mimeType}}
           content: options.imageParts?.length
@@ -823,7 +824,22 @@ export default function ChatPage() {
     setHasInput(true);
   }
 
+  /**
+   * 发送入口：外面包一层 try/catch。
+   *
+   * <p>为什么必须有：之前 `crypto.randomUUID` 在非安全上下文（内网 http 部署）不存在，
+   * 一按发送就抛 TypeError —— 而这里是 async 事件回调，异常**不会**被 React 捕获，
+   * 表现就是"点了发送毫无反应、停止按钮也不出现、也没有任何报错"，排查成本极高。
+   */
   async function send() {
+    try {
+      await sendInner();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "发送失败");
+    }
+  }
+
+  async function sendInner() {
     // 只有技能块、没文字也允许发送（用户可能就是想「用这个技能做…」，随手补一句也行）
     // 执行中也能发：先把编辑器内容 flush 出来，然后**入队**，等这一轮跑完自动发出去
     const flushed = inputRef.current?.flush() ?? parts;
@@ -835,7 +851,7 @@ export default function ChatPage() {
       setQueued((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: newId(),
           parts: flushed,
           text,
           label: text.length > 40 ? `${text.slice(0, 40)}…` : text,

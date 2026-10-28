@@ -36,6 +36,7 @@ import {
   type ChannelAppPayload,
   type ChannelPeerInfo,
 } from "@/api/channels";
+import { copyText } from "@/lib/clipboard";
 
 /** 钉钉凭据表单（Stream 模式最常用，HTTP 回调模式需要额外填 aesKey）。 */
 interface FormState {
@@ -302,7 +303,10 @@ export default function ChannelsPage() {
                         className="text-muted-foreground hover:text-foreground ml-2 inline-flex items-center"
                         title="复制回调地址"
                         onClick={() => {
-                          void navigator.clipboard.writeText(item.webhookPath as string);
+                          void copyText(item.webhookPath as string).then((ok) => {
+                            if (ok) toast.success("已复制回调路径");
+                            else toast.error("复制失败，请手动选择复制");
+                          });
                           toast.success("回调地址已复制");
                         }}
                       >
