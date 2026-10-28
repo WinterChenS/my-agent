@@ -181,6 +181,50 @@ class ConnectorServiceTest {
     }
 
     @Test
+    void 端口必须是数字_枚举必须在下拉候选里() {
+        Map<String, String> config = mailConfig();
+        config.put("imapPort", "abc");
+        assertThatThrownBy(() -> service.create(
+                new ConnectorRequest("MAIL", "工作邮箱", null, true, config, "OFF", null), 9L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("IMAP 端口")
+                .hasMessageContaining("必须是数字");
+
+        Map<String, String> badSsl = mailConfig();
+        badSsl.put("imapSsl", "yes");
+        assertThatThrownBy(() -> service.create(
+                new ConnectorRequest("MAIL", "工作邮箱", null, true, badSsl, "OFF", null), 9L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("IMAP 使用 SSL")
+                .hasMessageContaining("只能选");
+
+        // 合法值能通过（可选字段不填也不报错）
+        Map<String, String> ok = mailConfig();
+        ok.put("imapSsl", "false");
+        ok.put("smtpPort", "587");
+        when(store.insert(anyString(), anyString(), any(), anyLong(), anyString(), anyBoolean(), anyString()))
+                .thenReturn(2L);
+        when(store.find(2L)).thenReturn(Optional.of(record(crypto.encrypt(fullConfigJson()), 9L)));
+        assertThat(service.create(
+                new ConnectorRequest("MAIL", "工作邮箱", null, true, ok, "OFF", null), 9L)).isNotNull();
+    }
+
+    @Test
+    void 类型描述的字段都声明了控件类型() {
+        ConnectorTypeDescriptor descriptor = registry.require("MAIL");
+        assertThat(descriptor.fields()).allSatisfy(field ->
+                assertThat(field.type()).isNotNull());
+        // 枚举项必须是下拉，且带中文标签（否则又变成让用户手打 true/OFF）
+        assertThat(descriptor.fields()).filteredOn(ConnectorTypeDescriptor.Field::isSelect)
+                .isNotEmpty()
+                .allSatisfy(field -> assertThat(field.options()).isNotEmpty());
+        // 端口是数字输入
+        assertThat(descriptor.fields()).filteredOn(field -> field.key().endsWith("Port"))
+                .allSatisfy(field -> assertThat(field.type())
+                        .isEqualTo(ConnectorTypeDescriptor.FieldType.NUMBER));
+    }
+
+    @Test
     void 不支持的连接器类型给出可选清单() {
         assertThatThrownBy(() -> service.create(
                 new ConnectorRequest("SLACK", "x", null, true, Map.of(), "OFF", null), 9L))

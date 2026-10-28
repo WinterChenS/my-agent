@@ -126,6 +126,7 @@ public class ConnectorService {
         if (!missing.isEmpty()) {
             throw BizException.badRequest("缺少必填配置：" + String.join("、", labels(descriptor, missing)));
         }
+        validateFieldValues(descriptor, config);
         String alias = normalizeAlias(request.alias());
         String inboundMode = normalizeInboundMode(request.inboundMode(), descriptor);
         long id = store.insert(
@@ -174,6 +175,7 @@ public class ConnectorService {
         if (!missing.isEmpty()) {
             throw BizException.badRequest("缺少必填配置：" + String.join("、", labels(descriptor, missing)));
         }
+        validateFieldValues(descriptor, merged);
         String alias = request.alias() == null ? existing.alias() : normalizeAlias(request.alias());
         String inboundMode = request.inboundMode() == null
                 ? existing.inboundMode()
@@ -232,11 +234,13 @@ public class ConnectorService {
     /** 用尚未保存的配置探测（新建表单里"测试连接"，不落库）。 */
     public ConnectorTestResult testDraft(String type, Map<String, String> config) {
         ConnectorTypeDescriptor descriptor = typeRegistry.require(type);
-        List<String> missing = descriptor.missingKeys(config);
+        Map<String, String> normalized = normalizeConfig(config);
+        List<String> missing = descriptor.missingKeys(normalized);
         if (!missing.isEmpty()) {
             throw BizException.badRequest("缺少必填配置：" + String.join("、", labels(descriptor, missing)));
         }
-        return probe(descriptor.typeUpper(), normalizeConfig(config));
+        validateFieldValues(descriptor, normalized);
+        return probe(descriptor.typeUpper(), normalized);
     }
 
     private ConnectorTestResult probe(String type, Map<String, String> config) {
@@ -379,6 +383,33 @@ public class ConnectorService {
             throw BizException.badRequest("该连接器类型不支持新邮件处理");
         }
         return value;
+    }
+
+    /**
+     * 按字段声明的控件类型校验取值。
+     *
+     * <p>为什么要在服务端再校验一遍：前端下拉只是"好填"，接口仍可能被脚本/旧表单直接调用；
+     * 端口写成 {@code abc}、SSL 写成 {@code yes} 这类值进去后，报错会出现在收发信时（很难查）。
+     */
+    static void validateFieldValues(ConnectorTypeDescriptor descriptor, Map<String, String> config) {
+        for (ConnectorTypeDescriptor.Field field : descriptor.fields()) {
+            String value = config.get(field.key());
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            if (field.type() == ConnectorTypeDescriptor.FieldType.NUMBER
+                    && !value.trim().matches("[0-9]{1,5}")) {
+                throw BizException.badRequest(field.label() + " 必须是数字（例如 993），当前是「" + value + "」");
+            }
+            if (field.isSelect() && !field.accepts(value)) {
+                String allowed = field.options().stream()
+                        .map(option -> option.label() + "（" + option.value() + "）")
+                        .reduce((a, b) -> a + "、" + b)
+                        .orElse("");
+                throw BizException.badRequest(field.label() + " 只能选：" + allowed
+                        + "，当前是「" + value + "」");
+            }
+        }
     }
 
     private static List<String> labels(ConnectorTypeDescriptor descriptor, List<String> keys) {

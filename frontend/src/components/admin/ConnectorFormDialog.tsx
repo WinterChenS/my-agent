@@ -18,6 +18,7 @@ import {
   updateConnector,
   type ConnectorInfo,
   type ConnectorPayload,
+  type ConnectorTypeField,
   type ConnectorTypeInfo,
   type InboundMode,
 } from "@/api/connectors";
@@ -168,21 +169,19 @@ export function ConnectorFormDialog({
           </div>
 
           {descriptor.fields.map((field) => (
-            <label key={field.key} className="block space-y-1 text-sm">
-              <span className="font-medium">
-                {field.label}
-                {field.required ? <span className="text-destructive"> *</span> : null}
-              </span>
-              <Input
-                type={field.secret ? "password" : "text"}
-                value={form.config[field.key] ?? ""}
-                placeholder={field.secret ? "保持不变（留空表示不修改）" : field.placeholder}
-                onChange={(event) => setConfig(field.key, event.target.value)}
-              />
-              {field.hint ? (
-                <span className="text-muted-foreground block text-xs">{field.hint}</span>
-              ) : null}
-            </label>
+            <ConnectorField
+              key={field.key}
+              field={field}
+              value={
+                // inboundMode 落独立的列（不是 config JSON），其余字段都在 config 里
+                field.key === "inboundMode" ? form.inboundMode : (form.config[field.key] ?? "")
+              }
+              onChange={(value) =>
+                field.key === "inboundMode"
+                  ? setForm((prev) => ({ ...prev, inboundMode: value as InboundMode }))
+                  : setConfig(field.key, value)
+              }
+            />
           ))}
 
           <div className="flex items-center gap-2 text-sm">
@@ -194,26 +193,6 @@ export function ConnectorFormDialog({
             />
             <label htmlFor="connector-enabled">启用（停用后 Agent 拿不到这个连接器）</label>
           </div>
-
-          {descriptor.inboundSupported ? (
-            <label className="block space-y-1 text-sm">
-              <span className="font-medium">新邮件处理</span>
-              <select
-                className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
-                value={form.inboundMode}
-                onChange={(event) =>
-                  setForm({ ...form, inboundMode: event.target.value as InboundMode })
-                }
-              >
-                <option value="OFF">只记录（推荐先这样）</option>
-                <option value="NOTIFY">收到就推送 IM 通知</option>
-                <option value="AUTOREPLY">交给 Agent 自动回复（有防轰炸护栏）</option>
-              </select>
-              <span className="text-muted-foreground block text-xs">
-                自动回复只对「绑定给某个 Agent」的连接器生效，且同一线程只回一次。
-              </span>
-            </label>
-          ) : null}
 
           {testResult ? (
             <div
@@ -263,4 +242,69 @@ export function ConnectorStatusBadge({ connector }: { connector: ConnectorInfo }
     return <Badge variant="destructive">连接异常</Badge>;
   }
   return <Badge variant="outline">未测试</Badge>;
+}
+
+/**
+ * 单个配置项：**按后端声明的控件类型**渲染。
+ *
+ * 以前所有字段都是文本框，于是「IMAP 使用 SSL」「允许发信」这种枚举要用户手打 true/false，
+ * 「新邮件处理」还得记 OFF/NOTIFY/AUTOREPLY —— 既容易填错也没法校验。
+ * 现在枚举一律下拉、端口用数字输入，加新的连接器类型不用再改这里。
+ */
+function ConnectorField({
+  field,
+  value,
+  onChange,
+}: {
+  field: ConnectorTypeField;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const label = (
+    <span className="font-medium">
+      {field.label}
+      {field.required ? <span className="text-destructive"> *</span> : null}
+    </span>
+  );
+  const hint = field.hint ? (
+    <span className="text-muted-foreground block text-xs">{field.hint}</span>
+  ) : null;
+
+  if (field.type === "SELECT") {
+    return (
+      <label className="block space-y-1 text-sm">
+        {label}
+        <select
+          className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+          value={value || field.options[0]?.value || ""}
+          onChange={(event) => onChange(event.target.value)}
+          data-testid={`connector-field-${field.key}`}
+        >
+          {field.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {hint}
+      </label>
+    );
+  }
+
+  return (
+    <label className="block space-y-1 text-sm">
+      {label}
+      <Input
+        type={field.type === "PASSWORD" ? "password" : field.type === "NUMBER" ? "number" : "text"}
+        inputMode={field.type === "NUMBER" ? "numeric" : undefined}
+        value={value}
+        placeholder={
+          field.type === "PASSWORD" ? "保持不变（留空表示不修改）" : field.placeholder
+        }
+        onChange={(event) => onChange(event.target.value)}
+        data-testid={`connector-field-${field.key}`}
+      />
+      {hint}
+    </label>
+  );
 }

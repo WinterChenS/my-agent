@@ -34,8 +34,26 @@ const MAIL_TYPE = {
   displayName: "邮件",
   description: "让 Agent 读取、搜索你的邮箱并代你发信",
   fields: [
-    { key: "email", label: "邮箱地址", secret: false, hint: "要连接的邮箱账号", required: true, placeholder: "me@company.com" },
-    { key: "password", label: "密码 / 授权码", secret: true, hint: "修改时留空表示不改", required: true, placeholder: "" },
+    {
+      key: "email", label: "邮箱地址", secret: false, hint: "要连接的邮箱账号", required: true,
+      placeholder: "me@company.com", type: "TEXT", options: [],
+    },
+    {
+      key: "imapPort", label: "IMAP 端口", secret: false, hint: "SSL 一般是 993", required: true,
+      placeholder: "993", type: "NUMBER", options: [],
+    },
+    {
+      key: "imapSsl", label: "IMAP 使用 SSL", secret: false, hint: "993 选是", required: false,
+      placeholder: "", type: "SELECT",
+      options: [
+        { value: "true", label: "是" },
+        { value: "false", label: "否" },
+      ],
+    },
+    {
+      key: "password", label: "密码 / 授权码", secret: true, hint: "修改时留空表示不改", required: true,
+      placeholder: "", type: "PASSWORD", options: [],
+    },
   ],
   requiredKeys: ["email", "password"],
   secretKeys: ["password"],
@@ -101,6 +119,22 @@ describe("ConnectorsPage", () => {
       name: "个人邮箱",
       config: { email: "me@company.com", password: "授权码" },
     });
+  });
+
+  it("枚举字段渲染成下拉、端口渲染成数字输入（不让用户手打 true/993）", async () => {
+    const ConnectorsPage = (await import("@/pages/admin/connectors/ConnectorsPage")).default;
+    render(<ConnectorsPage />);
+
+    await waitFor(() => expect(screen.getByText("我的连接器（1）")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /添加/ })[0]);
+
+    const ssl = (await screen.findByTestId("connector-field-imapSsl")) as HTMLSelectElement;
+    expect(ssl.tagName).toBe("SELECT");
+    expect(ssl.value).toBe("true");
+    expect(Array.from(ssl.options).map((option) => option.label)).toEqual(["是", "否"]);
+
+    const port = screen.getByTestId("connector-field-imapPort") as HTMLInputElement;
+    expect(port.type).toBe("number");
   });
 
   it("状态异常时显示后端给的人话错误", async () => {

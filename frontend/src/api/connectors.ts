@@ -6,6 +6,14 @@ import { apiFetch } from "./client";
  * 归属是**用户**：普通用户只看得到/只能改自己的连接器，管理员可看全部。
  */
 
+/** 控件类型：由后端类型描述决定，前端不猜（枚举绝不渲染成文本框）。 */
+export type ConnectorFieldType = "TEXT" | "PASSWORD" | "NUMBER" | "SELECT";
+
+export interface ConnectorFieldOption {
+  value: string;
+  label: string;
+}
+
 /** 一种连接器类型（字段用于动态表单）。 */
 export interface ConnectorTypeField {
   key: string;
@@ -14,6 +22,9 @@ export interface ConnectorTypeField {
   hint: string;
   required: boolean;
   placeholder: string;
+  type: ConnectorFieldType;
+  /** 仅 SELECT：下拉候选（value 入库、label 给人看）。 */
+  options: ConnectorFieldOption[];
 }
 
 export interface ConnectorTypeInfo {
