@@ -46,6 +46,8 @@ import java.util.regex.Pattern;
  */
 public class MailClient {
 
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(MailClient.class);
+
     /** 单封邮件正文上限（超出截断并提示）。 */
     public static final int DEFAULT_MAX_BODY_CHARS = 40_000;
 
@@ -588,7 +590,34 @@ public class MailClient {
             throw new MailException("IMAP 连接失败：" + settings.imapHost() + ":" + settings.imapPort()
                     + " → " + humanMessage(ex));
         }
+        sendClientId(store);
         return store;
+    }
+
+    /**
+     * 向服务器声明客户端身份（IMAP ID 扩展）。
+     *
+     * <p>为什么必须做：**163 / 126 邮箱在没收到 ID 命令时会直接拒绝登录**，报
+     * "Unsafe Login. Please contact kefu@188.com for help"（用户只看到"登录失败"，很难查）。
+     * 其他服务器（QQ/Gmail/企业邮箱）多数支持该扩展，不支持时跳过即可。
+     */
+    private void sendClientId(Store store) {
+        if (!(store instanceof org.eclipse.angus.mail.imap.IMAPStore imapStore)) {
+            return;
+        }
+        try {
+            if (!imapStore.hasCapability("ID")) {
+                return;
+            }
+            java.util.Map<String, String> id = new java.util.LinkedHashMap<>();
+            id.put(org.eclipse.angus.mail.imap.IMAPStore.ID_NAME, "my-agent");
+            id.put(org.eclipse.angus.mail.imap.IMAPStore.ID_VERSION, "2.0");
+            id.put(org.eclipse.angus.mail.imap.IMAPStore.ID_VENDOR, "my-agent");
+            imapStore.id(id);
+        } catch (Exception ex) {
+            // 声明身份失败不影响正常收发，记一笔即可
+            logger.debug("IMAP ID 声明失败（忽略）: {}", ex.getMessage());
+        }
     }
 
     private Session session() {
