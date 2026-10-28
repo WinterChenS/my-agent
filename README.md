@@ -6,7 +6,7 @@
 - **后端**：Java 21 + Spring Boot + AgentScope Java v2
 - **中间件**：PostgreSQL + Redis（内网）
 
-能力：大模型配置、Agent 配置、Skill 配置（含**从仓库链接导入标准 Skill**：SKILL.md + scripts/references/assets）、MCP 支持、AG-UI 聊天卡片（审批卡 / 确认卡 / 映射卡 / 工具调用卡）、按用户维度的 Token 审计。
+能力：大模型配置、Agent 配置、Skill 配置（含**从仓库链接导入标准 Skill**：SKILL.md + scripts/references/assets）、MCP 支持、**连接器（首个：邮件：读/搜/附件/发信/回复/新邮件通知）**、AG-UI 聊天卡片（审批卡 / 确认卡 / 映射卡 / 工具调用卡）、按用户维度的 Token 审计。
 
 ## 文档
 
@@ -15,6 +15,7 @@
 | `docs/技术方案.md` | 架构、依赖版本、表设计、API 契约、卡片契约、防跑偏门禁 G1–G8 |
 | `docs/任务列表.md` | Phase 0–11 共 23 个任务及各自验收门禁 |
 | `docs/backlog.md` | 超范围需求登记（门禁 G7） |
+| `docs/连接器方案.md` | 连接器（通用框架 + 邮件）设计、安全护栏、实施记录与实测结论 |
 | `docs/comet/` | Comet Native change 产物（brief / specs / verification） |
 | `docs/acceptance/` | 全链路验收证据 |
 
@@ -99,6 +100,19 @@ cd backend/agent-server && mvn verify
 # 前端
 cd frontend && npm run lint && npm run build && npx vitest run
 ```
+
+## 连接器（邮件）
+
+管理台「能力 → 连接器」：添加自己的邮箱（IMAP 收信 + SMTP 发信，QQ/163/Gmail 用**授权码**），
+点「测试连接」验证两条链路，再「绑定 Agent」——绑定后**下一轮**对话该 Agent 才会有 `mail_*` 工具。
+
+- 工具：`mail_list` / `mail_search` / `mail_read` / `mail_get_attachment` / `mail_folders`（只读）、
+  `mail_send` / `mail_reply` / `mail_mark`（写，`REQUIRE_APPROVAL` 的 Agent 会弹审批卡）。
+- 归属：连接器属于**用户**；多人共用一个 Agent 时，各自只会用到自己的邮箱（工具调用时按当前用户解析）。
+- 护栏：发信开关、收件人白名单（支持 `@域名`）、禁止发给自己、每邮箱每小时发信上限（默认 60）、写操作全量审计（列表页「盾」图标可查）。
+- 新邮件处理：`只记录 / 推 IM 通知 / 交 Agent 自动回复`。自动回复带五道护栏（RFC3834 自动回复头、
+  Precedence bulk、系统邮箱、同线程只回一次、每小时上限），回复正文强制带 `Auto-Submitted: auto-replied`。
+- 配置项见 `application.yml` 的 `myagent.connector.*`（超时、附件上限、正文截断、发信/自动回复限流、轮询周期）。
 
 ## 工作区根目录（注意）
 
