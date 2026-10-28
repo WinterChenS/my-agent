@@ -121,6 +121,20 @@ function targetLabel(target: TaskTarget) {
 }
 
 /** 定时任务管理：cron / 固定间隔 / 一次性，结果可回会话或推送到 IM（含附件）。 */
+/**
+ * 执行记录的轮询间隔：任务随时可能在后台跑出新记录，列表必须"自己会动"，
+ * 否则用户只能守着手点刷新（用户要求默认 5s）。
+ */
+const RUNS_POLL_MS = 5000;
+
+/**
+ * 点「立即执行 / 重跑」之后的刷新延迟。
+ *
+ * <p>为什么不是立刻刷：触发接口只是**投递**，执行线程要先建记录、再落状态；
+ * 立刻拉一次大概率还看不到新记录，反而让人以为没触发（实测观感）。等 2s 更接近真实落库时间。
+ */
+const RUNS_REFRESH_AFTER_ACTION_MS = 2000;
+
 export default function SchedulesPage() {
   const [items, setItems] = useState<ScheduledTaskInfo[]>([]);
   const [agents, setAgents] = useState<AgentDetail[]>([]);
@@ -188,9 +202,15 @@ export default function SchedulesPage() {
     };
   }, [form?.channelAppId]);
 
-  /** 日历数据：整月一次拉取（含首尾补白的邻月日期）。 */
-  const reloadRuns = useCallback(async () => {
-    setRunsLoading(true);
+  /**
+   * 日历数据：整月一次拉取（含首尾补白的邻月日期）。
+   *
+   * @param opts.silent 轮询用：不显示 loading（否则每 5s 转一次圈，看着像页面在抽风）
+   */
+  const reloadRuns = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setRunsLoading(true);
+    }
     try {
       const monthStart = new Date(month.getFullYear(), month.getMonth(), 1);
       const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 1);
@@ -204,14 +224,35 @@ export default function SchedulesPage() {
       setDaySummary(summary);
       setTimeline(dayRuns);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载执行记录失败");
+      // 轮询失败只是暂时的（后端重启/网络抖动），不弹 toast 轰炸用户
+      if (!opts?.silent) {
+        toast.error(err instanceof Error ? err.message : "加载执行记录失败");
+      }
     } finally {
-      setRunsLoading(false);
+      if (!opts?.silent) {
+        setRunsLoading(false);
+      }
     }
   }, [month, selectedDay]);
 
   useEffect(() => {
     void reloadRuns();
+  }, [reloadRuns]);
+
+  // 执行记录定时刷新（默认 5s）。后台标签页跳过，别白耗请求。
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void reloadRuns({ silent: true });
+    }, RUNS_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [reloadRuns]);
+
+  /** 「立即执行 / 重跑 / 取消」之后延迟 2s 再刷新执行记录（等执行线程落库）。 */
+  const refreshRunsSoon = useCallback(() => {
+    window.setTimeout(() => void reloadRuns({ silent: true }), RUNS_REFRESH_AFTER_ACTION_MS);
   }, [reloadRuns]);
 
   const agentOptions = useMemo(
@@ -300,7 +341,14 @@ export default function SchedulesPage() {
     try {
       await runScheduledTaskNow(task.id);
       toast.success("已触发执行，稍后可在这里看结果");
-      setTimeout(() => void reload(), 3000);
+      // 延迟 2s 再刷新：触发只是投递，立刻拉还看不到新记录（用户明确要求 2s）
+      window.setTimeout(() => {
+        void reload();
+        void reloadRuns({ silent: true });
+        if (runsOf?.id === task.id) {
+          void listScheduledTaskRuns(task.id).then(setRuns).catch(() => undefined);
+        }
+      }, RUNS_REFRESH_AFTER_ACTION_MS);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "触发失败");
     }
@@ -325,6 +373,23 @@ export default function SchedulesPage() {
       toast.error(err instanceof Error ? err.message : "加载执行记录失败");
     }
   }
+
+  // 弹窗开着的时候也定时刷新，避免"跑完了还得关掉重开"才看到结果
+  useEffect(() => {
+    const taskId = runsOf?.id;
+    if (!taskId) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void listScheduledTaskRuns(taskId)
+        .then(setRuns)
+        .catch(() => undefined);
+    }, RUNS_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [runsOf?.id]);
 
   return (
     <div className="space-y-4 p-6">
@@ -454,7 +519,7 @@ export default function SchedulesPage() {
               runs={timeline}
               loading={runsLoading}
               day={selectedDay}
-              onCanceled={() => void reloadRuns()}
+              onCanceled={refreshRunsSoon}
             />
           </div>
         </CardContent>

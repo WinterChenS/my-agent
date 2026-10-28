@@ -52,8 +52,8 @@ export default function RunTimeline({ runs, loading, day, onCanceled }: Props) {
     try {
       await rerunRun(run.id);
       toast.success(`已重新执行「${run.task_name}」，结果稍后出现在时间轴`);
-      // 新记录要等执行线程落库，稍等一下再刷新
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // 刷新交给页面统一处理（延迟 2s，等执行线程建记录/落状态）——这里不要再自己 sleep，
+      // 否则两段延迟叠加，用户点完要等 3.5s 才看到列表动。
       onCanceled?.();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "重新执行失败");
@@ -66,8 +66,7 @@ export default function RunTimeline({ runs, loading, day, onCanceled }: Props) {
       if (result.cancelled) {
         toast.success(`已取消「${run.task_name}」的这次执行`);
         // 取消是"异步收尾"：执行线程要落库成「已取消」才看得到。
-        // 立刻刷新会读到 RUNNING（用户会以为没取消成功），所以稍等一下再刷。
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        // 延迟刷新统一由页面负责（2s），否则会读到还在 RUNNING 的旧状态。
       } else {
         toast.info("这次执行已经结束了（可能是刚跑完）");
       }
