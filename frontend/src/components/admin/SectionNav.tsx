@@ -34,7 +34,7 @@ function Loading() {
   );
 }
 
-/** 顶部横向 tab 的外壳（用于「Agent 与模型」「技能与 MCP」）。 */
+/** 顶部横向 tab 的外壳（用于「Agent 与模型」「能力」「系统设置」）。 */
 export function TabbedSection({
   title,
   description,

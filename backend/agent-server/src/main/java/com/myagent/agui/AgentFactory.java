@@ -66,6 +66,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
     private final AgentMcpServerMapper agentMcpServerMapper;
     private final McpServerMapper mcpServerMapper;
     private final McpToolkitFactory mcpToolkitFactory;
+    /** 连接器工具（邮件等）：只有绑定了对应类型连接器的 Agent 才注册。 */
+    private final com.myagent.agui.connector.ConnectorToolkit connectorToolkit;
+    private final com.myagent.connectorconfig.ConnectorTypeRegistry connectorTypeRegistry;
     // Phase 11 / D23：会话状态与长期记忆入库（官方 SPI 的 PostgreSQL 实现）
     private final com.myagent.agui.memory.PgAgentStateStore pgAgentStateStore;
     private final io.agentscope.harness.agent.filesystem.remote.RemoteFilesystem memoryRemoteFilesystem;
@@ -91,6 +94,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             AgentMcpServerMapper agentMcpServerMapper,
             McpServerMapper mcpServerMapper,
             McpToolkitFactory mcpToolkitFactory,
+            com.myagent.agui.connector.ConnectorToolkit connectorToolkit,
+            com.myagent.connectorconfig.ConnectorTypeRegistry connectorTypeRegistry,
             com.myagent.agui.memory.PgAgentStateStore pgAgentStateStore,
             io.agentscope.harness.agent.filesystem.remote.RemoteFilesystem memoryRemoteFilesystem,
             com.myagent.artifact.PlatformArtifactDeliveryTarget artifactDeliveryTarget,
@@ -108,6 +113,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         this.agentMcpServerMapper = agentMcpServerMapper;
         this.mcpServerMapper = mcpServerMapper;
         this.mcpToolkitFactory = mcpToolkitFactory;
+        this.connectorToolkit = connectorToolkit;
+        this.connectorTypeRegistry = connectorTypeRegistry;
         this.pgAgentStateStore = pgAgentStateStore;
         this.memoryRemoteFilesystem = memoryRemoteFilesystem;
         this.artifactDeliveryTarget = artifactDeliveryTarget;
@@ -258,6 +265,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         // 它们是只读的「往界面发一张卡」工具，不产生副作用；只在 demo-agent 上开放会让
         // 「用技能驱动 AG-UI 交互」这件事对其它 Agent 失效（别人的 Agent 拿不到工具）。
         Toolkit toolkit = mcpToolkitFactory.buildToolkit(mcpServers, true);
+        // 连接器（邮件等）：只注册「本 Agent 绑定过的类型」的工具。
+        // 具体用哪个邮箱在工具调用时按当前对话用户解析，因此多人共用一个 Agent 也不会串号。
+        java.util.List<String> connectorTools =
+                connectorToolkit.register(toolkit, agent.getId(), connectorTypeRegistry);
 
         HarnessAgent built = HarnessAgent.builder()
                 .name(agent.getName())
@@ -320,11 +331,12 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 .permissionContext(buildPermissionContext(agent.getPermissionMode(), toolkit))
                 .build();
         log.info(
-                "构建 Agent 完成: {} (mode={}, skills={}, mcpServers={})",
+                "构建 Agent 完成: {} (mode={}, skills={}, mcpServers={}, connectorTools={})",
                 agent.getAgentId(),
                 agent.getPermissionMode(),
                 boundSkillNames,
-                mcpServers.stream().map(McpServer::getName).toList());
+                mcpServers.stream().map(McpServer::getName).toList(),
+                connectorTools);
         return built;
     }
 

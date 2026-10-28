@@ -5,6 +5,7 @@ import {
   Blocks,
   Brain,
   CalendarClock,
+  Link2,
   MessageCircle,
   MessageSquare,
   Plug,
@@ -42,6 +43,7 @@ const McpPage = lazy(() => import("@/pages/admin/mcp/McpPage"));
 const UsersPage = lazy(() => import("@/pages/admin/users/UsersPage"));
 const ChannelsPage = lazy(() => import("@/pages/admin/channels/ChannelsPage"));
 const SchedulesPage = lazy(() => import("@/pages/admin/schedules/SchedulesPage"));
+const ConnectorsPage = lazy(() => import("@/pages/admin/connectors/ConnectorsPage"));
 
 interface NavItem {
   to: string;
@@ -54,7 +56,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/memory", label: "记忆", icon: Brain },
   // 同族面板收进一个主菜单，进去后再用 tab / 二级菜单区分（条目只增不减，侧栏不再无限变长）
   { to: "/admin/model-agents", label: "Agent 与模型", icon: Bot },
-  { to: "/admin/capabilities", label: "技能与 MCP", icon: Blocks },
+  { to: "/admin/capabilities", label: "能力", icon: Blocks },
   { to: "/admin/schedules", label: "定时任务", icon: CalendarClock },
   { to: "/admin/settings", label: "系统设置", icon: Settings },
 ];
@@ -75,7 +77,7 @@ const MODEL_AGENT_TABS = [
   },
 ];
 
-/** 「技能与 MCP」的两个 tab。 */
+/** 「能力」的三个 tab：技能 / MCP / 连接器。 */
 const CAPABILITY_TABS = [
   {
     to: "/admin/capabilities/skills",
@@ -88,6 +90,12 @@ const CAPABILITY_TABS = [
     label: "MCP",
     icon: Plug,
     hint: "MCP 服务接入、工具发现与连接状态",
+  },
+  {
+    to: "/admin/capabilities/connectors",
+    label: "连接器",
+    icon: Link2,
+    hint: "邮箱等外部账号：Agent 读取/发信，按用户隔离",
   },
 ];
 
@@ -230,13 +238,13 @@ export default function App() {
             <Route path="models" element={<ModelsPage />} />
           </Route>
 
-          {/* 技能与 MCP：都是「给 Agent 装能力」，一并放一个主菜单 */}
+          {/* 能力（技能 / MCP / 连接器）：都是「给 Agent 装能力」，一并放一个主菜单 */}
           <Route
             path="admin/capabilities"
             element={
               <TabbedSection
-                title="技能与 MCP"
-                description="Skill 是打包好的方法论与资源，MCP 是外部工具服务；都挂在 Agent 上生效。"
+                title="能力"
+                description="Skill 是打包好的方法论与资源，MCP 是外部工具服务，连接器是你的邮箱等外部账号；都挂在 Agent 上生效。"
                 tabs={CAPABILITY_TABS}
               />
             }
@@ -244,6 +252,7 @@ export default function App() {
             <Route index element={<Navigate to="skills" replace />} />
             <Route path="skills" element={<SkillsPage />} />
             <Route path="mcp" element={<McpPage />} />
+            <Route path="connectors" element={<ConnectorsPage />} />
           </Route>
 
           <Route path="admin/schedules" element={<SchedulesPage />} />

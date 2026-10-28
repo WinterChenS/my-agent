@@ -58,6 +58,28 @@ myagent:
     # 单条 IM 消息的字符上限：超过就**拆成多条依次发送**（不再截断丢内容）。
     # 钉钉文本上限约 20000 字节（≈6000 汉字），2000 字符留足余量也避免刷屏；飞书/其他平台同理。
     max-text-chars: ${MYAGENT_CHANNEL_MAX_TEXT_CHARS:2000}
+  # 连接器（让 Agent 使用外部账号；首个类型：邮件）。
+  connector:
+    mail:
+      # 连接/读取超时：公司网络封 IMAP/SMTP 时会卡在这里，给短一点好报错
+      timeout-connect-ms: ${MYAGENT_CONNECTOR_MAIL_CONNECT_TIMEOUT_MS:10000}
+      timeout-read-ms: ${MYAGENT_CONNECTOR_MAIL_READ_TIMEOUT_MS:30000}
+      # 附件上限（单件 / 单次合计）
+      max-attachment-mb: ${MYAGENT_CONNECTOR_MAIL_MAX_ATTACHMENT_MB:20}
+      max-attachments-total-mb: ${MYAGENT_CONNECTOR_MAIL_MAX_ATTACHMENT_TOTAL_MB:50}
+      # 单封邮件正文最大字符数（超出截断并提示）
+      max-body-chars: ${MYAGENT_CONNECTOR_MAIL_MAX_BODY_CHARS:40000}
+      # 每邮箱每小时发信上限：防模型在循环里把用户邮箱发爆
+      max-sends-per-hour: ${MYAGENT_CONNECTOR_MAIL_MAX_SENDS_PER_HOUR:60}
+      # 每邮箱每小时自动回复上限（AUTOREPLY 模式）
+      max-auto-replies-per-hour: ${MYAGENT_CONNECTOR_MAIL_MAX_AUTO_REPLIES_PER_HOUR:10}
+    inbound:
+      # 新邮件轮询（NOTIFY / AUTOREPLY 模式才需要）
+      enabled: ${MYAGENT_CONNECTOR_INBOUND_ENABLED:true}
+      poll-millis: ${MYAGENT_CONNECTOR_INBOUND_POLL_MS:60000}
+      initial-delay-ms: ${MYAGENT_CONNECTOR_INBOUND_INITIAL_DELAY_MS:30000}
+      # 多节点租约：抢到租约的节点负责这个连接器的拉取
+      lease-minutes: ${MYAGENT_CONNECTOR_INBOUND_LEASE_MINUTES:5}
   # 上下文压缩（官方 CompactionConfig）：
   # 阈值按「模型窗口 x trigger-ratio」算，默认 90% —— 即用掉九成才压缩。
   # 以前是「固定 120000 与窗口 60% 取小」，导致 1M 窗口的模型在 11% 就被压缩，大窗口等于白买。
