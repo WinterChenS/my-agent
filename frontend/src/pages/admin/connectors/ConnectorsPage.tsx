@@ -166,7 +166,7 @@ function ConnectorsPage() {
           <h2 className="text-lg font-semibold">连接器</h2>
           <p className="text-muted-foreground text-xs">
             让 Agent 使用你的外部账号（当前支持邮件：读信/搜索/下载附件/发信/回复）。
-            连接器归属到**你自己**，绑定给某个 Agent 后，它才有对应能力。
+            连接器归属到你自己，绑定给某个 Agent 后，它才有对应能力。
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
