@@ -67,6 +67,8 @@ public class ConnectorInboundService {
     private final ChannelPushPort pushPort;
     private final JdbcTemplate jdbc;
     private final int maxAutoRepliesPerHour;
+    /** 单轮最多自动回复几封（一次涌入很多封时防止"连珠炮"回信）。 */
+    private final int maxAutoRepliesPerPoll;
 
     public ConnectorInboundService(
             ConnectorStore store,
@@ -76,7 +78,8 @@ public class ConnectorInboundService {
             ChatSessionService sessionService,
             ObjectProvider<ChannelPushPort> pushPort,
             JdbcTemplate jdbc,
-            @Value("${myagent.connector.mail.max-auto-replies-per-hour:10}") int maxAutoRepliesPerHour) {
+            @Value("${myagent.connector.mail.max-auto-replies-per-hour:10}") int maxAutoRepliesPerHour,
+            @Value("${myagent.connector.inbound.max-auto-replies-per-poll:3}") int maxAutoRepliesPerPoll) {
         this.store = store;
         this.connectorService = connectorService;
         this.connectorToolkit = connectorToolkit;
@@ -85,6 +88,7 @@ public class ConnectorInboundService {
         this.pushPort = pushPort.getIfAvailable();
         this.jdbc = jdbc;
         this.maxAutoRepliesPerHour = maxAutoRepliesPerHour <= 0 ? 10 : maxAutoRepliesPerHour;
+        this.maxAutoRepliesPerPoll = maxAutoRepliesPerPoll <= 0 ? 3 : maxAutoRepliesPerPoll;
     }
 
     /**
@@ -103,10 +107,14 @@ public class ConnectorInboundService {
             return 0;
         }
         int handled = 0;
+        int repliedThisPoll = 0;
         for (ConnectorProvider.InboundMessage message : messages) {
             try {
-                if (process(record, provider, config, message)) {
+                if (process(record, provider, config, message, repliedThisPoll)) {
                     handled++;
+                    if ("AUTOREPLY".equalsIgnoreCase(record.inboundMode())) {
+                        repliedThisPoll++;
+                    }
                 }
             } catch (Exception ex) {
                 log.warn("处理入站邮件失败 connectorId={} uid={}: {}", record.id(), message.uid(), ex.toString());
@@ -122,7 +130,8 @@ public class ConnectorInboundService {
             ConnectorRecord record,
             ConnectorProvider provider,
             Map<String, String> config,
-            ConnectorProvider.InboundMessage message) {
+            ConnectorProvider.InboundMessage message,
+            int repliedThisPoll) {
         boolean first = store.recordInbound(
                 record.id(), message.externalId(), message.threadKey(),
                 message.fromAddr(), message.subject(), message.receivedAt());
@@ -132,7 +141,7 @@ public class ConnectorInboundService {
         Long eventId = store.inboundId(record.id(), message.externalId()).orElse(null);
         String mode = record.inboundMode() == null ? "OFF" : record.inboundMode();
 
-        String skip = skipReason(record, message, mode);
+        String skip = skipReason(record, message, mode, repliedThisPoll, config);
         if (skip != null) {
             store.finishInbound(eventId, "SKIPPED", skip, null, null);
             return false;
@@ -157,6 +166,20 @@ public class ConnectorInboundService {
      * <p>这些规则**必须能单测**：写错一条就是给别人发垃圾邮件。
      */
     String skipReason(ConnectorRecord record, ConnectorProvider.InboundMessage message, String mode) {
+        return skipReason(record, message, mode, 0, connectorService.config(record));
+    }
+
+    /**
+     * 护栏判定（带"本轮已回几封"与配置）。
+     *
+     * @param repliedThisPoll 本轮已经自动回复了几封（一次涌入很多封时防"连珠炮"）
+     */
+    String skipReason(
+            ConnectorRecord record,
+            ConnectorProvider.InboundMessage message,
+            String mode,
+            int repliedThisPoll,
+            Map<String, String> config) {
         String from = normalize(message.fromAddr());
         if (from.isEmpty()) {
             return "没有发件人";
@@ -181,6 +204,18 @@ public class ConnectorInboundService {
         if (!record.enabled()) {
             return "连接器已停用";
         }
+        // 关闭了发信却开着自动回复 = 自相矛盾：自动回复本质就是发信，直接跳过并说明原因
+        if ("false".equalsIgnoreCase(String.valueOf(config.getOrDefault("allowSend", "true")))) {
+            return "连接器关闭了「允许发信」，自动回复也会被拒（请先打开允许发信）";
+        }
+        // 只在抄送/群发里出现（不是直接发给我）的邮件不自动回复：
+        // 否则会把"抄送给我的通知邮件"当成对话对象，回一堆没有意义的内容
+        String self = normalize(connectorAddress(record));
+        List<String> recipients = message.recipients() == null ? List.of() : message.recipients();
+        if (!self.isEmpty() && !recipients.isEmpty()
+                && recipients.stream().noneMatch(to -> normalize(to).contains(self))) {
+            return "收件人里没有本邮箱（可能只是抄送/群发），不自动回复";
+        }
         if (boundAgents(record.id()).isEmpty()) {
             return "没有绑定任何 Agent，无法自动回复";
         }
@@ -189,6 +224,9 @@ public class ConnectorInboundService {
         }
         if (autoRepliesThisHour(record.id()) >= maxAutoRepliesPerHour) {
             return "本小时自动回复已达上限（" + maxAutoRepliesPerHour + " 封）";
+        }
+        if (repliedThisPoll >= maxAutoRepliesPerPoll) {
+            return "本轮自动回复已达上限（" + maxAutoRepliesPerPoll + " 封），这批邮件留给你人工处理";
         }
         return null;
     }

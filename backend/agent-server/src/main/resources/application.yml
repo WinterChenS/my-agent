@@ -82,6 +82,8 @@ myagent:
       lease-minutes: ${MYAGENT_CONNECTOR_INBOUND_LEASE_MINUTES:5}
       # 单轮最多处理多少封新邮件（防一次涌入几千封把队列打爆）
       max-batch: ${MYAGENT_CONNECTOR_INBOUND_MAX_BATCH:20}
+      # 单轮最多自动回复几封（一次涌入很多封时防"连珠炮"回信，其余留给人工）
+      max-auto-replies-per-poll: ${MYAGENT_CONNECTOR_INBOUND_MAX_AUTO_REPLIES_PER_POLL:3}
   # 上下文压缩（官方 CompactionConfig）：
   # 阈值按「模型窗口 x trigger-ratio」算，默认 90% —— 即用掉九成才压缩。
   # 以前是「固定 120000 与窗口 60% 取小」，导致 1M 窗口的模型在 11% 就被压缩，大窗口等于白买。

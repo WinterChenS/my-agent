@@ -92,6 +92,21 @@ class ConnectorInboundPollerTest {
     }
 
     @Test
+    void 自动回复模式首次也只打基线_不会回历史邮件() {
+        ConnectorRecord autoReply = new ConnectorRecord(1L, "MAIL", "工作邮箱", null, 9L, "enc", true, "OK",
+                null, null, "AUTOREPLY", null, 0L, OffsetDateTime.now(), OffsetDateTime.now());
+        when(store.listInboundEnabled()).thenReturn(List.of(autoReply));
+        when(toolkit.providerFor(anyString()))
+                .thenReturn(provider(new ConnectorProvider.PollResult(List.of(), 7L, 12610L, true)));
+
+        poller.poll();
+
+        // 一封都不回（历史上未读的邮件更不能回）
+        verify(inboundService, never()).handle(any(), any());
+        verify(store).saveInboundCursor(1L, 7L, 12610L);
+    }
+
+    @Test
     void 正常轮次处理新邮件并推进游标() {
         when(store.listInboundEnabled()).thenReturn(List.of(record));
         when(toolkit.providerFor(anyString()))

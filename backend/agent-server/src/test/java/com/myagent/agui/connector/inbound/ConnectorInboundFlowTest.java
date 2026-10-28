@@ -53,7 +53,7 @@ class ConnectorInboundFlowTest {
                 Map.of("pushPort", pushPort));
         service = new ConnectorInboundService(
                 store, connectorService, toolkit, agentFactory, sessionService,
-                beans.getBeanProvider(ChannelPushPort.class), jdbc, 10);
+                beans.getBeanProvider(ChannelPushPort.class), jdbc, 10, 3);
 
         when(connectorService.config(any()))
                 .thenReturn(new java.util.LinkedHashMap<>(Map.of("email", "me@company.com")));

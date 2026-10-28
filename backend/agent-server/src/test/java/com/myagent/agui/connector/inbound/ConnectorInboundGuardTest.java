@@ -42,7 +42,7 @@ class ConnectorInboundGuardTest {
         service = new ConnectorInboundService(
                 store, connectorService, toolkit, agentFactory, sessionService,
                 new StaticListableBeanFactory().getBeanProvider(ChannelPushPort.class),
-                jdbc, 10);
+                jdbc, 10, 3);
         when(connectorService.config(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new java.util.LinkedHashMap<>(Map.of("email", "me@company.com")));
         when(store.agentIdsOf(anyLong())).thenReturn(List.of(3L));
@@ -123,6 +123,36 @@ class ConnectorInboundGuardTest {
 
         assertThat(service.skipReason(disabled, message("a@b.com", false, null), "AUTOREPLY"))
                 .contains("已停用");
+    }
+
+    @Test
+    void 关闭了允许发信时不自动回复_自动回复本质就是发信() {
+        when(connectorService.config(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new java.util.LinkedHashMap<>(Map.of("email", "me@company.com", "allowSend", "false")));
+
+        assertThat(service.skipReason(record("AUTOREPLY"), message("a@b.com", false, null), "AUTOREPLY"))
+                .contains("允许发信");
+    }
+
+    @Test
+    void 只是抄送给我的邮件不自动回复() {
+        ConnectorProvider.InboundMessage ccOnly = new ConnectorProvider.InboundMessage(
+                13L, 1L, "<m@x>", "<t@x>", "boss@partner.com", "老板", "通知",
+                "抄送你一份", OffsetDateTime.now(), false, null, List.of("other@company.com"));
+
+        assertThat(service.skipReason(record("AUTOREPLY"), ccOnly, "AUTOREPLY"))
+                .contains("没有本邮箱");
+    }
+
+    @Test
+    void 本轮自动回复封数到上限后剩下的留给人工() {
+        // 本轮已经回过 3 封（默认上限）
+        assertThat(service.skipReason(record("AUTOREPLY"), message("a@b.com", false, null), "AUTOREPLY",
+                3, Map.of("email", "me@company.com")))
+                .contains("本轮自动回复已达上限");
+        assertThat(service.skipReason(record("AUTOREPLY"), message("a@b.com", false, null), "AUTOREPLY",
+                0, Map.of("email", "me@company.com")))
+                .isNull();
     }
 
     @Test
