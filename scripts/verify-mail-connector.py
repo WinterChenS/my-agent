@@ -52,6 +52,11 @@ def call_json(base: str, path: str, method: str = "GET", body=None, token: str |
 
 
 def main() -> int:
+    # Windows 控制台默认不是 UTF-8：中文输出很容易变成乱码，这里强制一下
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", default="http://192.168.3.10:18080")
     parser.add_argument("--email", required=True)
@@ -122,7 +127,7 @@ def main() -> int:
             print("      已清理临时连接器")
         return 1
 
-    agents = call_json(args.base, "/api/agents?current=1&size=200", token)["data"]
+    agents = call_json(args.base, "/api/agents?current=1&size=200", "GET", None, token)["data"]
     records = agents.get("records") or agents.get("list") or []
     agent = next((a for a in records if a["name"] == args.agent), records[0] if records else None)
     if agent is None:
