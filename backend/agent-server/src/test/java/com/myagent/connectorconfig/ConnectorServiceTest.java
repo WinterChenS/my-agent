@@ -111,9 +111,31 @@ class ConnectorServiceTest {
         service.update(1L, new ConnectorRequest("MAIL", null, null, null, incoming, null, null), 9L, false);
 
         ArgumentCaptor<String> updated = ArgumentCaptor.forClass(String.class);
-        verify(store).update(eq(1L), eq("工作邮箱"), eq(null), updated.capture(), eq(true), eq("OFF"));
+        verify(store).update(eq(1L), eq("工作邮箱"), eq(null), updated.capture(), eq(true), eq("OFF"), eq(true));
         String plain = crypto.decrypt(updated.getValue());
         assertThat(plain).contains("\"password\":\"old\"").doesNotContain("旧名");
+    }
+
+    @Test
+    void 只改开关不会把探测状态打回未测试() {
+        String enc = crypto.encrypt(fullConfigJson());
+        when(store.find(1L)).thenReturn(Optional.of(record(enc, 9L)));
+
+        service.update(1L, new ConnectorRequest("MAIL", null, null, false, null, null, null), 9L, false);
+
+        verify(store).update(eq(1L), eq("工作邮箱"), eq(null), anyString(), eq(false), eq("OFF"), eq(false));
+    }
+
+    @Test
+    void 改配置会把探测状态打回未测试() {
+        String enc = crypto.encrypt(fullConfigJson());
+        when(store.find(1L)).thenReturn(Optional.of(record(enc, 9L)));
+        Map<String, String> incoming = new LinkedHashMap<>();
+        incoming.put("imapHost", "imap.new-host.com");
+
+        service.update(1L, new ConnectorRequest("MAIL", null, null, null, incoming, null, null), 9L, false);
+
+        verify(store).update(eq(1L), eq("工作邮箱"), eq(null), anyString(), eq(true), eq("OFF"), eq(true));
     }
 
     @Test

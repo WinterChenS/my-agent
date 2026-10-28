@@ -90,6 +90,18 @@ export const createConnector = (payload: ConnectorPayload) =>
 export const updateConnector = (id: number, payload: ConnectorPayload) =>
   apiFetch<ConnectorInfo>(`/api/connectors/${id}`, { method: "PUT", body: JSON.stringify(payload) });
 
+/**
+ * 只切换启用状态（聊天页的小开关用它）。
+ *
+ * 复用 PUT：`ConnectorService.update` 对「没传的字段」保持原值，
+ * 所以只带 `type + enabled` 不会清掉凭据或绑定。
+ */
+export const setConnectorEnabled = (id: number, enabled: boolean) =>
+  apiFetch<ConnectorInfo>(`/api/connectors/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ type: "MAIL", enabled }),
+  });
+
 export const deleteConnector = (id: number) =>
   apiFetch<void>(`/api/connectors/${id}`, { method: "DELETE" });
 

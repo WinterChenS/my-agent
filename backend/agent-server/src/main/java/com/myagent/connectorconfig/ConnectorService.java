@@ -152,7 +152,8 @@ public class ConnectorService {
         String name = request.name() == null || request.name().isBlank()
                 ? existing.name()
                 : requireName(request.name());
-        Map<String, String> merged = new LinkedHashMap<>(config(existing));
+        Map<String, String> before = config(existing);
+        Map<String, String> merged = new LinkedHashMap<>(before);
         if (request.config() != null) {
             request.config().forEach((key, value) -> {
                 if (key == null) {
@@ -178,7 +179,11 @@ public class ConnectorService {
                 ? existing.inboundMode()
                 : normalizeInboundMode(request.inboundMode(), descriptor);
         boolean enabled = request.enabled() == null ? existing.enabled() : request.enabled();
-        store.update(id, name, alias, crypto.encrypt(toJson(merged)), enabled, inboundMode);
+        // 只有配置真的变了才把探测状态打回"未测试"（改名字/改开关不该让状态失效）
+        boolean configChanged = !merged.equals(before);
+        store.update(id, name, alias, crypto.encrypt(toJson(merged)), enabled, inboundMode, configChanged);
+        log.info("更新连接器 id={} name={} enabled={} configChanged={} inboundMode={}",
+                id, name, enabled, configChanged, inboundMode);
         if (request.agentIds() != null) {
             store.replaceAgents(id, distinct(request.agentIds()));
         }

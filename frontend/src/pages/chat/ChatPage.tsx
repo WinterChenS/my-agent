@@ -20,6 +20,7 @@ import {
   type SkillMentionInputHandle,
 } from "@/components/chat/SkillMentionInput";
 import { ContextRing } from "@/components/chat/ContextRing";
+import { ConnectorMenu } from "@/components/chat/ConnectorMenu";
 import type { ContextUsage } from "@/api/sessions";
 import { getMyQuota, type QuotaStatus } from "@/api/quota";
 import { SubagentCard } from "@/components/chat/SubagentCard";
@@ -1407,6 +1408,8 @@ export default function ChatPage() {
                   </select>
                   <ChevronDown className="-ml-3 size-3.5 pointer-events-none" />
                 </label>
+
+                <ConnectorMenu agentId={agentId} />
 
                 <ContextRing
                   usage={contextUsage}

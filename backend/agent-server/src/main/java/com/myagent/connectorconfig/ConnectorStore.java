@@ -126,18 +126,26 @@ public class ConnectorStore {
                 type, name, alias, ownerUserId, configEnc, enabled, inboundMode);
     }
 
+    /**
+     * 更新配置。
+     *
+     * @param configChanged 凭据/配置**是否真的变了**：变了才把探测状态重置为 UNKNOWN。
+     *        不要用「密文是否相等于列里的值」来判断 —— AES-GCM 每次加密 IV 随机，
+     *        即使明文没变密文也一定不同，那样每次改个名字都会把状态打回"未测试"。
+     */
     public void update(
             long id,
             String name,
             String alias,
             String configEnc,
             boolean enabled,
-            String inboundMode) {
+            String inboundMode,
+            boolean configChanged) {
         jdbc.update(
                 "update connector set name = ?, alias = ?, config_enc = ?, enabled = ?, inbound_mode = ?,"
-                        + " status = case when config_enc = ? then status else 'UNKNOWN' end,"
+                        + " status = case when ? then 'UNKNOWN' else status end,"
                         + " updated_at = now() where id = ?",
-                name, alias, configEnc, enabled, inboundMode, configEnc, id);
+                name, alias, configEnc, enabled, inboundMode, configChanged, id);
     }
 
     public void delete(long id) {
