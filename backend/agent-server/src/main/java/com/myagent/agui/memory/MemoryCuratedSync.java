@@ -10,21 +10,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 长期记忆（{@code MEMORY.md}）与数据库的双向同步。
+ * 长期记忆（{@code MEMORY.md}）**存数据库**，不落磁盘；本类只负责把历史遗留的磁盘副本迁进库。
  *
- * <p>为什么需要：框架把 {@code MEMORY.md} 写在**工作区磁盘**上，而每日台账走数据库。
- * 换成 Docker 部署（或换机器/换卷）后磁盘是全新的 →「长期记忆」整份消失，只剩台账
- * （用户实测："记忆管理里面永久记忆没了"）。现在库里也留一份镜像，这里负责两头对齐：
+ * <p>背景：框架原本把 {@code MEMORY.md} 写在工作区磁盘上（每日台账才进库），换成 Docker 部署、
+ * 工作区换新卷后长期记忆整份消失（用户实测）。现在 {@code AgentFactory} 用官方
+ * {@code filesystemRoute("MEMORY.md", 远程库文件系统)} 精确路由这一个文件，框架的读写都直接落库。
  *
- * <ul>
- *   <li><b>启动时</b> 库 → 磁盘：保证框架（它只读磁盘）下一轮就能读到长期记忆；</li>
- *   <li><b>周期性</b> 磁盘 → 库：框架 consolidation 合并出新内容后，把镜像刷新，
- *       下次换机器才带得走。周期同步也是为了不改框架内部写文件的行为（门禁 G8）。</li>
- * </ul>
+ * <p>那这个类还留着的唯一职责：**升级兼容**。老部署的磁盘上已经有 {@code MEMORY.md}，
+ * 启动时导入库并删除磁盘副本，之后就完全以库为准（不再有双向同步、也不再往磁盘写回）。
  */
 @Component
 public class MemoryCuratedSync {
@@ -44,75 +40,48 @@ public class MemoryCuratedSync {
         this.workspaceRoot = Path.of(aguiProperties.workspaceRoot()).toAbsolutePath().normalize();
     }
 
-    /** 启动时先恢复：库里有、磁盘没有 → 写回磁盘。 */
-    @EventListener(ApplicationReadyEvent.class)
-    public void restoreOnStartup() {
-        int restored = restoreMissing();
-        int uploaded = uploadChanged();
-        if (restored > 0 || uploaded > 0) {
-            log.info("长期记忆同步完成：从库恢复 {} 份，上传镜像 {} 份", restored, uploaded);
-        }
-    }
-
     /**
-     * 周期同步（默认 5 分钟）：先把框架新写的 MEMORY.md 上传镜像，再把缺的从库补回磁盘。
+     * 启动时把磁盘上的历史 {@code MEMORY.md} 迁进库（导完即删磁盘副本）。
      *
-     * <p>为什么是周期而不是实时：MEMORY.md 由框架 consolidation 自己写文件，平台不去拦截它的写路径
-     * （不重写框架逻辑）；周期对齐足够，且对性能无感。
+     * <p>幂等：库里已有的用户直接跳过；磁盘上已经没有文件的用户什么也不做。
      */
-    @Scheduled(fixedDelayString = "${myagent.memory.curated-sync-millis:300000}", initialDelay = 60_000)
-    public void syncPeriodically() {
-        try {
-            int uploaded = uploadChanged();
-            int restored = restoreMissing();
-            if (uploaded > 0 || restored > 0) {
-                log.debug("长期记忆周期同步：上传 {} 份，恢复 {} 份", uploaded, restored);
+    @EventListener(ApplicationReadyEvent.class)
+    public void migrateLegacyOnStartup() {
+        int imported = 0;
+        for (Long userId : candidateUserIds()) {
+            if (memoryAdminService.importLegacyCurated(userId) != null) {
+                imported++;
             }
-        } catch (Exception ex) {
-            log.warn("长期记忆周期同步失败（不影响对话）: {}", ex.toString());
+        }
+        if (imported > 0) {
+            log.info("长期记忆已迁移到数据库：{} 份（磁盘副本已删除）", imported);
         }
     }
 
-    /** 磁盘 → 库：把所有用户的 MEMORY.md 镜像进库（内容没变会被跳过）。 */
-    int uploadChanged() {
-        int count = 0;
-        for (Path file : diskCuratedFiles()) {
-            memoryAdminService.mirrorCuratedToStore(file);
-            count++;
-        }
-        return count;
-    }
-
-    /** 库 → 磁盘：库里有的用户，若磁盘上没有就写回去。 */
-    int restoreMissing() {
-        List<Long> userIds = new ArrayList<>();
+    /** 候选用户：库里已有记忆命名空间的用户 + 磁盘上还有 MEMORY.md 的用户目录。 */
+    private List<Long> candidateUserIds() {
+        List<Long> ids = new ArrayList<>();
         try {
-            userIds.addAll(jdbc.queryForList(
-                    "select distinct namespace_path from memory_store where item_key = ?",
-                    String.class,
-                    MemoryAdminService.CURATED_KEY).stream()
+            jdbc.queryForList("select distinct namespace_path from memory_store", String.class)
+                    .stream()
                     .map(MemoryCuratedSync::userIdOfNamespace)
                     .filter(id -> id != null)
-                    .toList());
+                    .forEach(ids::add);
         } catch (Exception ex) {
-            log.debug("查询已镜像的长期记忆失败: {}", ex.getMessage());
-            return 0;
+            log.debug("查询记忆命名空间失败: {}", ex.getMessage());
         }
-        int restored = 0;
-        for (Long userId : userIds) {
-            Path file = workspaceRoot.resolve(String.valueOf(userId)).resolve("MEMORY.md");
-            if (Files.isRegularFile(file)) {
-                continue;
-            }
-            if (memoryAdminService.restoreCuratedFromStore(file)) {
-                restored++;
+        for (Path file : legacyDiskFiles()) {
+            try {
+                ids.add(Long.valueOf(file.getParent().getFileName().toString()));
+            } catch (NumberFormatException ignored) {
+                // 不是 <userId> 目录，跳过
             }
         }
-        return restored;
+        return ids.stream().distinct().toList();
     }
 
-    /** `<workspace>/<userId>/MEMORY.md` 列表（用户目录名必须是数字，防止误碰其它目录）。 */
-    private List<Path> diskCuratedFiles() {
+    /** `<workspace>/<userId>/MEMORY.md`（用户目录名必须是数字，防止误碰其它目录）。 */
+    private List<Path> legacyDiskFiles() {
         List<Path> files = new ArrayList<>();
         if (!Files.isDirectory(workspaceRoot)) {
             return files;
@@ -123,7 +92,7 @@ public class MemoryCuratedSync {
                 if (!name.chars().allMatch(Character::isDigit)) {
                     return;
                 }
-                Path file = dir.resolve("MEMORY.md");
+                Path file = dir.resolve(MemoryAdminService.CURATED_KEY.substring(1));
                 if (Files.isRegularFile(file)) {
                     files.add(file);
                 }

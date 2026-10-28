@@ -17,15 +17,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * 长期记忆（MEMORY.md）必须能跟着部署走。
+ * 长期记忆（MEMORY.md）存**数据库**，不落磁盘。
  *
- * <p>真实故障：换成 Docker 部署（新卷）后「记忆」页只剩每日台账，"长期记忆"整份消失——
- * 因为它原本只写在工作区磁盘上，而每日台账在数据库里。
- * 现在磁盘与库双向镜像：换机器后从库恢复回磁盘，框架（只读磁盘）下一轮就能读到。
+ * <p>背景：它原本只写在工作区磁盘上，换成 Docker 部署（新卷）后整份消失（用户实测）。
+ * 现在框架通过官方 {@code filesystemRoute("MEMORY.md", 远程库)} 直接读写数据库（见
+ * {@link MemoryFilesystemRouteTest}），管理页也一律读写数据库；磁盘只在**升级迁移**时被读取一次。
  */
 class MemoryCuratedMirrorTest {
 
-    /** 内存版 BaseStore（只实现测试用得到的 get/put/search）。 */
     private static final class InMemoryStore implements BaseStore {
         private final Map<String, Map<String, Object>> data = new LinkedHashMap<>();
 
@@ -76,83 +75,65 @@ class MemoryCuratedMirrorTest {
         service = new MemoryAdminService(store, workspace);
     }
 
-    private Path curatedFile() {
+    private Path legacyDiskFile() {
         return workspace.resolve("1").resolve("MEMORY.md");
     }
 
-    private void writeDisk(String text) throws IOException {
-        Files.createDirectories(curatedFile().getParent());
-        Files.writeString(curatedFile(), text, StandardCharsets.UTF_8);
+    private void writeLegacyDisk(String text) throws IOException {
+        Files.createDirectories(legacyDiskFile().getParent());
+        Files.writeString(legacyDiskFile(), text, StandardCharsets.UTF_8);
     }
 
-    @Test
-    void 磁盘上有_列表能看到并镜像进库() throws IOException {
-        writeDisk("- 主人喜欢简洁\n");
-
-        assertThat(service.list(1L))
-                .anySatisfy(doc -> {
-                    assertThat(doc.name()).isEqualTo("MEMORY.md");
-                    assertThat(doc.kind()).isEqualTo(MemoryDocument.KIND_CURATED);
-                });
-
-        StoreItem mirror = store.get(MemoryAdminService.namespace(1L), MemoryAdminService.CURATED_KEY);
-        assertThat(mirror).isNotNull();
-        assertThat(mirror.value().get("content")).isEqualTo("- 主人喜欢简洁\n");
-    }
-
-    @Test
-    void 磁盘上没有_从库恢复到磁盘_框架才读得到() {
+    private void putStore(String content) {
         store.put(
                 MemoryAdminService.namespace(1L),
                 MemoryAdminService.CURATED_KEY,
-                Map.of("content", "- 从库恢复的记忆\n", "encoding", "utf-8", "modified_at", "2026-10-01T00:00:00Z"));
+                Map.of("content", content, "encoding", "utf-8", "modified_at", "2026-10-01T00:00:00Z"));
+    }
 
-        assertThat(Files.isRegularFile(curatedFile())).as("读之前磁盘上还没有").isFalse();
+    @Test
+    void 长期记忆从库里读_磁盘上没有文件也能看到() {
+        putStore("- 库里存的长期记忆\n");
 
         List<MemoryDocument> docs = service.list(1L);
 
-        assertThat(docs).anySatisfy(doc -> assertThat(doc.name()).isEqualTo("MEMORY.md"));
-        // 关键：必须真的写回磁盘（框架只读磁盘，光在库里有没用）
-        assertThat(Files.isRegularFile(curatedFile())).isTrue();
-        assertThat(readDisk()).isEqualTo("- 从库恢复的记忆\n");
+        assertThat(docs).anySatisfy(doc -> {
+            assertThat(doc.name()).isEqualTo("MEMORY.md");
+            assertThat(doc.kind()).isEqualTo(MemoryDocument.KIND_CURATED);
+            assertThat(doc.content()).isEqualTo("- 库里存的长期记忆\n");
+        });
+        assertThat(Files.exists(legacyDiskFile())).as("不应该再往磁盘写").isFalse();
     }
 
     @Test
-    void 读取MEMORY_md时也会自愈() {
-        store.put(
-                MemoryAdminService.namespace(1L),
-                MemoryAdminService.CURATED_KEY,
-                Map.of("content", "- 恢复\n", "encoding", "utf-8"));
-
-        assertThat(service.read(1L, "MEMORY.md").content()).isEqualTo("- 恢复\n");
-        assertThat(Files.isRegularFile(curatedFile())).isTrue();
-    }
-
-    @Test
-    void 人工编辑MEMORY_md时磁盘与库同时更新() {
+    void 人工编辑写进库_不写磁盘() {
         service.save(1L, "MEMORY.md", "- 手改后的长期记忆\n");
 
-        assertThat(readDisk()).isEqualTo("- 手改后的长期记忆\n");
         assertThat(store.get(MemoryAdminService.namespace(1L), MemoryAdminService.CURATED_KEY)
                         .value().get("content"))
                 .isEqualTo("- 手改后的长期记忆\n");
+        assertThat(Files.exists(legacyDiskFile())).isFalse();
     }
 
     @Test
-    void 内容没变时不会反复写库() throws IOException {
-        writeDisk("- 稳定内容\n");
-        service.list(1L); // 第一次：镜像
-        StoreItem first = store.get(MemoryAdminService.namespace(1L), MemoryAdminService.CURATED_KEY);
-        service.list(1L); // 第二次：内容相同应跳过
-        StoreItem second = store.get(MemoryAdminService.namespace(1L), MemoryAdminService.CURATED_KEY);
-        assertThat(second.version()).isEqualTo(first.version());
+    void 历史遗留的磁盘副本_第一次打开就迁进库并删掉磁盘文件() throws IOException {
+        writeLegacyDisk("- 老数据在磁盘上\n");
+
+        assertThat(service.read(1L, "MEMORY.md").content()).isEqualTo("- 老数据在磁盘上\n");
+
+        // 迁进库
+        assertThat(store.get(MemoryAdminService.namespace(1L), MemoryAdminService.CURATED_KEY)
+                        .value().get("content"))
+                .isEqualTo("- 老数据在磁盘上\n");
+        // 磁盘副本删除，避免两份数据谁为准
+        assertThat(Files.exists(legacyDiskFile())).isFalse();
     }
 
-    private String readDisk() {
-        try {
-            return Files.readString(curatedFile(), StandardCharsets.UTF_8);
-        } catch (IOException ex) {
-            throw new IllegalStateException(ex);
-        }
+    @Test
+    void 库和磁盘都有时_以库为准() throws IOException {
+        putStore("- 库里的版本\n");
+        writeLegacyDisk("- 磁盘上的旧版本\n");
+
+        assertThat(service.read(1L, "MEMORY.md").content()).isEqualTo("- 库里的版本\n");
     }
 }

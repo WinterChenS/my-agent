@@ -312,6 +312,10 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                         .build())
                 // Phase 11 / D23：工作区 memory/** 经官方 CompositeFilesystem 路由到数据库
                 .filesystemRoute(MEMORY_ROUTE_PREFIX, memoryRemoteFilesystem)
+                // 长期记忆（MEMORY.md）也进库，**不落磁盘**：
+                // 官方复合文件系统支持「按文件路径」精确匹配（实测 key 落到 /MEMORY.md），
+                // 以前它写在 <workspace>/<userId>/MEMORY.md，换机器/换卷就整份丢失（用户实测）。
+                .filesystemRoute(MEMORY_CURATED_NAME, memoryRemoteFilesystem)
                 // 权限上下文必须在 toolkit 之后构建：ask 规则要覆盖 Agent 实际拥有的工具
                 .permissionContext(buildPermissionContext(agent.getPermissionMode(), toolkit))
                 .build();
@@ -542,6 +546,12 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
             default -> PermissionMode.DEFAULT;
         };
     }
+
+    /**
+     * 长期记忆文件名。它在工作区**根目录**（不在 memory/ 下），所以单独按文件路径路由进库，
+     * 否则只能落在容器磁盘上 —— Docker 一换卷就丢。
+     */
+    static final String MEMORY_CURATED_NAME = "MEMORY.md";
 
     /** 长期记忆在（运行时数据根下的）目录名；路由到数据库的前缀。 */
     static final String MEMORY_ROUTE_PREFIX = "memory";

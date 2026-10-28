@@ -74,7 +74,7 @@ class MemoryAdminServiceTest {
     }
 
     @Test
-    void 覆盖写MEMORY_原子落盘且读得到新内容() {
+    void 覆盖写MEMORY_写进库且读得到新内容() {
         service.save(userId, MemoryDocument.CURATED_NAME, "# MEMORY.md\n- 第一版\n");
         assertThat(service.read(userId, MemoryDocument.CURATED_NAME).content()).contains("第一版");
 
@@ -83,13 +83,10 @@ class MemoryAdminServiceTest {
         assertThat(read.content()).contains("第二版").doesNotContain("第一版");
         assertThat(read.sizeBytes()).isPositive();
         assertThat(read.updatedAt()).isNotNull();
-        // 没有留下临时文件
-        try (var files = Files.list(workspaceRoot.resolve(String.valueOf(userId)))) {
-            assertThat(files.map(p -> p.getFileName().toString()))
-                    .allMatch(name -> !name.startsWith(".memory-"));
-        } catch (Exception ex) {
-            throw new AssertionError(ex);
-        }
+        // 长期记忆存库、不落磁盘（以前是写 <workspace>/<userId>/MEMORY.md）
+        assertThat(Files.exists(workspaceRoot.resolve(String.valueOf(userId)).resolve("MEMORY.md")))
+                .as("MEMORY.md 不应该再写到磁盘")
+                .isFalse();
     }
 
     @Test

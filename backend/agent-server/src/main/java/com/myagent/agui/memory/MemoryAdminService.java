@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -28,15 +27,14 @@ import java.util.regex.Pattern;
  *       {@code memory_store} 表里 `namespace_path=user/<userId>`、`item_key=/YYYY-MM-DD.md`。</li>
  * </ul>
  *
- * <h3>为什么 MEMORY.md 也要在库里留一份</h3>
- * 它原本**只**在磁盘上。改成 Docker 部署、换机器/换卷之后，磁盘是新的 →「长期记忆」整份消失
- * （用户实测：记忆页只剩每日台账，"长期记忆"没了），而每日台账在库里所以还在。
- * 现在把它同时镜像到 {@code memory_store}（`item_key=/MEMORY.md`，与台账同一命名空间）：
- * <ul>
- *   <li>磁盘有、库里没有（或更旧）→ 上传镜像；</li>
- *   <li>磁盘没有、库里有 → <b>写回磁盘</b>（框架只认磁盘，恢复后 Agent 下一轮就能读到）；</li>
- *   <li>人工编辑（本类 {@link #save}）→ 磁盘与库同时写。</li>
- * </ul>
+ * <h3>MEMORY.md 现在也存数据库（不再依赖磁盘）</h3>
+ * 它原本只写在工作区磁盘上，换机器/换卷就整份消失（用户实测："长期记忆没了"）。
+ * 现在 {@code AgentFactory} 用官方 {@code filesystemRoute("MEMORY.md", 远程库文件系统)}
+ * 把它**精确路由进库**（{@code memory_store} 里 {@code item_key=/MEMORY.md}，与台账同命名空间），
+ * 框架的读写都直接落库，容器磁盘上不再有这份文件。
+ *
+ * <p>历史兼容：早期版本把 MEMORY.md 写在磁盘上，本类/启动迁移会把它**导入库并删除磁盘副本**
+ * （只做一次，之后以库为准）。
  *
  * <p>本类只做“列出 / 读出 / 覆盖写 / 删台账”，不改框架的记忆生成与合并策略；
  * 写台账时沿用框架自己的 payload 形状（`content`/`encoding`/`created_at`/`modified_at`），
@@ -65,10 +63,7 @@ public class MemoryAdminService {
     /** 列出该用户的全部记忆文档（精华在前，台账按日期倒序）。 */
     public List<MemoryDocument> list(Long userId) {
         List<MemoryDocument> out = new ArrayList<>();
-        curatedPath(userId)
-                .filter(this::ensureCuratedAvailable)
-                .map(this::curatedDoc)
-                .ifPresent(out::add);
+        curatedDocOrNull(userId).ifPresent(out::add);
         for (MemoryDocument doc : dailyDocs(userId)) {
             out.add(doc.withoutContent());
         }
@@ -78,10 +73,7 @@ public class MemoryAdminService {
     /** 读一份文档的正文。 */
     public MemoryDocument read(Long userId, String name) {
         if (MemoryDocument.CURATED_NAME.equals(name)) {
-            Path file = curatedPath(userId)
-                    .filter(this::ensureCuratedAvailable)
-                    .orElseThrow(() -> BizException.notFound("还没有 MEMORY.md"));
-            return curatedDoc(file);
+            return curatedDocOrNull(userId).orElseThrow(() -> BizException.notFound("还没有 MEMORY.md"));
         }
         String key = dailyKey(name);
         StoreItem item = store.get(namespace(userId), key);
@@ -102,10 +94,7 @@ public class MemoryAdminService {
             throw BizException.badRequest("content 不能为空");
         }
         if (MemoryDocument.CURATED_NAME.equals(name)) {
-            Path file = curatedPath(userId)
-                    .orElseGet(() -> workspaceRoot.resolve(String.valueOf(userId)).resolve(MemoryDocument.CURATED_NAME));
-            writeAtomically(file, content);
-            // 同时写库：否则换机器/重建容器后这份"长期记忆"又会消失（用户实测过）
+            // 只写库：AgentFactory 已把 MEMORY.md 路由到远程库文件系统，框架读写都走这里
             store.put(namespace(userId), CURATED_KEY, payload(content, Instant.now().toString()));
             return new MemoryDocument(
                     MemoryDocument.CURATED_NAME,
@@ -126,75 +115,46 @@ public class MemoryAdminService {
         return new MemoryDocument(name, MemoryDocument.KIND_DAILY, sizeOf(content), now, content);
     }
 
-    /**
-     * 磁盘上的 MEMORY.md 是否可用；磁盘没有但库里有 → **写回磁盘**（换机器/换卷后自愈）。
-     *
-     * @return true 表示调用后磁盘上确实有这份文件
-     */
-    private boolean ensureCuratedAvailable(Path file) {
-        if (Files.isRegularFile(file)) {
-            mirrorCuratedToStore(file);
-            return true;
+    /** 从库里取长期记忆；库里没有但磁盘上有旧文件 → 导入库并删掉磁盘副本（历史兼容，只做一次）。 */
+    private Optional<MemoryDocument> curatedDocOrNull(Long userId) {
+        StoreItem item = store.get(namespace(userId), CURATED_KEY);
+        if (item != null) {
+            return Optional.of(curatedDoc(item));
         }
-        return restoreCuratedFromStore(file);
+        return Optional.ofNullable(importLegacyCurated(userId));
     }
 
-    /** 磁盘 → 库：磁盘文件更新（或库里没有）时才上传，避免每次读都写库。 */
-    void mirrorCuratedToStore(Path file) {
+    /**
+     * 历史迁移：早期版本把 MEMORY.md 写在磁盘上。
+     *
+     * <p>导入成功后**删除磁盘副本**，避免"两份数据、谁为准"的问题（也满足"长期记忆不要放磁盘"）。
+     */
+    MemoryDocument importLegacyCurated(Long userId) {
+        Optional<Path> path = curatedPath(userId);
+        if (path.isEmpty() || !Files.isRegularFile(path.get())) {
+            return null;
+        }
         try {
-            if (!Files.isRegularFile(file)) {
-                return;
-            }
-            Long userId = userIdOf(file);
-            if (userId == null) {
-                return;
-            }
+            Path file = path.get();
             String content = Files.readString(file, StandardCharsets.UTF_8);
             String modifiedAt = Files.getLastModifiedTime(file).toInstant().toString();
-            StoreItem existing = store.get(namespace(userId), CURATED_KEY);
-            if (existing != null) {
-                String storedModified = payloadValue(existing, "modified_at", null);
-                String storedContent = payloadValue(existing, "content", "");
-                if (content.equals(storedContent) || modifiedAt.equals(storedModified)) {
-                    return; // 内容没变，不写库（避免无谓的 version 增长）
-                }
-            }
             store.put(namespace(userId), CURATED_KEY, payload(content, modifiedAt));
-        } catch (Exception ex) {
-            // 镜像失败不能影响"读记忆"这个主流程
-        }
-    }
-
-    /** 库 → 磁盘：磁盘上没有时把库里的精华记忆写回去（框架只读磁盘）。 */
-    boolean restoreCuratedFromStore(Path file) {
-        try {
-            Long userId = userIdOf(file);
-            if (userId == null) {
-                return false;
-            }
-            StoreItem item = store.get(namespace(userId), CURATED_KEY);
-            if (item == null) {
-                return false;
-            }
-            String content = payloadValue(item, "content", "");
-            if (content.isEmpty()) {
-                return false;
-            }
-            Files.createDirectories(file.getParent());
-            writeAtomically(file, content);
-            return true;
-        } catch (Exception ex) {
-            return false;
-        }
-    }
-
-    /** 从 `<workspace>/<userId>/MEMORY.md` 反解用户 id。 */
-    private Long userIdOf(Path file) {
-        try {
-            return Long.valueOf(file.getParent().getFileName().toString());
+            Files.deleteIfExists(file);
+            return curatedDoc(store.get(namespace(userId), CURATED_KEY));
         } catch (Exception ex) {
             return null;
         }
+    }
+
+    /** 库里的长期记忆文档。 */
+    private MemoryDocument curatedDoc(StoreItem item) {
+        String content = payloadValue(item, "content", "");
+        return new MemoryDocument(
+                MemoryDocument.CURATED_NAME,
+                MemoryDocument.KIND_CURATED,
+                sizeOf(content),
+                modifiedAt(item),
+                content);
     }
 
     /** 与框架一致的 payload 形状（台账也是这样存的）。 */
@@ -247,18 +207,6 @@ public class MemoryAdminService {
             return Optional.empty();
         }
         return Optional.of(workspaceRoot.resolve(String.valueOf(userId)).resolve(MemoryDocument.CURATED_NAME));
-    }
-
-    private MemoryDocument curatedDoc(Path file) {
-        try {
-            String text = Files.readString(file, StandardCharsets.UTF_8);
-            OffsetDateTime updatedAt = OffsetDateTime.ofInstant(
-                    Files.getLastModifiedTime(file).toInstant(), ZoneId.systemDefault());
-            return new MemoryDocument(
-                    MemoryDocument.CURATED_NAME, MemoryDocument.KIND_CURATED, sizeOf(text), updatedAt, text);
-        } catch (IOException ex) {
-            throw BizException.badRequest("读取 MEMORY.md 失败：" + ex.getMessage());
-        }
     }
 
     /** 库里的每日台账（跳过非 `/<date>.md` 形状的 key）。 */
@@ -315,14 +263,4 @@ public class MemoryAdminService {
         return text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length;
     }
 
-    private static void writeAtomically(Path file, String content) {
-        try {
-            Files.createDirectories(file.getParent());
-            Path tmp = Files.createTempFile(file.getParent(), ".memory-", ".tmp");
-            Files.writeString(tmp, content, StandardCharsets.UTF_8);
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException ex) {
-            throw BizException.badRequest("保存失败：" + ex.getMessage());
-        }
-    }
 }
