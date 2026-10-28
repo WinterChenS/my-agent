@@ -28,6 +28,16 @@ import java.util.regex.Pattern;
  *       {@code memory_store} 表里 `namespace_path=user/<userId>`、`item_key=/YYYY-MM-DD.md`。</li>
  * </ul>
  *
+ * <h3>为什么 MEMORY.md 也要在库里留一份</h3>
+ * 它原本**只**在磁盘上。改成 Docker 部署、换机器/换卷之后，磁盘是新的 →「长期记忆」整份消失
+ * （用户实测：记忆页只剩每日台账，"长期记忆"没了），而每日台账在库里所以还在。
+ * 现在把它同时镜像到 {@code memory_store}（`item_key=/MEMORY.md`，与台账同一命名空间）：
+ * <ul>
+ *   <li>磁盘有、库里没有（或更旧）→ 上传镜像；</li>
+ *   <li>磁盘没有、库里有 → <b>写回磁盘</b>（框架只认磁盘，恢复后 Agent 下一轮就能读到）；</li>
+ *   <li>人工编辑（本类 {@link #save}）→ 磁盘与库同时写。</li>
+ * </ul>
+ *
  * <p>本类只做“列出 / 读出 / 覆盖写 / 删台账”，不改框架的记忆生成与合并策略；
  * 写台账时沿用框架自己的 payload 形状（`content`/`encoding`/`created_at`/`modified_at`），
  * 这样框架后续读取、consolidation 都不会因为格式不同而失效。
@@ -37,13 +47,17 @@ import java.util.regex.Pattern;
  */
 public class MemoryAdminService {
 
+    /** 精华记忆在库里的 key（与台账同命名空间，便于一起备份/迁移）。 */
+    static final String CURATED_KEY = "/MEMORY.md";
+
     /** 只允许这两类名字，挡住路径穿越（`../x`、绝对路径等）。 */
     private static final Pattern DAILY_NAME = Pattern.compile("\\d{4}-\\d{2}-\\d{2}\\.md");
 
-    private final PgBaseStore store;
+    private final io.agentscope.harness.agent.filesystem.remote.store.BaseStore store;
     private final Path workspaceRoot;
 
-    public MemoryAdminService(PgBaseStore store, Path workspaceRoot) {
+    public MemoryAdminService(
+            io.agentscope.harness.agent.filesystem.remote.store.BaseStore store, Path workspaceRoot) {
         this.store = store;
         this.workspaceRoot = workspaceRoot;
     }
@@ -52,7 +66,7 @@ public class MemoryAdminService {
     public List<MemoryDocument> list(Long userId) {
         List<MemoryDocument> out = new ArrayList<>();
         curatedPath(userId)
-                .filter(Files::isRegularFile)
+                .filter(this::ensureCuratedAvailable)
                 .map(this::curatedDoc)
                 .ifPresent(out::add);
         for (MemoryDocument doc : dailyDocs(userId)) {
@@ -65,6 +79,7 @@ public class MemoryAdminService {
     public MemoryDocument read(Long userId, String name) {
         if (MemoryDocument.CURATED_NAME.equals(name)) {
             Path file = curatedPath(userId)
+                    .filter(this::ensureCuratedAvailable)
                     .orElseThrow(() -> BizException.notFound("还没有 MEMORY.md"));
             return curatedDoc(file);
         }
@@ -90,6 +105,8 @@ public class MemoryAdminService {
             Path file = curatedPath(userId)
                     .orElseGet(() -> workspaceRoot.resolve(String.valueOf(userId)).resolve(MemoryDocument.CURATED_NAME));
             writeAtomically(file, content);
+            // 同时写库：否则换机器/重建容器后这份"长期记忆"又会消失（用户实测过）
+            store.put(namespace(userId), CURATED_KEY, payload(content, Instant.now().toString()));
             return new MemoryDocument(
                     MemoryDocument.CURATED_NAME,
                     MemoryDocument.KIND_CURATED,
@@ -107,6 +124,88 @@ public class MemoryAdminService {
         payload.put("modified_at", now.toString());
         store.put(namespace(userId), key, payload);
         return new MemoryDocument(name, MemoryDocument.KIND_DAILY, sizeOf(content), now, content);
+    }
+
+    /**
+     * 磁盘上的 MEMORY.md 是否可用；磁盘没有但库里有 → **写回磁盘**（换机器/换卷后自愈）。
+     *
+     * @return true 表示调用后磁盘上确实有这份文件
+     */
+    private boolean ensureCuratedAvailable(Path file) {
+        if (Files.isRegularFile(file)) {
+            mirrorCuratedToStore(file);
+            return true;
+        }
+        return restoreCuratedFromStore(file);
+    }
+
+    /** 磁盘 → 库：磁盘文件更新（或库里没有）时才上传，避免每次读都写库。 */
+    void mirrorCuratedToStore(Path file) {
+        try {
+            if (!Files.isRegularFile(file)) {
+                return;
+            }
+            Long userId = userIdOf(file);
+            if (userId == null) {
+                return;
+            }
+            String content = Files.readString(file, StandardCharsets.UTF_8);
+            String modifiedAt = Files.getLastModifiedTime(file).toInstant().toString();
+            StoreItem existing = store.get(namespace(userId), CURATED_KEY);
+            if (existing != null) {
+                String storedModified = payloadValue(existing, "modified_at", null);
+                String storedContent = payloadValue(existing, "content", "");
+                if (content.equals(storedContent) || modifiedAt.equals(storedModified)) {
+                    return; // 内容没变，不写库（避免无谓的 version 增长）
+                }
+            }
+            store.put(namespace(userId), CURATED_KEY, payload(content, modifiedAt));
+        } catch (Exception ex) {
+            // 镜像失败不能影响"读记忆"这个主流程
+        }
+    }
+
+    /** 库 → 磁盘：磁盘上没有时把库里的精华记忆写回去（框架只读磁盘）。 */
+    boolean restoreCuratedFromStore(Path file) {
+        try {
+            Long userId = userIdOf(file);
+            if (userId == null) {
+                return false;
+            }
+            StoreItem item = store.get(namespace(userId), CURATED_KEY);
+            if (item == null) {
+                return false;
+            }
+            String content = payloadValue(item, "content", "");
+            if (content.isEmpty()) {
+                return false;
+            }
+            Files.createDirectories(file.getParent());
+            writeAtomically(file, content);
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /** 从 `<workspace>/<userId>/MEMORY.md` 反解用户 id。 */
+    private Long userIdOf(Path file) {
+        try {
+            return Long.valueOf(file.getParent().getFileName().toString());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /** 与框架一致的 payload 形状（台账也是这样存的）。 */
+    private Map<String, Object> payload(String content, String modifiedAt) {
+        String now = Instant.now().toString();
+        Map<String, Object> value = new java.util.LinkedHashMap<>();
+        value.put("content", content);
+        value.put("encoding", "utf-8");
+        value.put("created_at", now);
+        value.put("modified_at", modifiedAt == null ? now : modifiedAt);
+        return value;
     }
 
     /** 删除一份**台账**（`MEMORY.md` 是精华记忆，不允许删空）。 */
