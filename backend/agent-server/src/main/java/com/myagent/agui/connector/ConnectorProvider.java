@@ -31,12 +31,33 @@ public interface ConnectorProvider {
     com.myagent.connectorconfig.dto.ConnectorTestResult probe(Map<String, String> config);
 
     /**
-     * 入站轮询：返回自上次游标以来的新邮件（只读）。
+     * 入站轮询：返回自上次游标以来的新邮件（只读）**以及要保存的新游标**。
+     *
+     * <p>为什么要连游标一起返回：第一次跑（没有游标）只能"打基线"而不拉历史邮件，
+     * 这时没有邮件但有游标要落库——只返回 {@code List} 的话，游标永远建立不起来，
+     * 于是每轮都被当成"第一次"，历史未读会被反复推送（用户实测投诉过）。
      *
      * <p>默认空实现：不支持入站的类型不用管。
      */
-    default List<InboundMessage> poll(ConnectorRecord record, Map<String, String> config) {
-        return List.of();
+    default PollResult poll(ConnectorRecord record, Map<String, String> config) {
+        return PollResult.empty();
+    }
+
+    /**
+     * 一次轮询结果。
+     *
+     * @param messages 新邮件（第一次打基线时为空）
+     * @param uidValidity 服务端当前游标版本（邮箱被重建会变）
+     * @param lastUid 处理完后要保存的游标
+     */
+    record PollResult(List<InboundMessage> messages, Long uidValidity, long lastUid, boolean baselined) {
+        public static PollResult empty() {
+            return new PollResult(List.of(), null, 0L, false);
+        }
+
+        public boolean hasCursor() {
+            return uidValidity != null;
+        }
     }
 
     /**

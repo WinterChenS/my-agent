@@ -160,6 +160,11 @@ public class ConnectorStore {
                 ok ? "OK" : "ERROR", error, id);
     }
 
+    /** 清空入站游标：下次轮询会重新打基线（从"下一封新邮件"开始算，不回灌历史）。 */
+    public void resetInboundCursor(long id) {
+        jdbc.update("update connector set uid_validity = null, last_uid = 0 where id = ?", id);
+    }
+
     /** 保存入站游标（UIDVALIDITY 变化时由调用方决定是否重置）。 */
     public void saveInboundCursor(long id, Long uidValidity, long lastUid) {
         jdbc.update(

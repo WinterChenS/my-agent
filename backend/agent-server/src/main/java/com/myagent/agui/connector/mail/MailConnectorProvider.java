@@ -26,6 +26,7 @@ public class MailConnectorProvider implements ConnectorProvider {
     private final long maxAttachmentBytes;
     private final long maxAttachmentsTotalBytes;
     private final int maxBodyChars;
+    private final int maxBatch;
 
     public MailConnectorProvider(
             ConnectorService connectorService,
@@ -34,7 +35,8 @@ public class MailConnectorProvider implements ConnectorProvider {
             int readTimeoutMs,
             long maxAttachmentBytes,
             long maxAttachmentsTotalBytes,
-            int maxBodyChars) {
+            int maxBodyChars,
+            int maxBatch) {
         this.connectorService = connectorService;
         this.workspaceRoot = workspaceRoot;
         this.connectTimeoutMs = connectTimeoutMs;
@@ -42,6 +44,7 @@ public class MailConnectorProvider implements ConnectorProvider {
         this.maxAttachmentBytes = maxAttachmentBytes;
         this.maxAttachmentsTotalBytes = maxAttachmentsTotalBytes;
         this.maxBodyChars = maxBodyChars;
+        this.maxBatch = maxBatch <= 0 ? 20 : maxBatch;
     }
 
     @Override
@@ -82,15 +85,14 @@ public class MailConnectorProvider implements ConnectorProvider {
     }
 
     @Override
-    public List<InboundMessage> poll(ConnectorRecord record, Map<String, String> config) {
+    public PollResult poll(ConnectorRecord record, Map<String, String> config) {
         MailSettings settings = MailSettings.of(config);
         MailClient client = new MailClient(settings, connectTimeoutMs, readTimeoutMs,
                 maxAttachmentBytes, maxAttachmentsTotalBytes, maxBodyChars);
-        List<MailClient.InboundRaw> raw =
-                client.pollNew(record.lastUid(), record.uidValidity(), 20);
-        List<InboundMessage> result = new ArrayList<>(raw.size());
-        for (MailClient.InboundRaw message : raw) {
-            result.add(new InboundMessage(
+        MailClient.PollResult raw = client.pollNew(record.uidValidity(), record.lastUid(), maxBatch);
+        List<InboundMessage> messages = new ArrayList<>(raw.messages().size());
+        for (MailClient.InboundRaw message : raw.messages()) {
+            messages.add(new InboundMessage(
                     message.uid(),
                     message.uidValidity(),
                     message.messageId(),
@@ -104,6 +106,6 @@ public class MailConnectorProvider implements ConnectorProvider {
                     message.precedence(),
                     message.recipients()));
         }
-        return result;
+        return new PollResult(messages, raw.uidValidity(), raw.lastUid(), raw.baselined());
     }
 }

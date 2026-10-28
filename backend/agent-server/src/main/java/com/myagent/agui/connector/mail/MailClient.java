@@ -263,31 +263,50 @@ public class MailClient {
      * @param lastUid 上次处理到的 UID；{@code lastUidValidity} 与当前不一致时说明邮箱被重建，按未读重新取
      * @param limit 单次最多返回多少封（防一次性拉几千封）
      */
-    public List<MailClient.InboundRaw> pollNew(long lastUid, Long lastUidValidity, int limit) {
+    /**
+     * 一次入站拉取的结果：**同时带回新游标**。
+     *
+     * @param messages 真正的新邮件（never null）
+     * @param uidValidity 服务器当前的 UIDVALIDITY
+     * @param lastUid 处理完之后应当保存的游标（本次最大的 UID；没拉到时就是调用方给的上一个游标/当前 UIDNEXT-1）
+     * @param baselined 本次是否只是"打基线"（第一次跑 / 邮箱被重建），此时 messages 一定为空
+     */
+    public record PollResult(List<MailClient.InboundRaw> messages, Long uidValidity, long lastUid,
+            boolean baselined) {}
+
+    /**
+     * 拉取「游标之后」的新邮件。
+     *
+     * <p><b>第一次跑（没有游标）或 UIDVALIDITY 变了，只打基线，不拉任何历史邮件</b>：
+     * 早期版本这里取的是"所有未读"，结果用户刚打开通知，7 月的未读邮件被一口气全推了一遍
+     * （用户实测投诉）。通知的正确语义是「从打开这一刻起的新邮件」，历史不该回灌。
+     * 想看历史请在客户端里翻，不是靠通知补发。
+     */
+    public PollResult pollNew(Long lastUidValidity, Long lastUid, int limit) {
         return withFolder("INBOX", Folder.READ_ONLY, (folder, uidFolder) -> {
             Long validity = uidFolder.getUIDValidity();
-            boolean reset = lastUidValidity == null || !lastUidValidity.equals(validity);
-            Message[] messages;
-            if (reset) {
-                // 游标不可信（换邮箱/被重建/第一次跑）：只取未读，避免把历史邮件全灌进来
-                messages = folder.search(new FlagTerm(new Flags(Flags.Flag.SEEN), false));
-            } else {
-                messages = uidFolder.getMessagesByUID(lastUid + 1, jakarta.mail.UIDFolder.LASTUID);
+            long uidNext = uidFolder.getUIDNext();
+            boolean needsBaseline = lastUidValidity == null || !lastUidValidity.equals(validity);
+            if (needsBaseline) {
+                // 只记基线：从"下一封真正到达的邮件"开始算
+                return new PollResult(List.of(), validity, Math.max(uidNext - 1, 0), true);
             }
+            long from = (lastUid == null ? 0 : lastUid) + 1;
+            Message[] messages = uidFolder.getMessagesByUID(from, jakarta.mail.UIDFolder.LASTUID);
             List<MailClient.InboundRaw> result = new ArrayList<>();
-            int count = 0;
+            long maxUid = lastUid == null ? 0 : lastUid;
             for (Message message : messages) {
-                if (count >= limit) {
+                if (result.size() >= limit) {
                     break;
                 }
                 long uid = uidFolder.getUID(message);
-                if (!reset && uid <= lastUid) {
+                if (uid < from) {
                     continue;
                 }
-                count++;
+                maxUid = Math.max(maxUid, uid);
                 result.add(inboundRaw(message, uidFolder, message, uid, validity));
             }
-            return result;
+            return new PollResult(result, validity, maxUid, false);
         });
     }
 

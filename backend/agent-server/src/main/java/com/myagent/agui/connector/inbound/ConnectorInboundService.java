@@ -103,13 +103,7 @@ public class ConnectorInboundService {
             return 0;
         }
         int handled = 0;
-        long maxUid = record.lastUid();
-        Long uidValidity = record.uidValidity();
         for (ConnectorProvider.InboundMessage message : messages) {
-            maxUid = Math.max(maxUid, message.uid());
-            if (message.uidValidity() != null) {
-                uidValidity = message.uidValidity();
-            }
             try {
                 if (process(record, provider, config, message)) {
                     handled++;
@@ -119,8 +113,8 @@ public class ConnectorInboundService {
                 markFailed(record.id(), message.externalId(), ex.getMessage());
             }
         }
-        // 游标推进：即使有邮件被跳过也要前进，否则每轮都会重复拉同一批
-        store.saveInboundCursor(record.id(), uidValidity, maxUid);
+        // 游标由 ConnectorInboundPoller 依据 PollResult 统一保存：
+        // 这里只负责"处理"，不管游标——否则"只打基线（没邮件但有游标）"那次就丢游标了。
         return handled;
     }
 

@@ -2,7 +2,6 @@ package com.myagent.agui.connector.inbound;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -104,8 +103,6 @@ class ConnectorInboundFlowTest {
         verify(pushPort).push(eq(5L), eq("staff-1"), org.mockito.ArgumentMatchers.contains("报价单"),
                 eq(List.of()));
         verify(store).finishInbound(eq(77L), eq("HANDLED"), any(), eq(null), eq(null));
-        // 游标必须推进到本批最大 uid，否则每轮都会重复拉
-        verify(store).saveInboundCursor(1L, 11L, 21L);
     }
 
     @Test
@@ -116,8 +113,6 @@ class ConnectorInboundFlowTest {
 
         assertThat(handled).isZero();
         verify(pushPort, never()).push(anyLong(), anyString(), anyString(), any());
-        // 但仍然要推进游标（否则会一直拉到这一封）
-        verify(store).saveInboundCursor(1L, 11L, 21L);
     }
 
     @Test
@@ -127,7 +122,6 @@ class ConnectorInboundFlowTest {
         assertThat(handled).isZero();
         verify(pushPort, never()).push(anyLong(), anyString(), anyString(), any());
         verify(store).finishInbound(eq(77L), eq("SKIPPED"), any(), eq(null), eq(null));
-        verify(store).saveInboundCursor(1L, 11L, 22L);
     }
 
     @Test
@@ -149,18 +143,16 @@ class ConnectorInboundFlowTest {
         int handled = service.handle(record("NOTIFY", 0L), List.of(message(24L)));
 
         assertThat(handled).isEqualTo(1);
-        verify(store).saveInboundCursor(1L, 11L, 24L);
-        assertThat(service).isNotNull();
         verify(store, never()).finishInbound(eq(77L), eq("FAILED"), any(), any(), any());
     }
 
     @Test
-    void 没有Provider实现时整批跳过但不动游标() {
+    void 没有Provider实现时整批跳过() {
         when(toolkit.providerFor(anyString())).thenReturn(null);
 
         int handled = service.handle(record("NOTIFY", 0L), List.of(message(25L)));
 
         assertThat(handled).isZero();
-        verify(store, never()).saveInboundCursor(anyLong(), any(), anyInt());
+        verify(store, never()).finishInbound(anyLong(), anyString(), any(), any(), any());
     }
 }

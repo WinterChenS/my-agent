@@ -184,6 +184,12 @@ public class ConnectorService {
         // 只有配置真的变了才把探测状态打回"未测试"（改名字/改开关不该让状态失效）
         boolean configChanged = !merged.equals(before);
         store.update(id, name, alias, crypto.encrypt(toJson(merged)), enabled, inboundMode, configChanged);
+        // 入站模式一变就清掉旧游标：下一次轮询重新打基线，从**这一刻之后**到达的邮件算起。
+        // 否则（例如从"只记录"改成"推 IM 通知"）会拿很久以前的游标，
+        // 一开启就把这段时间的历史未读邮件全推一遍 —— 用户实测被推了 7 月的邮件。
+        if (inboundModeChanged(existing.inboundMode(), inboundMode)) {
+            store.resetInboundCursor(id);
+        }
         log.info("更新连接器 id={} name={} enabled={} configChanged={} inboundMode={}",
                 id, name, enabled, configChanged, inboundMode);
         if (request.agentIds() != null) {
@@ -369,6 +375,12 @@ public class ConnectorService {
             throw BizException.badRequest("别名只能用小写字母开头，含小写字母/数字/下划线，长度 2-24");
         }
         return value;
+    }
+
+    private static boolean inboundModeChanged(String before, String after) {
+        return !java.util.Objects.equals(
+                before == null ? "OFF" : before.toUpperCase(Locale.ROOT),
+                after == null ? "OFF" : after.toUpperCase(Locale.ROOT));
     }
 
     static String normalizeInboundMode(String mode, ConnectorTypeDescriptor descriptor) {

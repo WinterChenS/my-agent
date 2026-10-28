@@ -208,30 +208,58 @@ class MailClientGreenMailTest {
     }
 
     @Test
-    void 入站拉取_只取游标之后的新邮件() throws Exception {
-        deliverIncoming("第一封", "第一封正文", null, null);
+    void 第一次轮询只打基线_不把历史邮件当新邮件推() throws Exception {
+        deliverIncoming("七月的老邮件", "这封是历史的未读邮件", null, null);
         MailClient client = client();
 
-        List<MailClient.InboundRaw> first = client.pollNew(0L, null, 20);
-        assertThat(first).hasSize(1);
-        MailClient.InboundRaw raw = first.get(0);
-        assertThat(raw.subject()).isEqualTo("第一封");
+        // 没有游标（刚开启通知）→ 只打基线，一封都不返回
+        MailClient.PollResult baseline = client.pollNew(null, null, 20);
+        assertThat(baseline.baselined()).isTrue();
+        assertThat(baseline.messages()).isEmpty();
+        assertThat(baseline.uidValidity()).isNotNull();
+
+        // 基线之后再拉：仍然没有（历史邮件不会被回灌）
+        MailClient.PollResult afterBaseline =
+                client.pollNew(baseline.uidValidity(), baseline.lastUid(), 20);
+        assertThat(afterBaseline.messages()).isEmpty();
+        assertThat(afterBaseline.baselined()).isFalse();
+
+        // 真正新到的邮件才会被拉到
+        deliverIncoming("刚到的邮件", "这封是新邮件", null, null);
+        MailClient.PollResult fresh =
+                client.pollNew(afterBaseline.uidValidity(), afterBaseline.lastUid(), 20);
+        assertThat(fresh.messages()).hasSize(1);
+        MailClient.InboundRaw raw = fresh.messages().get(0);
+        assertThat(raw.subject()).isEqualTo("刚到的邮件");
         assertThat(raw.from()).contains("boss@partner.com");
         assertThat(raw.messageId()).isNotBlank();
         assertThat(raw.threadKey()).isNotBlank();
         assertThat(raw.autoSubmitted()).isFalse();
-        assertThat(raw.text()).contains("第一封正文");
+        assertThat(raw.text()).contains("这封是新邮件");
 
-        // 游标推进后再拉：同一封不应该再出现（否则每轮都会重复处理）
-        assertThat(client.pollNew(raw.uid(), raw.uidValidity(), 20)).isEmpty();
+        // 游标推进后同一封不会重复出现
+        assertThat(client.pollNew(fresh.uidValidity(), fresh.lastUid(), 20).messages()).isEmpty();
+    }
 
-        deliverIncoming("第二封", "第二封正文", null, null);
-        assertThat(client.pollNew(raw.uid(), raw.uidValidity(), 20))
-                .anySatisfy(message -> assertThat(message.subject()).isEqualTo("第二封"));
+    @Test
+    void UIDVALIDITY变了会重新打基线_而不是回灌全部未读() throws Exception {
+        deliverIncoming("第一封", "正文", null, null);
+        MailClient client = client();
+        MailClient.PollResult baseline = client.pollNew(null, null, 20);
+
+        // 模拟邮箱被重建：游标版本对不上
+        MailClient.PollResult resync = client.pollNew(baseline.uidValidity() - 1, 999_999L, 20);
+
+        assertThat(resync.baselined()).isTrue();
+        assertThat(resync.messages()).isEmpty();
     }
 
     @Test
     void 入站拉取能识别对方是自动回复() throws Exception {
+        // 先打基线（模拟"刚开启通知"），再投递——否则这封信会被算进基线里
+        MailClient client = client();
+        MailClient.PollResult baseline = client.pollNew(null, null, 20);
+
         Session session = Session.getInstance(new Properties());
         MimeMessage message = new MimeMessage(session);
         message.setFrom(new InternetAddress("auto@partner.com"));
@@ -246,7 +274,7 @@ class MailClientGreenMailTest {
         }
         greenMail.waitForIncomingEmail(5000, 1);
 
-        assertThat(client().pollNew(0L, null, 20))
+        assertThat(client.pollNew(baseline.uidValidity(), baseline.lastUid(), 20).messages())
                 .anySatisfy(raw -> assertThat(raw.autoSubmitted()).isTrue());
     }
 

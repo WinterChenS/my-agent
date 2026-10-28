@@ -28,7 +28,8 @@ public class ConnectorConfiguration {
             @Value("${myagent.connector.mail.timeout-read-ms:30000}") int readTimeoutMs,
             @Value("${myagent.connector.mail.max-attachment-mb:20}") int maxAttachmentMb,
             @Value("${myagent.connector.mail.max-attachments-total-mb:50}") int maxAttachmentsTotalMb,
-            @Value("${myagent.connector.mail.max-body-chars:40000}") int maxBodyChars) {
+            @Value("${myagent.connector.mail.max-body-chars:40000}") int maxBodyChars,
+            @Value("${myagent.connector.inbound.max-batch:20}") int maxBatch) {
         Path workspace = Path.of(aguiProperties.workspaceRoot());
         return new MailConnectorProvider(
                 connectorService,
@@ -37,7 +38,8 @@ public class ConnectorConfiguration {
                 readTimeoutMs,
                 Math.max(maxAttachmentMb, 1) * 1024L * 1024L,
                 Math.max(maxAttachmentsTotalMb, 1) * 1024L * 1024L,
-                Math.max(maxBodyChars, 1000));
+                Math.max(maxBodyChars, 1000),
+                Math.max(maxBatch, 1));
     }
 
     /** 让 {@code ConnectorService.test/testDraft} 能探测邮箱（不把 AgentScope 类型带进配置包）。 */

@@ -70,12 +70,19 @@ public class ConnectorInboundPoller {
                 if (provider == null) {
                     continue;
                 }
-                List<ConnectorProvider.InboundMessage> messages =
-                        provider.poll(record, connectorService.config(record));
-                if (!messages.isEmpty()) {
-                    int handled = inboundService.handle(record, messages);
+                ConnectorProvider.PollResult result = provider.poll(record, connectorService.config(record));
+                if (result.baselined()) {
+                    // 第一次跑（或邮箱被重建）：只打基线，从下一封真正到达的邮件开始算，
+                    // 绝不把历史未读邮件当新邮件推出去（用户实测投诉过一次）。
+                    log.info("入站轮询建立基线 connectorId={} uidValidity={} lastUid={}（不回灌历史邮件）",
+                            record.id(), result.uidValidity(), result.lastUid());
+                } else if (!result.messages().isEmpty()) {
+                    int handled = inboundService.handle(record, result.messages());
                     log.info("入站邮件 connectorId={} 拉取 {} 封，处理 {} 封",
-                            record.id(), messages.size(), handled);
+                            record.id(), result.messages().size(), handled);
+                }
+                if (result.hasCursor()) {
+                    store.saveInboundCursor(record.id(), result.uidValidity(), result.lastUid());
                 }
             } catch (Exception ex) {
                 log.warn("入站轮询失败 connectorId={}: {}", record.id(), ex.toString());

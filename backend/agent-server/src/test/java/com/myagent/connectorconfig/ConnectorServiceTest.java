@@ -181,6 +181,30 @@ class ConnectorServiceTest {
     }
 
     @Test
+    void 改入站模式会清掉旧游标_下次轮询重新打基线() {
+        String enc = crypto.encrypt(fullConfigJson());
+        ConnectorRecord off = record(enc, 9L);
+        when(store.find(1L)).thenReturn(Optional.of(off));
+
+        service.update(1L, new ConnectorRequest("MAIL", null, null, null, null, "NOTIFY", null), 9L, false);
+
+        // 不清游标的话，一开启就把从上次游标到现在的历史未读邮件全推一遍（用户实测踩过）
+        verify(store).resetInboundCursor(1L);
+    }
+
+    @Test
+    void 入站模式没变时不动游标() {
+        String enc = crypto.encrypt(fullConfigJson());
+        ConnectorRecord notify = new ConnectorRecord(1L, "MAIL", "工作邮箱", null, 9L, enc, true, "OK", null,
+                null, "NOTIFY", 7L, 12610L, OffsetDateTime.now(), OffsetDateTime.now());
+        when(store.find(1L)).thenReturn(Optional.of(notify));
+
+        service.update(1L, new ConnectorRequest("MAIL", null, null, null, null, "NOTIFY", null), 9L, false);
+
+        verify(store, never()).resetInboundCursor(anyLong());
+    }
+
+    @Test
     void 端口必须是数字_枚举必须在下拉候选里() {
         Map<String, String> config = mailConfig();
         config.put("imapPort", "abc");
