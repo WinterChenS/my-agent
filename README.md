@@ -16,6 +16,7 @@
 | `docs/任务列表.md` | Phase 0–11 共 23 个任务及各自验收门禁 |
 | `docs/backlog.md` | 超范围需求登记（门禁 G7） |
 | `docs/连接器方案.md` | 连接器（通用框架 + 邮件）设计、安全护栏、实施记录与实测结论 |
+| `docs/notion-接入调研.md` | 接入 Notion 的三条路线对比（原生连接器 / 本地 MCP / Remote MCP）与推荐方案 |
 | `docs/comet/` | Comet Native change 产物（brief / specs / verification） |
 | `docs/acceptance/` | 全链路验收证据 |
 
