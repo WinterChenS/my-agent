@@ -162,3 +162,63 @@
 2. **典型用法**：主要是「读页面/查数据库」（只读），还是也要「AI 往 Notion 写东西」？这决定白名单与审批的默认值。
 3. **是否需要多人各自授权**：如果每个用户都用自己的 Notion token（连接器按用户隔离，天然支持），还是只给管理员配一个共享 Notion？
 4. 有个 **token + 一个测试页面/数据库** 的话，我可以直接做端到端联调（只读先跑通，再开写）。
+
+---
+
+## 8. 补充调研：能不能「跳转授权」？（2026-10-29 追问）
+
+**能。** Notion 现在有三种凭据模型，其中「公开连接（public connection）」就是标准的 **OAuth 2.0 跳转授权**：
+
+| 模型 | 用户怎么授权 | 页面权限怎么给 | 是否适合"每人用自己的账号" |
+|---|---|---|---|
+| 内部连接 internal connection（机器人身份） | 粘 token | **手动**在页面「…」→ 添加连接 | 一般（团队共享用） |
+| **个人访问令牌 PAT** | 粘 token | **直接用创建者本人的权限，无需共享页面** | ✅ 最省事 |
+| **公开连接 public connection（OAuth）** | **跳转授权**（点「授权」→ 选页面 → 回调） | 授权时用**页面选择器**勾选 | ✅ 正规做法 |
+
+### 8.1 OAuth 流程（已实测 + 文档确认）
+
+1. 跳转：`https://api.notion.com/v1/oauth/authorize?owner=user&client_id=…&redirect_uri=…&response_type=code&state=…`
+   - 实测返回 **302 → `app.notion.com/install-integration?...`**，`redirect_uri` 原样透传（我用 `http://192.168.3.10:18080/cb` 测过）；
+   - 用户可点 **Cancel** → 回跳 `redirect_uri?error=access_denied&state=…`；
+   - 用户点「选择页面」会打开**页面选择器**（只列该用户有完整权限的页面/数据库）。
+2. 换取 token：`POST https://api.notion.com/v1/oauth/token`
+   - `Basic base64(client_id:client_secret)` + JSON body `{grant_type:"authorization_code", code, redirect_uri}`；
+   - 返回 `access_token / refresh_token / bot_id / workspace_id / workspace_name / owner / duplicated_template_id`；
+   - 错凭据实测返回 `{"error":"invalid_client","request_id":…}`。
+3. 刷新：存在 `POST /v1/oauth/token`（`grant_type=refresh_token`）→ 说明 **access token 会过期，必须实现刷新**，并把 `refresh_token`、过期时间一起加密存库。
+4. 能力（capabilities）要在 Developer portal 勾：**Read content / Update content / Insert content**（我们要读+写，三个都要）。
+
+### 8.2 一个必须先确认的前置条件：redirect URI 是否允许 http
+
+- 官方文档所有示例都是 `https://…/callback`，**没有明说必须 https**，但 Developer portal 注册时是否接受 `http://192.168.3.10:18080/...` **未验证**（需要真的去 portal 填一次才知道）。
+- 我们的现状是**内网 http** 部署。三条应对：
+  1. 给平台加一层 https（Caddy/nginx + 内网自签或内部 CA 证书）——最正规，OAuth 也最稳；
+  2. 若 portal 接受 http，直接可用（我实测 authorize 端点不拦 http）；
+  3. 先只上 PAT 模式，等 https 就绪再开 OAuth。
+
+### 8.3 版本与其它事实
+
+- 当前 `Notion-Version` 文档示例是 **`2026-03-11`**（`2025-09-03` 引入 data source 抽象，`/v1/data_sources/{id}/query` 是数据库查询的新入口）。
+- 读写能力对应：`Read content` / `Update content`（改页面属性、标题、归档）/ `Insert content`（新建页面、追加块）。
+- PAT 受 workspace 的「PAT 创建策略」约束（管理员可查看/撤销），若公司 workspace 禁用了 PAT API 能力，就得走 OAuth。
+
+### 8.4 结论与建议的落地顺序
+
+按你的答复（要写、用户隔离）→ 分两段做，先能跑，再省事：
+
+**P0：NOTION 连接器（token 模式：PAT 或内部连接 token）— 约 3 天**
+- 字段：`token`(密码) / `workspaceName` / `defaultPageId` / `maxBlocksPerPage` / `allowWrite`(下拉) / `allowedPageIds`、`allowedDataSources`（tag 白名单）
+- 工具（8 个）：`notion_search`、`notion_get_page`、`notion_list_data_sources`、`notion_query_data_source`、
+  `notion_create_page`、`notion_append_markdown`、`notion_update_page`（属性/标题/归档）、`notion_get_comments`(P2)
+- 写操作 `isReadOnly=false` → 自动进审批卡；`allowWrite=否` 直接拒；白名单外拒；审计落库
+- 用户侧：Notion → Developer portal 建 PAT（勾 Notion API 能力）→ 粘到平台。**不需要跳转、不需要给页面加连接**
+
+**P1：加「跳转授权」（OAuth）— 约 1.5 天**
+- 字段加 `authMode`(TOKEN / OAUTH)；OAUTH 时表单显示「授权 Notion」按钮
+- 后端：`GET /api/connectors/notion/authorize?connectorId=…` 生成带签名 state 的 authorize URL；
+  `GET /api/connectors/notion/callback` 收 code → 换 token → 加密存 `access_token/refresh_token/expires_at/workspace`；
+  之后每次调用前检查过期 → 自动 refresh；401 时刷新并重试一次
+- 平台配置：`myagent.connector.notion.client-id/client-secret`（管理员配一次，不是用户填）
+- 前置：Developer portal 注册 public connection + redirect URI 可访问（见 8.2）
+
+**P2（可选）**：评论、文件上传、页面移动、模板复制；以及把 Notion 做成"入站通知"（页面变更 webhook）。
