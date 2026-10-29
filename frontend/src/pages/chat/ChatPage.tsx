@@ -975,11 +975,20 @@ export default function ChatPage() {
     }
   }
 
-  /** 确认卡回传选项：作为一条用户消息继续该 run。 */
+  /**
+   * 选择卡回传选项。
+   *
+   * <p>关键点（用户实测反馈）：卡片一弹出来就应该**能点**。
+   * 以前这里 `if (busy) return;`，而卡片又是"跑着的时候都在" —— 于是点了没反应，
+   * 看起来像"冻结很久，要等 Agent 说完才行"。
+   * 现在忙的时候直接把选择**入队**（复用输入框那套待发送队列），这一轮跑完自动发出。
+   */
   async function chooseOption(value: string) {
-    if (busy || !session) {
+    if (!session) {
       return;
     }
+    // 先把选择记成一条用户消息：卡片浮层是按"最后一条用户消息之后的卡片"算的，
+    // 这一条落下去，卡片立刻消失，不会重复点。
     setChat((prev) => ({
       items: [
         ...prev.items,
@@ -991,9 +1000,22 @@ export default function ChatPage() {
           streaming: false,
         },
       ],
-      status: "running",
-      runId: null,
+      status: prev.status,
+      runId: prev.runId,
     }));
+    if (busy) {
+      setQueued((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          parts: [{ type: "text", text: value }],
+          text: value,
+          label: value.length > 40 ? `${value.slice(0, 40)}…` : value,
+        },
+      ]);
+      return;
+    }
+    setChat((prev) => ({ ...prev, status: "running", runId: null }));
     await runTurn(session, { text: value });
   }
 

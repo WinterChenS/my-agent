@@ -12,6 +12,10 @@ import type { ConfirmCardData } from "@/lib/agui/types";
  * 想改语气、换方案时根本没得选，只能再打字说一遍。现在候选由模型给
  * （`demo_confirm_card` 的 `options`），`allowCustom` 时还能自己写别的。
  *
+ * **卡片一出现就能点**：以前按钮在"运行中"被禁用，用户点了没反应，
+ * 体感像"冻结很久，要等 Agent 说完"。现在忙的时候点了会由父组件自动排队，
+ * 本组件只负责把选择交出去。
+ *
  * data 结构见技术方案第 6 节冻结契约（`ConfirmCardData`）。
  */
 export function ConfirmCard({
@@ -48,19 +52,22 @@ export function ConfirmCard({
               key={option.value}
               size="sm"
               variant="outline"
-              disabled={busy}
               onClick={() => onChoose?.(option.value)}
             >
               {option.label}
             </Button>
           ))}
         </div>
+        {busy ? (
+          <p className="text-muted-foreground text-xs">
+            Agent 还在输出：现在点选也会立即记下，这一轮结束后自动发出。
+          </p>
+        ) : null}
         {data?.allowCustom ? (
           <div className="flex items-center gap-2">
             <Input
               value={custom}
               placeholder="或者自己写一个答案…"
-              disabled={busy}
               data-testid="confirm-card-custom"
               onChange={(event) => setCustom(event.target.value)}
               onKeyDown={(event) => {
@@ -70,7 +77,7 @@ export function ConfirmCard({
                 }
               }}
             />
-            <Button size="sm" disabled={busy || !custom.trim()} onClick={submitCustom}>
+            <Button size="sm" disabled={!custom.trim()} onClick={submitCustom}>
               就用这个
             </Button>
           </div>

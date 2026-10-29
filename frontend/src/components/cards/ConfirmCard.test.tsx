@@ -82,13 +82,14 @@ describe("ConfirmCard", () => {
     expect(onChoose).not.toHaveBeenCalled();
   });
 
-  it("busy 时候选按钮全部禁用（避免连点重复回传）", () => {
+  it("Agent 还在输出时卡片也能点，并提示会自动排队（不再像卡死）", () => {
     const onChoose = vi.fn();
     render(<ConfirmCard data={card()} busy onChoose={onChoose} />);
 
+    expect(screen.getByText(/这一轮结束后自动发出/)).toBeTruthy();
     const button = screen.getByText("更正式") as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
     fireEvent.click(button);
-    expect(onChoose).not.toHaveBeenCalled();
+    expect(onChoose).toHaveBeenCalledWith("更正式");
   });
 });
