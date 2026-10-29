@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,13 +34,15 @@ class ConnectorServiceTest {
     private final ConnectorStore store = mock(ConnectorStore.class);
     private final CryptoService crypto = new CryptoService("unit-test-key");
     private final ConnectorTypeRegistry registry = new ConnectorTypeRegistry();
+    private final org.springframework.context.ApplicationEventPublisher events =
+            mock(org.springframework.context.ApplicationEventPublisher.class);
     private ConnectorService service;
 
     @BeforeEach
     void setUp() {
         ObjectProvider<ConnectorProbePort> probes =
                 new StaticListableBeanFactory().getBeanProvider(ConnectorProbePort.class);
-        service = new ConnectorService(store, registry, crypto, probes, 60);
+        service = new ConnectorService(store, registry, crypto, probes, events, 60);
         when(store.agentIdsOf(anyLong())).thenReturn(List.of());
     }
 
@@ -202,6 +205,18 @@ class ConnectorServiceTest {
         service.update(1L, new ConnectorRequest("MAIL", null, null, null, null, "NOTIFY", null), 9L, false);
 
         verify(store, never()).resetInboundCursor(anyLong());
+    }
+
+    @Test
+    void 启用停用开关会广播变更事件_让Agent缓存失效() {
+        String enc = crypto.encrypt(fullConfigJson());
+        when(store.find(1L)).thenReturn(Optional.of(record(enc, 9L)));
+        when(store.agentIdsOf(1L)).thenReturn(List.of(37L));
+
+        service.update(1L, new ConnectorRequest("MAIL", null, null, true, null, null, null), 9L, false);
+
+        verify(events, atLeastOnce()).publishEvent(
+                any(com.myagent.connectorconfig.event.ConnectorConfigChangedEvent.class));
     }
 
     @Test

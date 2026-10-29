@@ -93,6 +93,11 @@ abstract class AbstractMailTool implements AgentTool {
                     + (mine.get(0).record().alias() == null ? mine.get(0).record().name() : mine.get(0).record().alias())
                     + "\"");
         }
+        if (!picked.record().enabled()) {
+            return text("「" + picked.record().name() + "」这个邮箱连接器现在是**停用**状态，所以暂时用不了。"
+                    + "请告诉用户：在聊天框下方点「连接器」按钮，把「" + picked.record().name()
+                    + "」勾上启用（或到「能力 → 连接器」里启用），**下一轮**对话就能用。");
+        }
         MailSettings settings = MailSettings.of(picked.config());
         MailClient client = new MailClient(
                 settings, connectTimeoutMs, readTimeoutMs,

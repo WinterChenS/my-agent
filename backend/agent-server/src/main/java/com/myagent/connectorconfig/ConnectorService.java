@@ -43,6 +43,7 @@ public class ConnectorService {
     private final ConnectorTypeRegistry typeRegistry;
     private final CryptoService crypto;
     private final ObjectProvider<ConnectorProbePort> probePorts;
+    private final org.springframework.context.ApplicationEventPublisher events;
     private final ObjectMapper json = new ObjectMapper();
     private final int maxSendsPerHour;
 
@@ -51,11 +52,13 @@ public class ConnectorService {
             ConnectorTypeRegistry typeRegistry,
             CryptoService crypto,
             ObjectProvider<ConnectorProbePort> probePorts,
+            org.springframework.context.ApplicationEventPublisher events,
             @Value("${myagent.connector.mail.max-sends-per-hour:60}") int maxSendsPerHour) {
         this.store = store;
         this.typeRegistry = typeRegistry;
         this.crypto = crypto;
         this.probePorts = probePorts;
+        this.events = events;
         this.maxSendsPerHour = maxSendsPerHour <= 0 ? 60 : maxSendsPerHour;
     }
 
@@ -142,6 +145,7 @@ public class ConnectorService {
         }
         log.info("新建连接器 id={} type={} name={} owner={} agents={}",
                 id, descriptor.typeUpper(), name, ownerUserId, request.agentIds());
+        publishChanged(id, store.agentIdsOf(id));
         return get(id, ownerUserId, true);
     }
 
@@ -153,6 +157,7 @@ public class ConnectorService {
         String name = request.name() == null || request.name().isBlank()
                 ? existing.name()
                 : requireName(request.name());
+        List<Long> agentIdsBefore = store.agentIdsOf(id);
         Map<String, String> before = config(existing);
         Map<String, String> merged = new LinkedHashMap<>(before);
         if (request.config() != null) {
@@ -195,6 +200,10 @@ public class ConnectorService {
         if (request.agentIds() != null) {
             store.replaceAgents(id, distinct(request.agentIds()));
         }
+        java.util.LinkedHashSet<Long> affected = new java.util.LinkedHashSet<>();
+        affected.addAll(agentIdsBefore);
+        affected.addAll(store.agentIdsOf(id));
+        publishChanged(id, new ArrayList<>(affected));
         return get(id, userId, true);
     }
 
@@ -202,8 +211,10 @@ public class ConnectorService {
     public void delete(Long id, Long userId, boolean admin) {
         ConnectorRecord record = require(id);
         requireAccess(record, userId, admin);
+        List<Long> agentIdsBefore = store.agentIdsOf(id);
         store.delete(id);
         log.info("删除连接器 id={} type={} owner={}", id, record.type(), record.ownerUserId());
+        publishChanged(id, agentIdsBefore);
     }
 
     /** 绑定/解绑（整体替换）。 */
@@ -211,8 +222,12 @@ public class ConnectorService {
     public List<Long> bindAgents(Long id, List<Long> agentIds, Long userId, boolean admin) {
         ConnectorRecord record = require(id);
         requireAccess(record, userId, admin);
+        List<Long> agentIdsBefore = store.agentIdsOf(id);
         List<Long> distinct = distinct(agentIds);
         store.replaceAgents(id, distinct);
+        java.util.LinkedHashSet<Long> affected = new java.util.LinkedHashSet<>(agentIdsBefore);
+        affected.addAll(distinct);
+        publishChanged(id, new ArrayList<>(affected));
         return distinct;
     }
 
@@ -292,6 +307,31 @@ public class ConnectorService {
     }
 
     // ===================== 内部工具 =====================
+
+    /**
+     * 广播"连接器变了"。
+     *
+     * <p>必须**事务提交后**再发：监听者会去重建 Agent、读库里的新配置；
+     * 提交前发它读到的还是旧数据（渠道配置那边踩过同样的坑）。
+     */
+    private void publishChanged(long connectorId, List<Long> agentIds) {
+        List<Long> affected = agentIds == null ? List.of() : agentIds;
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            events.publishEvent(new com.myagent.connectorconfig.event.ConnectorConfigChangedEvent(
+                    connectorId, affected));
+            return;
+        }
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        events.publishEvent(
+                                new com.myagent.connectorconfig.event.ConnectorConfigChangedEvent(
+                                        connectorId, affected));
+                    }
+                });
+    }
 
     /** 只有属主（或管理员）能动这个连接器。 */
     public void requireAccess(ConnectorRecord record, Long userId, boolean admin) {

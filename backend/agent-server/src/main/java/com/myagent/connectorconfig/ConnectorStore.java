@@ -77,12 +77,19 @@ public class ConnectorStore {
         return jdbc.query("select " + COLUMNS + " from connector order by id desc", MAPPER);
     }
 
-    /** 某 Agent 绑定的连接器（AgentFactory 构建工具时用）。 */
+    /**
+     * 某 Agent 绑定的连接器（**含已停用的**）。
+     *
+     * <p>故意不过滤 {@code enabled}：工具要照常注册，这样用户把连接器停用后，
+     * 模型能明确回答「邮箱连接器已停用，去聊天框下方的连接器按钮里勾上启用」，
+     * 而不是一句「我没有这个功能」（用户实测反馈这句话很误导）。
+     * 真正的拦截在工具里做。
+     */
     public List<ConnectorRecord> listByAgent(long agentId) {
         return jdbc.query(
                 "select " + COLUMNS_C
                         + " from connector c join agent_connector ac on ac.connector_id = c.id"
-                        + " where ac.agent_id = ? and c.enabled = true order by c.id",
+                        + " where ac.agent_id = ? order by c.id",
                 MAPPER, agentId);
     }
 
@@ -93,11 +100,11 @@ public class ConnectorStore {
                 .toList();
     }
 
-    /** 某 Agent 绑定的连接器类型（去重，用于决定注册哪些工具）。 */
+    /** 某 Agent 绑定的连接器类型（去重，用于决定注册哪些工具；含停用的，理由见 listByAgent）。 */
     public List<String> typesByAgent(long agentId) {
         return jdbc.queryForList(
                 "select distinct c.type from connector c join agent_connector ac on ac.connector_id = c.id"
-                        + " where ac.agent_id = ? and c.enabled = true order by c.type",
+                        + " where ac.agent_id = ? order by c.type",
                 String.class, agentId);
     }
 
