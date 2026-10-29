@@ -13,6 +13,7 @@ import java.util.Map;
  * @param email 邮箱地址（也是发件人）
  * @param allowSend 是否允许 Agent 发信
  * @param allowedRecipients 发信白名单（空=不限制；支持 {@code @域.com} 允许整域）
+ * @param autoReplySenders 自动回复白名单（空=对所有人回；同样支持 {@code @域.com}）
  */
 public record MailSettings(
         String email,
@@ -27,6 +28,7 @@ public record MailSettings(
         String password,
         boolean allowSend,
         List<String> allowedRecipients,
+        List<String> autoReplySenders,
         String inboundMode) {
 
     public static MailSettings of(Map<String, String> config) {
@@ -42,7 +44,8 @@ public record MailSettings(
                 valueOr(config.get("username"), trim(config.get("email"))),
                 config.get("password") == null ? "" : config.get("password"),
                 bool(config.get("allowSend"), true),
-                recipients(config.get("allowedRecipients")),
+                split(config.get("allowedRecipients")),
+                split(config.get("allowedAutoReplySenders")),
                 valueOr(config.get("inboundMode"), "OFF").toUpperCase(Locale.ROOT));
     }
 
@@ -53,23 +56,40 @@ public record MailSettings(
                 : displayName + " <" + email + ">";
     }
 
-    /** 白名单判定：空=放行；否则要命中完整地址或域名后缀。 */
+    /** 发信白名单判定：空=放行；否则要命中完整地址或域名后缀。 */
     public boolean allowsRecipient(String address) {
-        if (allowedRecipients.isEmpty()) {
+        return matches(allowedRecipients, address);
+    }
+
+    /** 自动回复白名单判定：空=对所有人自动回复。 */
+    public boolean allowsAutoReplySender(String address) {
+        return matches(autoReplySenders, address);
+    }
+
+    /** 规则匹配：完整地址精确命中，或以 {@code @域} 命中域名（大小写不敏感）。 */
+    static boolean matches(List<String> rules, String address) {
+        if (rules == null || rules.isEmpty()) {
             return true;
         }
         String target = address == null ? "" : address.trim().toLowerCase(Locale.ROOT);
-        String domain = target.substring(target.lastIndexOf('@') + 1);
-        return allowedRecipients.stream().anyMatch(rule -> {
-            String normalized = rule.toLowerCase(Locale.ROOT);
+        if (target.isEmpty()) {
+            return false;
+        }
+        int at = target.lastIndexOf('@');
+        String domain = at < 0 ? "" : target.substring(at + 1);
+        return rules.stream().anyMatch(rule -> {
+            String normalized = rule == null ? "" : rule.trim().toLowerCase(Locale.ROOT);
+            if (normalized.isEmpty()) {
+                return false;
+            }
             if (normalized.startsWith("@")) {
-                return domain.equals(normalized.substring(1));
+                return !domain.isEmpty() && domain.equals(normalized.substring(1));
             }
             return normalized.equals(target);
         });
     }
 
-    private static List<String> recipients(String raw) {
+    private static List<String> split(String raw) {
         if (raw == null || raw.isBlank()) {
             return List.of();
         }

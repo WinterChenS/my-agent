@@ -54,6 +54,10 @@ const MAIL_TYPE = {
       key: "password", label: "密码 / 授权码", secret: true, hint: "修改时留空表示不改", required: true,
       placeholder: "", type: "PASSWORD", options: [],
     },
+    {
+      key: "allowedRecipients", label: "发信白名单（可选）", secret: false,
+      hint: "留空=不限制", required: false, placeholder: "", type: "TAGS", options: [],
+    },
   ],
   requiredKeys: ["email", "password"],
   secretKeys: ["password"],
@@ -135,6 +139,20 @@ describe("ConnectorsPage", () => {
 
     const port = screen.getByTestId("connector-field-imapPort") as HTMLInputElement;
     expect(port.type).toBe("number");
+  });
+
+  it("白名单字段是标签输入（不是让人敲逗号的文本框）", async () => {
+    const ConnectorsPage = (await import("@/pages/admin/connectors/ConnectorsPage")).default;
+    render(<ConnectorsPage />);
+
+    await waitFor(() => expect(screen.getByText("我的连接器（1）")).toBeTruthy());
+    fireEvent.click(screen.getAllByRole("button", { name: /添加/ })[0]);
+
+    const input = (await screen.findByTestId("connector-field-allowedRecipients-input")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "boss@company.com" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(await screen.findByText("boss@company.com")).toBeTruthy();
   });
 
   it("状态异常时显示后端给的人话错误", async () => {

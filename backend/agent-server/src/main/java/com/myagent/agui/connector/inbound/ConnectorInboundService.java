@@ -216,6 +216,11 @@ public class ConnectorInboundService {
                 && recipients.stream().noneMatch(to -> normalize(to).contains(self))) {
             return "收件人里没有本邮箱（可能只是抄送/群发），不自动回复";
         }
+        // 自动回复白名单：留空=对所有人回；填了就只回名单里的发件人（支持 @域名.com 整域）
+        String replyWhitelist = config.get("allowedAutoReplySenders");
+        if (!isBlank(replyWhitelist) && !matchesAny(replyWhitelist, from)) {
+            return "发件人不在自动回复白名单里（只回名单内的地址/域名）";
+        }
         if (boundAgents(record.id()).isEmpty()) {
             return "没有绑定任何 Agent，无法自动回复";
         }
@@ -377,6 +382,38 @@ public class ConnectorInboundService {
     private String connectorAddress(ConnectorRecord record) {
         String email = connectorService.config(record).get("email");
         return email == null ? "" : email;
+    }
+
+    /**
+     * 白名单匹配：逗号/分号/空白分隔；以 {@code @域} 表示整个域；大小写不敏感。
+     *
+     * <p>与 {@code MailSettings.matches} 同一套语义——这里不依赖邮件实现，
+     * 因为"谁能触发自动回复"是连接器的通用策略（以后日历/工单连接器也用得上）。
+     */
+    static boolean matchesAny(String rawRules, String address) {
+        if (isBlank(rawRules)) {
+            return true;
+        }
+        String target = normalize(address);
+        if (target.isEmpty()) {
+            return false;
+        }
+        int at = target.lastIndexOf('@');
+        String domain = at < 0 ? "" : target.substring(at + 1);
+        for (String rule : rawRules.split("[,;\s]+")) {
+            String normalized = rule.trim().toLowerCase(Locale.ROOT);
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            if (normalized.startsWith("@") ? domain.equals(normalized.substring(1)) : normalized.equals(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static String normalize(String address) {

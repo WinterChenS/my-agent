@@ -234,6 +234,26 @@ class ConnectorServiceTest {
     }
 
     @Test
+    void 白名单项必须是邮箱或域名_写错了保存时就报() {
+        Map<String, String> config = mailConfig();
+        config.put("allowedRecipients", "老板, boss@company.com");
+        assertThatThrownBy(() -> service.create(
+                new ConnectorRequest("MAIL", "工作邮箱", null, true, config, "OFF", null), 9L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("发信白名单")
+                .hasMessageContaining("老板");
+
+        Map<String, String> ok = mailConfig();
+        ok.put("allowedRecipients", "@company.com, boss@partner.com");
+        ok.put("allowedAutoReplySenders", "@partner.com");
+        when(store.insert(anyString(), anyString(), any(), anyLong(), anyString(), anyBoolean(), anyString()))
+                .thenReturn(3L);
+        when(store.find(3L)).thenReturn(Optional.of(record(crypto.encrypt(fullConfigJson()), 9L)));
+        assertThat(service.create(
+                new ConnectorRequest("MAIL", "工作邮箱", null, true, ok, "OFF", null), 9L)).isNotNull();
+    }
+
+    @Test
     void 类型描述的字段都声明了控件类型() {
         ConnectorTypeDescriptor descriptor = registry.require("MAIL");
         assertThat(descriptor.fields()).allSatisfy(field ->

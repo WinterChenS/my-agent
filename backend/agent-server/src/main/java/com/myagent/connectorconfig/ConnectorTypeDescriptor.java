@@ -47,7 +47,9 @@ public record ConnectorTypeDescriptor(
         /** 数字（端口等）：前端用 number 输入，后端校验必须是数字。 */
         NUMBER,
         /** 枚举：前端下拉，后端校验取值必须在 {@link Field#options()} 里。 */
-        SELECT
+        SELECT,
+        /** 标签集合（白名单这类）：前端用 tag 输入，存储仍是英文逗号分隔的字符串。 */
+        TAGS
     }
 
     /** 枚举项：{@code value} 入库、{@code label} 给人看。 */

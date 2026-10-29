@@ -156,6 +156,39 @@ class ConnectorInboundGuardTest {
     }
 
     @Test
+    void 自动回复白名单_留空对所有人回_填了只回名单内() {
+        // 留空 → 放行
+        assertThat(service.skipReason(record("AUTOREPLY"), message("a@b.com", false, null), "AUTOREPLY",
+                0, Map.of("email", "me@company.com"))).isNull();
+
+        // 名单内完整地址 → 放行
+        assertThat(service.skipReason(record("AUTOREPLY"), message("boss@company.com", false, null), "AUTOREPLY",
+                0, Map.of("email", "me@company.com", "allowedAutoReplySenders", "boss@company.com, x@y.com")))
+                .isNull();
+
+        // 名单内整域 → 放行
+        assertThat(service.skipReason(record("AUTOREPLY"), message("anyone@partner.com", false, null), "AUTOREPLY",
+                0, Map.of("email", "me@company.com", "allowedAutoReplySenders", "@partner.com")))
+                .isNull();
+
+        // 名单外 → 不回
+        assertThat(service.skipReason(record("AUTOREPLY"), message("stranger@other.com", false, null), "AUTOREPLY",
+                0, Map.of("email", "me@company.com", "allowedAutoReplySenders", "@partner.com")))
+                .contains("不在自动回复白名单");
+    }
+
+    @Test
+    void 白名单匹配支持多种分隔符与大小写() {
+        // 分号 / 换行 / 多空格都当分隔符；大小写不敏感
+        String rules = String.join(",", "a@b.com", " c@d.com ", "d@e.com");
+        assertThat(ConnectorInboundService.matchesAny(rules, "C@D.com")).isTrue();
+        assertThat(ConnectorInboundService.matchesAny("a@b.com;c@d.com", "d@e.com")).isFalse();
+        assertThat(ConnectorInboundService.matchesAny("@Company.com", "someone@company.com")).isTrue();
+        assertThat(ConnectorInboundService.matchesAny("@company.com", "someone@company.com.evil.com")).isFalse();
+        assertThat(ConnectorInboundService.matchesAny("  ", "a@b.com")).isTrue();
+    }
+
+    @Test
     void 通知模式不做自动回复类限制() {
         assertThat(service.skipReason(record("NOTIFY"), message("a@b.com", false, null), "NOTIFY")).isNull();
     }

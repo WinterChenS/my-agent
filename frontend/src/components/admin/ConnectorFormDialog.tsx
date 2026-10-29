@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { TagInput } from "@/components/admin/TagInput";
 import {
   createConnector,
   testConnector,
@@ -269,6 +270,21 @@ function ConnectorField({
   const hint = field.hint ? (
     <span className="text-muted-foreground block text-xs">{field.hint}</span>
   ) : null;
+
+  if (field.type === "TAGS") {
+    return (
+      <div className="block space-y-1 text-sm">
+        {label}
+        <TagInput
+          value={value}
+          onChange={onChange}
+          placeholder="留空表示不限制；回车或逗号分隔"
+          testId={`connector-field-${field.key}`}
+        />
+        {hint}
+      </div>
+    );
+  }
 
   if (field.type === "SELECT") {
     return (

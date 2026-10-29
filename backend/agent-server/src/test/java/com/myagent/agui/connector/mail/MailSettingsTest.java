@@ -56,6 +56,21 @@ class MailSettingsTest {
     }
 
     @Test
+    void 自动回复白名单_空表示都回_支持整域() {
+        MailSettings open = MailSettings.of(config());
+        assertThat(open.autoReplySenders()).isEmpty();
+        assertThat(open.allowsAutoReplySender("anyone@anywhere.com")).isTrue();
+
+        Map<String, String> withList = config();
+        withList.put("allowedAutoReplySenders", "boss@company.com, @partner.com");
+        MailSettings limited = MailSettings.of(withList);
+
+        assertThat(limited.allowsAutoReplySender("boss@company.com")).isTrue();
+        assertThat(limited.allowsAutoReplySender("anyone@partner.com")).isTrue();
+        assertThat(limited.allowsAutoReplySender("stranger@other.com")).isFalse();
+    }
+
+    @Test
     void 关闭发信与用户名回退到邮箱() {
         Map<String, String> off = config();
         off.put("allowSend", "false");

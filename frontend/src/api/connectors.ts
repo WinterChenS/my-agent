@@ -7,7 +7,7 @@ import { apiFetch } from "./client";
  */
 
 /** 控件类型：由后端类型描述决定，前端不猜（枚举绝不渲染成文本框）。 */
-export type ConnectorFieldType = "TEXT" | "PASSWORD" | "NUMBER" | "SELECT";
+export type ConnectorFieldType = "TEXT" | "PASSWORD" | "NUMBER" | "SELECT" | "TAGS";
 
 export interface ConnectorFieldOption {
   value: string;

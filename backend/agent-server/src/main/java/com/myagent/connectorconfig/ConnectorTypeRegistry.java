@@ -54,10 +54,12 @@ public class ConnectorTypeRegistry {
                                 ConnectorTypeDescriptor.FieldType.PASSWORD, List.of()),
                         select("allowSend", "允许发信", "选「否」后 Agent 只能读、不能发",
                                 List.of(option("true", "允许"), option("false", "禁止（只能读）"))),
-                        text("allowedRecipients", "发信白名单（可选）", false,
-                                "留空=不限制；多个用英文逗号分隔；@域名.com 表示只允许整个域", ""),
+                        tags("allowedRecipients", "发信白名单（可选）",
+                                "留空=不限制收件人；可填邮箱地址，或用 @域名.com 允许整个域"),
                         select("inboundMode", "新邮件处理", "收到新邮件时做什么（自动回复只在绑定 Agent 后生效）",
-                                INBOUND_OPTIONS)),
+                                INBOUND_OPTIONS),
+                        tags("allowedAutoReplySenders", "自动回复白名单（可选）",
+                                "留空=对所有人自动回复；填了就只回这些发件人，可用 @域名.com 允许整个域")),
                 List.of("email", "imapHost", "imapPort", "smtpHost", "smtpPort", "username", "password"),
                 Set.of("password"),
                 Set.of(
@@ -84,6 +86,11 @@ public class ConnectorTypeRegistry {
             String key, String label, boolean required, String hint, String placeholder) {
         return new ConnectorTypeDescriptor.Field(key, label, false, hint, required, placeholder,
                 ConnectorTypeDescriptor.FieldType.NUMBER, List.of());
+    }
+
+    private static ConnectorTypeDescriptor.Field tags(String key, String label, String hint) {
+        return new ConnectorTypeDescriptor.Field(key, label, false, hint, false, "",
+                ConnectorTypeDescriptor.FieldType.TAGS, List.of());
     }
 
     private static ConnectorTypeDescriptor.Field select(

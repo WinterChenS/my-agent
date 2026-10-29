@@ -413,6 +413,20 @@ public class ConnectorService {
                     && !value.trim().matches("[0-9]{1,5}")) {
                 throw BizException.badRequest(field.label() + " 必须是数字（例如 993），当前是「" + value + "」");
             }
+            if (field.type() == ConnectorTypeDescriptor.FieldType.TAGS) {
+                for (String tag : value.split("[,;，；\s]+")) {
+                    String item = tag.trim();
+                    if (item.isEmpty()) {
+                        continue;
+                    }
+                    // 白名单里只会出现"邮箱地址"或"@域名"；写成别的（例如中文名）根本匹配不上，
+                    // 与其保存后用户以为"我加过了"，不如保存时就指出哪一项不对
+                    if (!item.contains("@")) {
+                        throw BizException.badRequest(field.label() + " 里的「" + item
+                                + "」不是邮箱地址；整域请写成 @域名.com");
+                    }
+                }
+            }
             if (field.isSelect() && !field.accepts(value)) {
                 String allowed = field.options().stream()
                         .map(option -> option.label() + "（" + option.value() + "）")
