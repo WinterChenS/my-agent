@@ -36,6 +36,14 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
         pypdf pillow matplotlib beautifulsoup4 lxml python-dateutil pytz \
         tabulate pyyaml jinja2 markdown chardet tqdm
 
+# Agent Reach：Agent 访问互联网的唯一出口（搜索/读网页/GitHub/V2EX/B站/YouTube 字幕等）。
+# 装的是**我们自己 vendor 的源码包**（vendor/agent-reach-1.6.0.tar.gz），不从 PyPI 拉：
+# PyPI 上同名包不是这个项目；也避免镜像构建时依赖 GitHub 可达性。
+COPY vendor/agent-reach-1.6.0.tar.gz /tmp/agent-reach.tar.gz
+RUN python3 -m pip install --no-cache-dir --break-system-packages /tmp/agent-reach.tar.gz \
+    && rm -f /tmp/agent-reach.tar.gz \
+    && agent-reach version
+
 # 预热 matplotlib 字体缓存（中文字体首次扫描很慢，别让用户的第一张图等它）
 RUN python3 -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print('mpl ok')"
 

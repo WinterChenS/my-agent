@@ -29,6 +29,28 @@ mybatis-plus:
       id-type: auto
 
 myagent:
+  # 联网出口：Agent Reach（只读：搜索 / 读网页 / GitHub / V2EX / B站 / YouTube 字幕）
+  # 它是 Agent 访问互联网的**唯一途径**：其它工具不该直接出网。
+  reach:
+    enabled: ${MYAGENT_REACH_ENABLED:true}
+    # CLI 可执行名（镜像里由 pip 安装）
+    binary: ${MYAGENT_REACH_BINARY:agent-reach}
+    # 单次调用超时（秒）：CLI 启动 ~300ms，搜索/读取一般 2~5s；转写类会慢，按需调大
+    timeout-seconds: ${MYAGENT_REACH_TIMEOUT_SECONDS:45}
+    # 每次最多返回多少条 / 最多多少字符（防止把模型上下文烧光）
+    max-items: ${MYAGENT_REACH_MAX_ITEMS:8}
+    max-chars: ${MYAGENT_REACH_MAX_CHARS:12000}
+    # 允许的渠道白名单。登录类渠道（小红书/Twitter/Reddit…）在服务器上没有浏览器，默认不开。
+    channels: ${MYAGENT_REACH_CHANNELS:web,github,v2ex,bilibili,youtube}
+    # SSRF 护栏：默认禁止读内网/本机/云元数据地址（这个工具是网关，必须挡住横向探测）
+    allow-private-network: ${MYAGENT_REACH_ALLOW_PRIVATE:false}
+    resolve-dns: ${MYAGENT_REACH_RESOLVE_DNS:true}
+    # 每个用户一个 HOME（~/.agent-reach 落在 home-root/<userId>），登录态与配置互不可见。
+    # 留空 = <workspace>/.reach-home
+    home-root: ${MYAGENT_REACH_HOME_ROOT:}
+    # 同一个用户同时最多几个联网请求（CLI 是独立进程，不能无限并发）
+    concurrency-per-user: ${MYAGENT_REACH_CONCURRENCY:2}
+    max-limit: ${MYAGENT_REACH_MAX_LIMIT:10}
   # 登录相关
   auth:
     # 是否仍接受**明文**密码。默认 false：前端一律用下发的公钥做 RSA-OAEP 加密。

@@ -51,6 +51,9 @@ public class McpToolkitFactory {
     /** 列出可用 IM 推送目标（渠道 + 接收人），供 schedule_task 选准目标。 */
     private final com.myagent.schedule.tool.ListImTargetsTool listImTargetsTool;
 
+    /** 互联网出口：Agent Reach 的只读联网工具（搜索 / 读网页 / 读指定渠道）。 */
+    private final com.myagent.agui.reach.AgentReachToolkit reachToolkit;
+
     public McpToolkitFactory(
             com.myagent.agui.skillimport.SkillInstallTool skillInstallTool,
             com.myagent.agui.channel.SendImMessageTool sendImMessageTool,
@@ -59,7 +62,8 @@ public class McpToolkitFactory {
             com.myagent.agui.shell.RunCommandTool runCommandTool,
             com.myagent.schedule.tool.ScheduleTaskTool scheduleTaskTool,
             com.myagent.schedule.tool.ManageScheduledTaskTool manageScheduledTaskTool,
-            com.myagent.schedule.tool.ListImTargetsTool listImTargetsTool) {
+            com.myagent.schedule.tool.ListImTargetsTool listImTargetsTool,
+            com.myagent.agui.reach.AgentReachToolkit reachToolkit) {
         this.skillInstallTool = skillInstallTool;
         this.sendImMessageTool = sendImMessageTool;
         this.listSkillsTool = listSkillsTool;
@@ -68,6 +72,7 @@ public class McpToolkitFactory {
         this.scheduleTaskTool = scheduleTaskTool;
         this.manageScheduledTaskTool = manageScheduledTaskTool;
         this.listImTargetsTool = listImTargetsTool;
+        this.reachToolkit = reachToolkit;
     }
 
     /** 平台 transport → 官方 McpServerConfig.transport 字面量。 */
@@ -106,6 +111,9 @@ public class McpToolkitFactory {
             toolkit.registerAgentTool(scheduleTaskTool);
             toolkit.registerAgentTool(manageScheduledTaskTool);
             toolkit.registerAgentTool(listImTargetsTool);
+            // 联网：平台对外的唯一出口（只读）。关掉 myagent.reach.enabled 就会整体消失，
+            // 此时模型只能回答"我上不了网"，不会退回去用别的野路子。
+            reachToolkit.register(toolkit);
             log.info("已注册 {} 个 AG-UI 卡片工具 + install_skill + send_im_message + execute/run_command"
                     + " + schedule_task/manage_scheduled_task", DemoCardTools.tools().size());
         }

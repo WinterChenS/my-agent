@@ -38,6 +38,8 @@ INCLUDE = [
     "deploy/Dockerfile.frontend",
     "deploy/nginx.conf",
     "deploy/.env.example",
+    # Agent Reach 源码包：后端镜像在构建时 pip 安装它（Agent 访问互联网的唯一出口）
+    "vendor/agent-reach-1.6.0.tar.gz",
     "deploy/README.md",
     "docker-compose.yml",
     ".dockerignore",
