@@ -255,7 +255,7 @@ public class ConnectorService {
     public ConnectorTestResult test(Long id, Long userId, boolean admin) {
         ConnectorRecord record = require(id);
         requireAccess(record, userId, admin);
-        ConnectorTestResult result = probe(record.type(), config(record));
+        ConnectorTestResult result = probe(record.type(), config(record), userId);
         store.markProbe(id, result.ok(), result.ok() ? null : result.message());
         return result;
     }
@@ -269,16 +269,16 @@ public class ConnectorService {
             throw BizException.badRequest("缺少必填配置：" + String.join("、", labels(descriptor, missing)));
         }
         validateFieldValues(descriptor, normalized);
-        return probe(descriptor.typeUpper(), normalized);
+        return probe(descriptor.typeUpper(), normalized, null);
     }
 
-    private ConnectorTestResult probe(String type, Map<String, String> config) {
+    private ConnectorTestResult probe(String type, Map<String, String> config, Long userId) {
         ConnectorProbePort port = probePorts.stream()
                 .filter(candidate -> candidate.type().equalsIgnoreCase(type))
                 .findFirst()
                 .orElseThrow(() -> BizException.badRequest("该类型暂不支持连通性测试: " + type));
         try {
-            return port.probe(config);
+            return port.probe(config, userId);
         } catch (RuntimeException ex) {
             String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
             return new ConnectorTestResult(false, "测试失败：" + message, List.of());

@@ -31,6 +31,17 @@ public interface ConnectorProvider {
     com.myagent.connectorconfig.dto.ConnectorTestResult probe(Map<String, String> config);
 
     /**
+     * 带调用者身份的探测（默认退回无身份版本）。
+     *
+     * <p>钉钉文档这类连接器的身份是 operatorId，需要按平台用户自动映射；没有它就只能用占位身份，
+     * 「测试连接」会误报"没权限"。
+     */
+    default com.myagent.connectorconfig.dto.ConnectorTestResult probe(
+            Map<String, String> config, Long userId) {
+        return probe(config);
+    }
+
+    /**
      * 入站轮询：返回自上次游标以来的新邮件（只读）**以及要保存的新游标**。
      *
      * <p>为什么要连游标一起返回：第一次跑（没有游标）只能"打基线"而不拉历史邮件，

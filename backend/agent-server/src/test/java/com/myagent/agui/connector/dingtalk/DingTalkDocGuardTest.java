@@ -51,6 +51,20 @@ class DingTalkDocGuardTest {
     }
 
     @Test
+    void 缺通讯录权限时把申请链接直接给用户() {
+        String reason = "应用尚未开通所需的权限：[qyapi_get_member]，点击链接申请并开通即可："
+                + "https://open-dev.dingtalk.com/appscope/apply?content=ding84org4u4zruvivxe%23qyapi_get_member, "
+                + "{requiredScopes=[qyapi_get_member]}";
+
+        String hint = DingTalkDocClient.unionIdHint(reason);
+
+        assertThat(hint).contains("unionId").contains("通讯录");
+        assertThat(hint).contains("https://open-dev.dingtalk.com/appscope/apply?content=ding84org4u4zruvivxe");
+        // 链接不能把后面的 ", {requiredScopes" 也吞进去
+        assertThat(hint).doesNotContain("requiredScopes");
+    }
+
+    @Test
     void 降级用的纯文本会去markdown标记() {
         String plain = DingTalkDocClient.stripMarkdown("# 标题\n- 条目\n**粗体**和`代码`");
         assertThat(plain).doesNotContain("#", "**", "`");

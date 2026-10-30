@@ -66,6 +66,11 @@ public class ConnectorConfiguration {
             public ConnectorTestResult probe(Map<String, String> config) {
                 return provider.probe(config);
             }
+
+            @Override
+            public ConnectorTestResult probe(Map<String, String> config, Long userId) {
+                return provider.probe(config, userId);
+            }
         };
     }
 

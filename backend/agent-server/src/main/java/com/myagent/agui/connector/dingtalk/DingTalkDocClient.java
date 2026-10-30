@@ -33,6 +33,10 @@ public class DingTalkDocClient {
     private static final ObjectMapper JSON = new ObjectMapper();
     /** 同一应用的所有请求共用一份 token 缓存。 */
     private static final Map<String, CachedToken> TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
+    /** staffId/unionId 的换算缓存（文档接口要 unionId）。 */
+    private static final Map<String, CachedToken> UNION_IDS = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 换算失败的原因（用于把"还差哪个权限/申请链接"直接告诉用户）。 */
+    private static final Map<String, String> UNION_ID_ERRORS = new java.util.concurrent.ConcurrentHashMap<>();
 
     private record CachedToken(String token, Instant expiresAt) {}
 
@@ -56,6 +60,56 @@ public class DingTalkDocClient {
 
     public String operatorId() {
         return operatorId;
+    }
+
+    /**
+     * 钉钉文档接口的 {@code operatorId} 实际要的是 **unionId**，而机器人里拿到的是 **staffId**
+     * （形如 {@code 0935422236-1407729645}），直接传会报 {@code paramError-operatorId}（实测）。
+     *
+     * <p>这里用通讯录接口把 staffId 换成 unionId 并缓存；换不到就原样返回，
+     * 让错误信息带着 requestid 暴露出来，方便排查（而不是静默失败）。
+     */
+    private String resolveUnionId(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return raw;
+        }
+        CachedToken cached = UNION_IDS.get(appKey + "|" + raw);
+        if (cached != null) {
+            return cached.token();
+        }
+        try {
+            // 注意：新版通讯录接口 /v1.0/contact/users/{id} 收的是 unionId，不是 userId（实测 404），
+            // 所以这里走老的 topapi：/topapi/v2/user/get，用 app access_token 换 unionid。
+            String token = accessToken();
+            ObjectNode body = JSON.createObjectNode();
+            body.put("userid", raw);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://oapi.dingtalk.com/topapi/v2/user/get?access_token=" + encode(token)))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> response =
+                    http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            JsonNode parsed = JSON.readTree(response.body());
+            String unionId = parsed.path("result").path("unionid").asText("");
+            if (unionId.isBlank()) {
+                String reason = parsed.path("errmsg").asText(parsed.toString());
+                UNION_ID_ERRORS.put(appKey + "|" + raw, reason);
+                org.slf4j.LoggerFactory.getLogger(DingTalkDocClient.class)
+                        .warn("通讯录换算没有 unionid（userId={}）：{}", raw, parsed.toString());
+                return raw;
+            }
+            UNION_IDS.put(appKey + "|" + raw, new CachedToken(unionId, Instant.now().plusSeconds(6 * 3600)));
+            return unionId;
+        } catch (RuntimeException ex) {
+            org.slf4j.LoggerFactory.getLogger(DingTalkDocClient.class)
+                    .warn("staffId → unionId 换算失败（userId={}）：{}", raw, ex.getMessage());
+        } catch (Exception ex) {
+            org.slf4j.LoggerFactory.getLogger(DingTalkDocClient.class)
+                    .warn("staffId → unionId 换算异常（userId={}）：{}", raw, ex.toString());
+        }
+        return raw;
     }
 
     // ===================== 读 =====================
@@ -180,6 +234,10 @@ public class DingTalkDocClient {
     }
 
     private JsonNode send(String method, String url, JsonNode body) {
+        return send(method, url, body, true);
+    }
+
+    private JsonNode send(String method, String url, JsonNode body, boolean withOperator) {
         throttle();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -197,7 +255,18 @@ public class DingTalkDocClient {
                     http.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             String raw = response.body();
             if (response.statusCode() >= 400) {
-                throw toHumanError(response.statusCode(), raw);
+                DingTalkException error = toHumanError(response.statusCode(), raw);
+                if (withOperator && raw != null && raw.contains("operatorId")) {
+                    String unionId = resolveUnionId(operatorId);
+                    if (unionId != null && !unionId.equals(operatorId)) {
+                        return send(method, withOperator(url, unionId), body, false);
+                    }
+                    String reason = UNION_ID_ERRORS.get(appKey + "|" + operatorId);
+                    if (reason != null && !reason.isBlank()) {
+                        throw new DingTalkException(unionIdHint(reason));
+                    }
+                }
+                throw error;
             }
             return raw == null || raw.isBlank() ? JSON.createObjectNode() : JSON.readTree(raw);
         } catch (DingTalkException ex) {
@@ -249,6 +318,33 @@ public class DingTalkDocClient {
         }
         TOKENS.put(appKey, new CachedToken(token, Instant.now().plusSeconds(Math.max(expireIn - 60, 60))));
         return token;
+    }
+
+    /**
+     * 把"缺通讯录权限"翻成用户能直接操作的提示（钉钉会在错误里给申请链接，抽出来给他）。
+     */
+    static String unionIdHint(String reason) {
+        String link = "";
+        String marker = "https://open-dev.dingtalk.com/appscope/apply?content=";
+        String text = reason == null ? "" : reason;
+        int at = text.indexOf(marker);
+        if (at >= 0) {
+            int end = at;
+            while (end < text.length() && ", ]".indexOf(text.charAt(end)) < 0
+                    && !Character.isWhitespace(text.charAt(end))) {
+                end++;
+            }
+            link = text.substring(at, end);
+        }
+        return "钉钉文档接口的 operatorId 要的是 **unionId**，而机器人里拿到的是 staffId，"
+                + "换算需要「通讯录成员信息读权限」(qyapi_get_member)。"
+                + (link.isBlank() ? "请到开放平台给应用勾选该权限后再试。" : "点这个链接一键申请/开通：" + link)
+                + " 开通后重新点「测试连接」即可（不需要重填任何东西）。";
+    }
+
+    /** 把 URL 里 operatorId 的值换成 unionId（用于参数错误后的重试）。 */
+    private static String withOperator(String url, String unionId) {
+        return url.replaceAll("operatorId=[^&]*", "operatorId=" + encode(unionId));
     }
 
     private void throttle() {

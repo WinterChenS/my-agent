@@ -42,6 +42,60 @@ public class DingTalkDocConnectorProvider implements ConnectorProvider {
     }
 
     @Override
+    public ConnectorTestResult probe(Map<String, String> config, Long userId) {
+        Map<String, String> app = credentials.resolve();
+        if (app == null) {
+            return new ConnectorTestResult(false,
+                    "平台还没有可用的钉钉应用凭据：请先在「系统设置 → IM 渠道」配置钉钉应用（appKey/appSecret）", List.of());
+        }
+        DingTalkDocSettings settings = DingTalkDocSettings.of(config);
+        List<String> steps = new ArrayList<>();
+        steps.add("已找到钉钉应用凭据（appKey=" + mask(app.get("appKey")) + "）");
+
+        String operatorId = settings.operatorId();
+        if (operatorId == null || operatorId.isBlank()) {
+            operatorId = userId == null ? null : operatorResolver.resolve(userId);
+            if (operatorId == null || operatorId.isBlank()) {
+                steps.add("没能自动对上你的钉钉身份（你还没在钉钉里跟机器人说过话？）");
+                return new ConnectorTestResult(false,
+                        "拿不到你的钉钉身份（operatorId）：请到「能力 → 连接器 → 钉钉文档」里填写「操作人（钉钉 userId）」，"
+                                + "或者先在钉钉里给机器人发一条消息再回来点测试", steps);
+            }
+            steps.add("已按你的账号自动映射到钉钉身份：" + operatorId);
+        } else {
+            steps.add("使用连接器里配置的操作人：" + operatorId);
+        }
+
+        DingTalkDocClient client = new DingTalkDocClient(app.get("appKey"), app.get("appSecret"), operatorId);
+        try {
+            JsonNode workspaces = client.mineWorkspaces(5);
+            int count = workspaces.path("result").path("workspaces").size();
+            if (count == 0) {
+                count = workspaces.path("result").path("data").size();
+            }
+            steps.add("access token 获取成功；查到我参与的知识库 " + count + " 个");
+            try {
+                JsonNode recent = client.recentEditDocs(5);
+                int docs = recent.path("result").path("docs").size();
+                if (docs == 0) {
+                    docs = recent.path("result").path("data").size();
+                }
+                steps.add("我最近编辑的文档 " + docs + " 篇");
+            } catch (RuntimeException ex) {
+                steps.add("读取最近编辑文档失败（不影响读文档本身）：" + ex.getMessage());
+            }
+            if (count == 0) {
+                steps.add("知识库为 0：确认你已加入知识库，且应用有文档/知识库权限");
+            }
+            return new ConnectorTestResult(true, "连接正常", steps);
+        } catch (DingTalkDocClient.DingTalkException ex) {
+            return new ConnectorTestResult(false, ex.getMessage(), steps);
+        } catch (RuntimeException ex) {
+            return new ConnectorTestResult(false, "测试失败：" + ex.getMessage(), steps);
+        }
+    }
+
+    @Override
     public ConnectorTestResult probe(Map<String, String> config) {
         DingTalkDocSettings settings = DingTalkDocSettings.of(config);
         List<String> steps = new ArrayList<>();
