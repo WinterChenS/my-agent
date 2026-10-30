@@ -219,3 +219,46 @@ P2 可选：`dt_update_block`、`dt_delete_block`、`dt_export_pdf`、`dt_commen
 1. 在钉钉开放平台给应用开文档/知识库权限（见第 5 节）；
 2. 把要用的知识库/文档对我们这个应用可见（你自己的账号有权限即可，因为 operatorId 用的是你本人）；
 3. 在平台上创建 `DINGTALK_DOC` 连接器 → 点「测试连接」→ 若提示"知识库 0 个"，按提示检查三步。
+
+---
+
+## 9. P0 已打通（2026-10-30 真机验证）
+
+### 9.1 最终可用的能力（线上 18080 实测）
+
+| 工具 | 结果 |
+|---|---|
+| `dt_create_workspace` | ✅ 建知识库 |
+| `dt_create_doc` | ✅ 建文档（返回 docKey + nodeId + 链接） |
+| `dt_write` / `dt_append_content`（读-拼-覆盖） | ✅ 写正文、追加 |
+| `dt_get_doc` | ✅ 读正文（块 → Markdown，标题/段落/列表正确） |
+| `dt_delete_doc` | ✅ 移入回收站 |
+| `dt_search_docs` | ✅ 搜索（`Document.WorkspaceDocument.Read`） |
+| `dt_list_workspaces` / `dt_recent_docs` | ❌ 缺 `Document.Workspace.Read`（控制台搜不到该码，暂不可开通） |
+
+### 9.2 这一路踩到的 5 个坑（都已修，都有注释/日志）
+
+1. **`operatorId` 的位置**：GET 在 query、多数 POST/PATCH 在 **body**、删文档又在 **query**。
+   一开始只替换了 URL，于是新建知识库/新建文档带着 staffId 发出去 → 钉钉回 **500「系统内部错误」**
+   （不是权限问题！用户提醒"500 说明请求可能不对"，才定位到）。
+2. **staffId ≠ unionId**：文档接口要 **unionId**；机器人里拿到的是 staffId。
+   换算走老接口 `/topapi/v2/user/get`（新版 `/v1.0/contact/users/{id}` 收的是 unionId，传 staffId 会 404），
+   需要 `qyapi_get_member`（通讯录成员信息读权限）。
+3. **access token 在签发时固定权限范围**：控制台刚开通权限后，进程里缓存的旧 token 仍报"缺权限"；
+   现在遇到 403 `AccessTokenPermissionDenied` 会清缓存重取一次。
+4. **文档只能建在「知识库」里**：`CreateWorkspaceDoc` 官方注释是「新建知识库文档」，
+   「我的文档」（团队空间/钉盘）不是知识库 → 在那里建必然失败。所以先 `dt_create_workspace` 再建文档。
+5. **`docType` 必须大写 `DOC`**；搜索接口 `keyword` 不能为空。
+
+### 9.3 已知限制
+
+- **读不了「我的文档」里的既有文档**：blocks 接口要的 `documentId` 只有「用 API 创建文档」时才返回
+  （`docKey`）；`/v1.0/search`、空间详情只给 `nodeId`，两者不能互换。要读既有文档目前无公开接口。
+- 知识库删除没有公开 API（测试用的知识库需在钉钉里手动删）。
+- 表格/多维表（workbook）仍属 P2。
+
+### 9.4 线上测试数据
+
+- 建了两个知识库：`my-agent 测试知识库`（workspaceId=`KrwmPW89RkO53X79`，已设为连接器默认知识库）
+  和 `my-agent 测试知识库4`（`KrwmPW880Q7jlX79`，重复创建，可在钉钉里手动删除）。
+- 联调用的测试文档都已删除（进回收站）。
