@@ -308,6 +308,11 @@ public class ConnectorService {
         }
     }
 
+    /** 本连接器的写操作记录（工具内部兜底用，不做属主校验）。 */
+    public List<Map<String, Object>> actionsOf(long connectorId, int limit) {
+        return store.recentActions(connectorId, limit);
+    }
+
     public List<Map<String, Object>> recentActions(Long id, Long userId, boolean admin, int limit) {
         ConnectorRecord record = require(id);
         requireAccess(record, userId, admin);

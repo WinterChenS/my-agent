@@ -442,20 +442,59 @@ public final class DingTalkDocTools {
 
         @Override
         protected String run(Ctx ctx, ToolCallParam param) {
-            JsonNode response = ctx.client().recentEditDocs(
-                    Math.min(Math.max(asInt(param.getInput().get("limit"), 10), 1), 50));
-            List<DocRow> docs = docRows(response);
-            if (docs.isEmpty()) {
-                return "最近没有编辑记录（或你的钉钉账号没有文档权限）。";
+            int limit = Math.min(Math.max(asInt(param.getInput().get("limit"), 10), 1), 50);
+            try {
+                JsonNode response = ctx.client().recentEditDocs(limit);
+                List<DocRow> docs = docRows(response);
+                if (!docs.isEmpty()) {
+                    StringBuilder out = new StringBuilder("最近编辑的文档：").append(NL);
+                    for (DocRow doc : docs) {
+                        out.append("- ").append(doc.name())
+                                .append(" | docKey=").append(doc.docKey())
+                                .append(doc.workspaceId().isBlank() ? "" : " | workspaceId=" + doc.workspaceId())
+                                .append(doc.editTime().isBlank() ? "" : " | " + doc.editTime())
+                                .append(NL);
+                    }
+                    return out.toString();
+                }
+                return "钉钉返回的最近编辑列表是空的（你近期可能没在钉钉里改过文档）。可以用 dt_search_docs 按标题关键词找。";
+            } catch (RuntimeException ex) {
+                // 钉钉没给当前应用开放「最近编辑」接口（Document.Workspace.Read 在控制台开不出来）。
+                // 这时**不要**甩权限链接让用户白折腾，而是退回到"本平台通过这个连接器创建/改过的文档"。
+                return fallbackToOurOwnHistory(ctx, limit, ex.getMessage());
             }
-            StringBuilder out = new StringBuilder("最近编辑的文档：").append(NL);
-            for (DocRow doc : docs) {
-                out.append("- ").append(doc.name())
-                        .append(" | docKey=").append(doc.docKey())
-                        .append(doc.workspaceId().isBlank() ? "" : " | workspaceId=" + doc.workspaceId())
-                        .append(doc.editTime().isBlank() ? "" : " | " + doc.editTime())
+        }
+
+        /** 兜底：列出本平台通过该连接器创建/写过的文档（来自 connector_action_log）。 */
+        private String fallbackToOurOwnHistory(Ctx ctx, int limit, String reason) {
+            List<java.util.Map<String, Object>> actions = connectorService.actionsOf(ctx.connector().record().id(), 50);
+            StringBuilder out = new StringBuilder();
+            // 这里**不带权限申请链接**：该权限点控制台里开不出来，贴给你只会白折腾
+            String shortReason = reason == null ? "权限不足"
+                    : stripApplyLink(reason);
+            out.append("钉钉没有对当前应用开放「最近编辑」列表接口（").append(shortReason)
+                    .append("），所以拿不到钉钉侧的全部最近文档。").append(NL).append(NL);
+            out.append("不过这里可以列出**本平台通过这个连接器创建/改过**的文档（按时间倒序）：").append(NL);
+            int count = 0;
+            for (java.util.Map<String, Object> row : actions) {
+                String action = String.valueOf(row.get("action"));
+                if (!action.contains("DOC") && !"APPEND".equals(action) && !"OVERWRITE".equals(action)) {
+                    continue;
+                }
+                if (count >= limit) {
+                    break;
+                }
+                out.append("- [").append(action).append("] ")
+                        .append(row.get("subject") == null ? "" : row.get("subject"))
+                        .append(" | nodeId/docKey=").append(row.get("target") == null ? "" : row.get("target"))
+                        .append(" | ").append(row.get("created_at") == null ? "" : row.get("created_at"))
                         .append(NL);
+                count++;
             }
+            if (count == 0) {
+                out.append("（还没有通过本平台写过文档）").append(NL);
+            }
+            out.append(NL).append("想找别的文档：用 dt_search_docs 按标题关键词搜（搜索接口是通的），或者直接把文档链接给我。");
             return out.toString();
         }
     }
@@ -860,6 +899,16 @@ public final class DingTalkDocTools {
             }
         }
         return fallback;
+    }
+
+    /** 去掉"点这里一键开通：<url>"这段尾巴（该权限点控制台开不出来，贴链接只会让人白折腾）。 */
+    static String stripApplyLink(String reason) {
+        if (reason == null) {
+            return "权限不足";
+        }
+        int at = reason.indexOf("点这里一键开通");
+        String trimmed = at > 0 ? reason.substring(0, at) : reason;
+        return trimmed.trim();
     }
 
     // ===================== 辅助 =====================

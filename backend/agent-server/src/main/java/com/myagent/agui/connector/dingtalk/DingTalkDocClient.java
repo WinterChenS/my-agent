@@ -324,11 +324,17 @@ public class DingTalkDocClient {
                 }
                 if (withOperator && operatorId != null && !operatorId.isBlank()
                         && !operatorId.equals(resolveUnionId(operatorId))) {
-                    // unionId 不被接受（个别接口要 userId）→ 用原始 staffId 再试一次
+                    // unionId 不被接受（个别接口要 userId）→ 用原始 staffId 再试一次。
+                    // 注意：重试**失败时要把第一次的错误抛出去**，否则真实的错误（比如"文档不存在"）
+                    // 会被重试的 paramError-operatorId 盖掉，排查时被误导一整轮（实测踩过）。
                     String original = withOperator(url, operatorId);
                     JsonNode originalBody = withBodyOperator(body, operatorId);
                     if (!original.equals(url) || originalBody != body) {
-                        return send(method, original, originalBody, false, mayRefreshToken);
+                        try {
+                            return send(method, original, originalBody, false, mayRefreshToken);
+                        } catch (DingTalkException retryError) {
+                            throw error;
+                        }
                     }
                 }
                 if (withOperator && raw != null && raw.contains("operatorId")) {
@@ -498,8 +504,10 @@ public class DingTalkDocClient {
             }
             return new DingTalkException("没有权限操作这个文档/知识库：" + explainPermission() + suffix);
         }
-        if (status == 404 || lowerCode.contains("notfound")) {
-            return new DingTalkException("找不到这个文档/知识库：可能是 id 不对，或这个钉钉账号本身没有访问权" + suffix);
+        if (status == 404 || lowerCode.contains("notfound") || code.contains("FileNotExist")
+                || message.contains("FileNotExist")) {
+            return new DingTalkException("这篇文档不存在或已被删除（可能进了回收站）。"
+                    + "可以用 dt_search_docs 重新找一下。" + suffix);
         }
         if (status == 429 || lowerCode.contains("throttl") || lowerCode.contains("limit")) {
             return new DingTalkException("触发钉钉接口限流，请稍后重试" + suffix);

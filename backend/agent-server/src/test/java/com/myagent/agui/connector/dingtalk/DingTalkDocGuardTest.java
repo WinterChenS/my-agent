@@ -47,7 +47,10 @@ class DingTalkDocGuardTest {
         assertThat(DingTalkDocClient.toHumanError(429, "{\"code\":\"Throttling\"}").getMessage())
                 .contains("限流");
         assertThat(DingTalkDocClient.toHumanError(404, "{\"code\":\"NotFound\"}").getMessage())
-                .contains("找不到");
+                .contains("不存在");
+        // 钉钉删掉的文档返回 B_DINGPAN_FileNotExist：要说清"已删除"，别让人以为是权限问题
+        assertThat(DingTalkDocClient.toHumanError(500, "{\"code\":\"B_DINGPAN_FileNotExist\"}").getMessage())
+                .contains("已被删除");
     }
 
     @Test
