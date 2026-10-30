@@ -155,6 +155,23 @@ public class DingTalkDocClient {
                 "endIndex", String.valueOf(Math.max(endIndex, 1))));
     }
 
+    /**
+     * 新建**知识库**（`POST /v1.0/doc/workspaces`）。
+     *
+     * <p>为什么需要它：官方 SDK 把 CreateWorkspaceDoc 注释成「新建知识库文档」——
+     * 也就是说「新建文档」只对**知识库**成立；「我的文档」（团队空间/钉盘）不是知识库，
+     * 在那里建文档会直接 500（实测）。所以先建一个知识库，后面新建/读/写文档都在它里面做。
+     */
+    public JsonNode createWorkspace(String name, String description) {
+        ObjectNode body = JSON.createObjectNode();
+        body.put("name", name == null || name.isBlank() ? "my-agent" : name);
+        if (description != null && !description.isBlank()) {
+            body.put("description", description);
+        }
+        body.put("operatorId", operatorId);
+        return post("/v1.0/doc/workspaces", body);
+    }
+
     /** 文档空间详情（含 rootDentryUuid：在空间根目录建文档时的父节点）。 */
     public JsonNode workspace(String workspaceId) {
         return get("/v1.0/doc/workspaces/" + encode(workspaceId), params("operatorId", operatorId));

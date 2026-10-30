@@ -45,6 +45,7 @@ public final class DingTalkDocTools {
                 new RecentDocsTool(agentId, connectorService, credentials, operatorResolver),
                 new GetDocTool(agentId, connectorService, credentials, operatorResolver),
                 new GetDocByUrlTool(agentId, connectorService, credentials, operatorResolver),
+                new CreateWorkspaceTool(agentId, connectorService, credentials, operatorResolver),
                 new CreateDocTool(agentId, connectorService, credentials, operatorResolver),
                 new AppendContentTool(agentId, connectorService, credentials, operatorResolver),
                 new OverwriteContentTool(agentId, connectorService, credentials, operatorResolver));
@@ -549,6 +550,55 @@ public final class DingTalkDocTools {
     }
 
     // ===================== 写 =====================
+
+    /** 新建知识库（文档要建在知识库里）。 */
+    static final class CreateWorkspaceTool extends AbstractDingTalkTool {
+
+        CreateWorkspaceTool(long agentId, ConnectorService connectorService,
+                DingTalkAppCredentials credentials, DingTalkOperatorResolver operatorResolver) {
+            super(agentId, connectorService, credentials, operatorResolver);
+        }
+
+        @Override
+        public String getName() {
+            return "dt_create_workspace";
+        }
+
+        @Override
+        public String getDescription() {
+            return "新建一个钉钉**知识库**（只有知识库才能用 API 新建文档；「我的文档」不行）。"
+                    + "返回 workspaceId，之后用 dt_create_doc 往它里面写文档。";
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return false;
+        }
+
+        @Override
+        public Map<String, Object> getParameters() {
+            Map<String, Object> properties = new LinkedHashMap<>(connectorParam());
+            properties.put("name", Map.of("type", "string", "description", "知识库名称"));
+            properties.put("description", Map.of("type", "string", "description", "可选：描述"));
+            return schema(properties, List.of("name"));
+        }
+
+        @Override
+        protected String run(Ctx ctx, ToolCallParam param) {
+            if (!ctx.settings().allowWrite()) {
+                return "这个钉钉文档连接器关闭了「允许写入」，不能新建知识库。";
+            }
+            String name = asString(param.getInput().get("name"));
+            JsonNode created = ctx.client().createWorkspace(name, asString(param.getInput().get("description")));
+            JsonNode body = created.path("result").isMissingNode() ? created : created.path("result");
+            String workspaceId = nameOf(body, "workspaceId", "id");
+            connectorService.logAction(ctx.connector().record().id(),
+                    ctx.connector().record().ownerUserId(), "CREATE_WORKSPACE", workspaceId, name, true, null);
+            return "已创建知识库「" + name + "」：workspaceId=" + workspaceId
+                    + (nameOf(body, "url").isBlank() ? "" : "，链接：" + nameOf(body, "url"))
+                    + NL + "接下来可以用 dt_create_doc 在它里面新建文档。";
+        }
+    }
 
     /** 新建文档。 */
     static final class CreateDocTool extends AbstractDingTalkTool {
