@@ -2,6 +2,7 @@ package com.myagent.agui.connector;
 
 import com.myagent.agui.AguiProperties;
 import com.myagent.agui.connector.mail.MailConnectorProvider;
+import com.myagent.agui.connector.notion.NotionConnectorProvider;
 import com.myagent.connectorconfig.ConnectorProbePort;
 import com.myagent.connectorconfig.ConnectorService;
 import com.myagent.connectorconfig.dto.ConnectorTestResult;
@@ -40,6 +41,26 @@ public class ConnectorConfiguration {
                 Math.max(maxAttachmentsTotalMb, 1) * 1024L * 1024L,
                 Math.max(maxBodyChars, 1000),
                 Math.max(maxBatch, 1));
+    }
+
+    @Bean
+    public NotionConnectorProvider notionConnectorProvider(ConnectorService connectorService) {
+        return new NotionConnectorProvider(connectorService);
+    }
+
+    @Bean
+    public ConnectorProbePort notionConnectorProbePort(NotionConnectorProvider provider) {
+        return new ConnectorProbePort() {
+            @Override
+            public String type() {
+                return provider.type();
+            }
+
+            @Override
+            public ConnectorTestResult probe(Map<String, String> config) {
+                return provider.probe(config);
+            }
+        };
     }
 
     /** 让 {@code ConnectorService.test/testDraft} 能探测邮箱（不把 AgentScope 类型带进配置包）。 */

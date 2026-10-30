@@ -28,6 +28,9 @@ public class ConnectorTypeRegistry {
             option("NOTIFY", "推 IM 通知"),
             option("AUTOREPLY", "Agent 自动回复"));
 
+    private static final List<ConnectorTypeDescriptor.FieldOption> WRITE_OPTIONS =
+            List.of(option("true", "允许（新建/修改需要审批）"), option("false", "禁止（只能读）"));
+
     private final Map<String, ConnectorTypeDescriptor> byType = new LinkedHashMap<>();
 
     public ConnectorTypeRegistry() {
@@ -69,6 +72,36 @@ public class ConnectorTypeRegistry {
                         ConnectorTypeDescriptor.Capability.SEND,
                         ConnectorTypeDescriptor.Capability.INBOUND),
                 true,
+                true));
+
+        register(new ConnectorTypeDescriptor(
+                "NOTION",
+                "Notion",
+                "让 Agent 搜索、读取、新建与修改你的 Notion 页面（按你的权限访问，v2026-03-11 API）",
+                List.of(
+                        new ConnectorTypeDescriptor.Field(
+                                "token", "集成令牌 / 个人访问令牌", true,
+                                "Notion → Developer portal 创建个人访问令牌（勾选 Notion API 能力）或内部集成令牌；修改时留空表示不改",
+                                true, "",
+                                ConnectorTypeDescriptor.FieldType.PASSWORD, List.of()),
+                        text("workspaceName", "工作区名称（备注）", false, "仅用于界面显示，可不填", ""),
+                        text("defaultPageId", "默认写入页面（可选）", false,
+                                "新建页面时的默认父页面；可粘贴完整链接或页面 id", ""),
+                        number("maxBlocksPerPage", "单页最多读取多少块", false,
+                                "默认 200；超大页面会截断，防止一次读爆上下文", "200"),
+                        select("allowWrite", "允许写入", "关闭后 Agent 只能读，不能新建/修改页面",
+                                WRITE_OPTIONS),
+                        tags("allowedPageIds", "页面白名单（可选）",
+                                "留空=不限；填了就只允许读写这些页面（可粘贴链接，会自动提取 id）"),
+                        tags("allowedDataSources", "数据库白名单（可选）",
+                                "留空=不限；填了就只允许查询/写入这些数据库（data source id）")),
+                List.of("token"),
+                Set.of("token"),
+                Set.of(
+                        ConnectorTypeDescriptor.Capability.READ,
+                        ConnectorTypeDescriptor.Capability.SEARCH,
+                        ConnectorTypeDescriptor.Capability.WRITE),
+                false,
                 true));
     }
 

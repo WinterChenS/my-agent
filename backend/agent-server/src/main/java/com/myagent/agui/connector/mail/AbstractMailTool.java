@@ -70,69 +70,22 @@ abstract class AbstractMailTool implements AgentTool {
 
     private ToolResultBlock execute(ToolCallParam param) {
         String userId = param.getRuntimeContext() == null ? null : param.getRuntimeContext().getUserId();
-        if (userId == null || userId.isBlank()) {
-            return text("拿不到当前用户身份，无法确定用哪个邮箱。请让用户重新登录后再试。");
-        }
-        long uid;
-        try {
-            uid = Long.parseLong(userId.trim());
-        } catch (NumberFormatException ex) {
-            return text("当前用户身份异常（" + userId + "），无法使用邮箱连接器。");
-        }
-        List<ConnectorService.ResolvedConnector> mine = connectorService.resolveForUser(agentId, uid).stream()
-                .filter(candidate -> "MAIL".equalsIgnoreCase(candidate.record().type()))
-                .toList();
-        if (mine.isEmpty()) {
-            return text(noConnectorHint());
-        }
         String wanted = asString(param.getInput().get(CONNECTOR_PARAM));
-        ConnectorService.ResolvedConnector picked = pick(mine, wanted);
-        if (picked == null) {
-            return text("你绑定了多个邮箱，请用参数 `" + CONNECTOR_PARAM + "` 指定其中一个："
-                    + describe(mine) + "。例如 \"" + CONNECTOR_PARAM + "\":\""
-                    + (mine.get(0).record().alias() == null ? mine.get(0).record().name() : mine.get(0).record().alias())
-                    + "\"");
+        // 「用哪个连接器」的解析/提示语与 Notion 共用一套（ConnectorToolResolver），
+        // 保证"没绑定 / 绑了多个 / 已停用"三种情况的说法在各连接器里完全一致。
+        com.myagent.agui.connector.ConnectorToolResolver.Resolution resolution =
+                com.myagent.agui.connector.ConnectorToolResolver.resolve(
+                        connectorService, agentId, "MAIL", userId, wanted);
+        if (!resolution.ok()) {
+            return text(resolution.error());
         }
-        if (!picked.record().enabled()) {
-            return text("「" + picked.record().name() + "」这个邮箱连接器现在是**停用**状态，所以暂时用不了。"
-                    + "请告诉用户：在聊天框下方点「连接器」按钮，把「" + picked.record().name()
-                    + "」勾上启用（或到「能力 → 连接器」里启用），**下一轮**对话就能用。");
-        }
+        ConnectorService.ResolvedConnector picked = resolution.picked();
         MailSettings settings = MailSettings.of(picked.config());
         MailClient client = new MailClient(
                 settings, connectTimeoutMs, readTimeoutMs,
                 maxAttachmentBytes, maxAttachmentsTotalBytes, maxBodyChars);
         MailContext context = new MailContext(picked.record(), settings, client, connectorService);
         return text(run(context, param));
-    }
-
-    private static ConnectorService.ResolvedConnector pick(
-            List<ConnectorService.ResolvedConnector> mine, String wanted) {
-        if (wanted != null && !wanted.isBlank()) {
-            String key = wanted.trim().toLowerCase(java.util.Locale.ROOT);
-            Optional<ConnectorService.ResolvedConnector> byAlias = mine.stream()
-                    .filter(connector -> key.equals(lower(connector.record().alias()))
-                            || key.equals(lower(connector.record().name())))
-                    .findFirst();
-            return byAlias.orElse(null);
-        }
-        return mine.size() == 1 ? mine.get(0) : null;
-    }
-
-    private static String describe(List<ConnectorService.ResolvedConnector> mine) {
-        return String.join("、", mine.stream()
-                .map(connector -> connector.record().alias() == null
-                        ? connector.record().name()
-                        : connector.record().name() + "(" + connector.record().alias() + ")")
-                .toList());
-    }
-
-    /** 用户没有可用邮箱时的提示：说清"怎么才能用上"，模型才能转告用户。 */
-    static String noConnectorHint() {
-        return "当前用户还没有可用的邮箱连接器（或没有绑定到本 Agent）。"
-                + "请告诉用户：到「能力 → 连接器」添加自己的邮箱（需要邮箱地址、IMAP/SMTP 服务器与授权码），"
-                + "并把它绑定给当前 Agent；绑定后**下一轮**对话即可使用。"
-                + "在此之前无法替他读信或发信。";
     }
 
     /** 工具上下文：拿到手就能直接操作邮箱。 */

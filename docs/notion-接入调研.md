@@ -222,3 +222,47 @@
 - 前置：Developer portal 注册 public connection + redirect URI 可访问（见 8.2）
 
 **P2（可选）**：评论、文件上传、页面移动、模板复制；以及把 Notion 做成"入站通知"（页面变更 webhook）。
+
+---
+
+## 9. P0 实施记录（已完成，2026-10-30）
+
+按「走 A + 要写入 + 用户隔离 + 先 P0」落地：**NOTION 连接器**（token 模式）已上线。
+
+### 9.1 落地清单
+
+| 层 | 内容 |
+|---|---|
+| 迁移 | `V21__connector_notion.sql`：`connector.type` 允许 `NOTION` |
+| 类型描述 | `ConnectorTypeDescriptor.Capability.WRITE` + 注册表新增 `NOTION`（token / workspaceName / defaultPageId / maxBlocksPerPage / allowWrite / allowedPageIds / allowedDataSources；白名单是 **tag 输入**） |
+| 客户端 | `NotionClient`：JDK HttpClient、`Notion-Version: 2026-03-11`、**350ms 最小间隔 + 429 退避**、错误人话化 |
+| 转换 | `NotionMarkdown`：Markdown ↔ block 子集（标题/段落/列表/待办/引用/代码/分割线 + 行内粗斜体/代码/链接） |
+| 工具 | `NotionTools` 7 个：`notion_search`、`notion_get_page`、`notion_list_data_sources`、`notion_query_data_source`（表格输出）、`notion_create_page`、`notion_append_markdown`、`notion_update_page` |
+| 复用 | 「用哪个连接器」的解析抽成 `ConnectorToolResolver`（邮件与 Notion 共用一套提示语：未绑定 / 多个 / 已停用） |
+| 校验 | 保存时 tag 白名单必须是邮箱/`@域名`（邮件）或 **Notion id**（Notion 会自动从链接里提取） |
+| 前端 | **零改动**（动态表单 + tag 白名单 + 聊天页连接器入口全部复用） |
+
+### 9.2 实测（真实 token，本机）
+
+| 场景 | 结果 |
+|---|---|
+| 测试连接 | ✅ `令牌有效：my-agent · 集成令牌（机器人身份，需要把页面「添加连接」给它）`，并能搜到 10 项 |
+| `notion_search` | ✅ 返回真实页面标题 + id + 编辑时间 |
+| `notion_get_page` | ✅ 正文按 Markdown 返回，子页面引用也能识别 |
+| `notion_create_page` | ✅ 新建页面（H1/段落/列表/待办都正确落库） |
+| `notion_append_markdown` | ✅ 追加块成功 |
+| `notion_update_page` | ✅ 改名 / **移入回收站**（`in_trash`）都成功，测试页已清理 |
+
+### 9.3 实测抓到的两个 API 坑（都写进代码与测试）
+
+1. **create page 不接受顶层 `title`**：标题必须放进 `properties`，且键名是"父级里 title 属性的名字"——
+   普通页面固定 `title`；数据库（data source）下可能是「名称」，所以先在 data source schema 里找 `type=title` 的属性名。
+2. **`archived` 字段已被移除**：2026-03-11 起要用 **`in_trash`**；对外仍保留 `archived` 参数名（模型习惯），
+   内部翻译成 `in_trash` 发出去（单测钉住"不发 archived"）。
+
+### 9.4 现状与下一步
+
+- 现在：NOTION 连接器可用（读 + 搜 + 查库 + **新建/追加/改属性/归档**），写操作走审批卡、审计、白名单、
+  `allowWrite` 开关。
+- 待办：**P1 跳转授权（OAuth 公开连接）** —— 你提到要先加登录安全 + 外网 https，等这两件就绪我再接
+  （`authorize` → 回调换 token → 存 refresh_token → 过期自动刷新，前面第 8 节已把流程与前置条件写清）。

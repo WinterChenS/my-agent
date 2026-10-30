@@ -34,6 +34,8 @@ public record ConnectorTypeDescriptor(
         ATTACHMENT,
         /** 代用户发信。 */
         SEND,
+        /** 写入/修改内容（新建页面、追加内容、改属性）。 */
+        WRITE,
         /** 新内容入站触发（P1）。 */
         INBOUND
     }
