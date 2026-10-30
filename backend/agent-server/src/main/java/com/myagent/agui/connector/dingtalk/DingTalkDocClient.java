@@ -178,7 +178,8 @@ public class DingTalkDocClient {
         ObjectNode body = JSON.createObjectNode();
         body.put("name", name == null || name.isBlank() ? "未命名文档" : name);
         body.put("operatorId", operatorId);
-        body.put("docType", "doc");
+        // 实测：必须是 "DOC"（大写）；传 "doc" 会报 "Specified parameter docType is not valid."
+        body.put("docType", "DOC");
         if (parentNodeId != null && !parentNodeId.isBlank()) {
             body.put("parentNodeId", parentNodeId);
         }
@@ -281,6 +282,8 @@ public class DingTalkDocClient {
                 }
                 throw error;
             }
+            org.slf4j.LoggerFactory.getLogger(DingTalkDocClient.class)
+                    .debug("DX RAW {} {}", url, raw);
             return raw == null || raw.isBlank() ? JSON.createObjectNode() : JSON.readTree(raw);
         } catch (DingTalkException ex) {
             throw ex;

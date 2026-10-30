@@ -28,6 +28,9 @@ import reactor.core.scheduler.Schedulers;
  */
 public final class DingTalkDocTools {
 
+    /** 换行常量（避免源码里的转义被工具链吃掉）。 */
+    private static final String NL = System.lineSeparator();
+
     private DingTalkDocTools() {
     }
 
@@ -210,6 +213,51 @@ public final class DingTalkDocTools {
             return result;
         }
 
+        /** 一行文档信息（钉钉的返回是 docs[].nodeBO + workspaceBO 这种嵌套结构）。 */
+        record DocRow(String name, String docKey, String workspaceId, String url, String editTime) {}
+
+        /**
+         * 解析文档列表。
+         *
+         * <p>实测钉钉的返回长这样（别再猜字段名了）：
+         * <pre>
+         * {"docs":[{"workspaceBO":{"name":"...","workspaceId":"KrwmPZLYAnPdz79"},
+         *           "nodeBO":{"docType":"DOC","name":"...","nodeId":"KrwmPNgOJ3v90z79",
+         *                     "lastEditTime":1777372915000,"url":"https://alidocs.dingtalk.com/i/team/.../docs/..."}}],
+         *  "nextToken":"...","hasMore":true}
+         * </pre>
+         */
+        static List<DocRow> docRows(JsonNode response) {
+            List<DocRow> rows = new ArrayList<>();
+            for (JsonNode item : items(response, "docs", "documents", "data", "result")) {
+                JsonNode node = item.path("nodeBO").isObject() ? item.path("nodeBO") : item;
+                JsonNode workspace = item.path("workspaceBO");
+                String name = nameOf(node, "name", "title");
+                if (name.isBlank()) {
+                    name = nameOf(item, "name", "title");
+                }
+                String docKey = nameOf(node, "nodeId", "docKey", "dentryUuid", "id");
+                if (docKey.isBlank()) {
+                    docKey = nameOf(item, "docKey", "dentryUuid", "nodeId", "id");
+                }
+                String workspaceId = nameOf(workspace, "workspaceId");
+                if (workspaceId.isBlank()) {
+                    workspaceId = nameOf(item, "workspaceId");
+                }
+                String url = nameOf(node, "url");
+                if (url.isBlank()) {
+                    url = nameOf(item, "url");
+                }
+                String editTime = node.path("lastEditTime").isNumber()
+                        ? java.time.Instant.ofEpochMilli(node.path("lastEditTime").asLong()).toString()
+                        : nameOf(node, "updateTime", "modifiedTime");
+                if (!name.isBlank() || !docKey.isBlank()) {
+                    rows.add(new DocRow(name, docKey, workspaceId, url, editTime));
+                }
+            }
+            return rows;
+        }
+
         static String nameOf(JsonNode item, String... keys) {
             for (String key : keys) {
                 String value = item.path(key).asText("");
@@ -329,16 +377,17 @@ public final class DingTalkDocTools {
             String workspaceId = DingTalkDocSettings.Ids.normalize(asString(param.getInput().get("workspaceId")));
             JsonNode response = ctx.client().searchDocs(keyword, workspaceId,
                     Math.min(Math.max(asInt(param.getInput().get("limit"), 10), 1), 50));
-            List<JsonNode> docs = items(response, "docs", "documents", "result", "data");
+            List<DocRow> docs = docRows(response);
             if (docs.isEmpty()) {
                 return "没搜到匹配的文档。可以换个关键词，或者不带 workspaceId 全局搜。";
             }
-            StringBuilder out = new StringBuilder("搜到 ").append(docs.size()).append(" 篇：\n");
-            for (JsonNode doc : docs) {
-                out.append("- ").append(nameOf(doc, "name", "title"))
-                        .append(" | docKey=").append(nameOf(doc, "docKey", "dentryUuid", "nodeId", "id"))
-                        .append(nameOf(doc, "url").isBlank() ? "" : " | " + nameOf(doc, "url"))
-                        .append('\n');
+            StringBuilder out = new StringBuilder("搜到 ").append(docs.size()).append(" 篇：").append(NL);
+            for (DocRow doc : docs) {
+                out.append("- ").append(doc.name())
+                        .append(" | docKey=").append(doc.docKey())
+                        .append(doc.workspaceId().isBlank() ? "" : " | workspaceId=" + doc.workspaceId())
+                        .append(doc.url().isBlank() ? "" : " | " + doc.url())
+                        .append(NL);
             }
             return out.toString();
         }
@@ -378,17 +427,17 @@ public final class DingTalkDocTools {
         protected String run(Ctx ctx, ToolCallParam param) {
             JsonNode response = ctx.client().recentEditDocs(
                     Math.min(Math.max(asInt(param.getInput().get("limit"), 10), 1), 50));
-            List<JsonNode> docs = items(response, "docs", "documents", "result", "data");
+            List<DocRow> docs = docRows(response);
             if (docs.isEmpty()) {
                 return "最近没有编辑记录（或你的钉钉账号没有文档权限）。";
             }
-            StringBuilder out = new StringBuilder("最近编辑的文档：\n");
-            for (JsonNode doc : docs) {
-                out.append("- ").append(nameOf(doc, "name", "title"))
-                        .append(" | docKey=").append(nameOf(doc, "docKey", "dentryUuid", "nodeId", "id"))
-                        .append(nameOf(doc, "updateTime", "modifiedTime").isBlank()
-                                ? "" : " | " + nameOf(doc, "updateTime", "modifiedTime"))
-                        .append('\n');
+            StringBuilder out = new StringBuilder("最近编辑的文档：").append(NL);
+            for (DocRow doc : docs) {
+                out.append("- ").append(doc.name())
+                        .append(" | docKey=").append(doc.docKey())
+                        .append(doc.workspaceId().isBlank() ? "" : " | workspaceId=" + doc.workspaceId())
+                        .append(doc.editTime().isBlank() ? "" : " | " + doc.editTime())
+                        .append(NL);
             }
             return out.toString();
         }

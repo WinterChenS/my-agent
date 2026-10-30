@@ -81,7 +81,8 @@ public class DingTalkDocConnectorProvider implements ConnectorProvider {
             steps.add("✗ 知识库接口失败：" + ex.getMessage());
         }
         ok &= diagnose(steps, "文档空间列表", () -> client.docWorkspaces(5), "workspaces", "data");
-        ok &= diagnose(steps, "搜索文档接口", () -> client.searchDocs("", null, 5), "docs", "documents", "data");
+        // 搜索接口要求 keyword 非空（空串会被判 "keyword is not valid"），诊断时用一个通用词
+        ok &= diagnose(steps, "搜索文档接口", () -> client.searchDocs("文档", null, 5), "docs", "documents", "data");
         ok &= diagnose(steps, "最近编辑文档", () -> client.recentEditDocs(5), "docs", "documents", "data");
         return new ConnectorTestResult(ok, ok ? "连接正常" : "部分接口不可用（见下面的逐项结果）", steps);
     }
