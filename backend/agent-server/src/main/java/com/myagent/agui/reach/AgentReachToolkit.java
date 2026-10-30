@@ -186,6 +186,9 @@ public class AgentReachToolkit {
         public Map<String, Object> getParameters() {
             Map<String, Object> fields = new LinkedHashMap<>();
             fields.put("url", Map.of("type", "string", "description", "要读的完整链接（含 https://）"));
+            fields.put("maxChars", Map.of("type", "integer",
+                    "description", "可选：这条正文最多返回多少字符，默认 4000，最大 8000。"
+                            + "读「榜单/列表/栏目」这类正文在页面中段的页面时调大（例如 8000）"));
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("type", "object");
             schema.put("properties", fields);
@@ -200,7 +203,8 @@ public class AgentReachToolkit {
             if (rejected != null) {
                 return rejected;
             }
-            return client.render(client.run(userId(param), List.of("web", "read", url)));
+            int maxChars = Math.max(500, Math.min(intOr(param, "maxChars", 4000), 8000));
+            return client.render(client.run(userId(param), List.of("web", "read", url)), maxChars);
         }
     }
 

@@ -38,6 +38,9 @@ public class AgentReachClient {
 
     private static final Logger log = LoggerFactory.getLogger(AgentReachClient.class);
 
+    /** 单条正文默认保留的字符数（读正文够用；列表页请用工具参数放大）。 */
+    static final int DEFAULT_ITEM_CHARS = 1500;
+
     private final ReachProperties properties;
     private final ObjectMapper objectMapper;
     private final Map<String, Semaphore> gates = new ConcurrentHashMap<>();
@@ -198,6 +201,17 @@ public class AgentReachClient {
      * <p>失败时给「能照着做的下一步」，而不是把 CLI 的原始英文甩给模型。
      */
     public String render(Result result) {
+        return render(result, DEFAULT_ITEM_CHARS);
+    }
+
+    /**
+     * 渲染结果，可指定**单条正文**最多保留多少字符。
+     *
+     * <p>为什么需要可调：读「列表页/榜单页」（GitHub trending、新闻栏目页）时，正文在页面中段，
+     * 默认 1500 字常常只截到导航栏 → 模型等于什么都没读到。读这类页面要放大到几千字；
+     * 但总字符上限（{@code myagent.reach.max-chars}）仍然兜着，不会把上下文烧光。
+     */
+    public String render(Result result, int itemMaxChars) {
         if (!result.ok()) {
             return "联网失败：" + humanError(result);
         }
@@ -231,7 +245,7 @@ public class AgentReachClient {
             }
             String body = item.text() == null ? "" : item.text().trim();
             if (!body.isEmpty()) {
-                out.append("    正文：").append(abbreviate(body, 1500)).append("\n");
+                out.append("    正文：").append(abbreviate(body, Math.max(200, itemMaxChars))).append("\n");
             }
         }
         log.debug("agent-reach 渲染 {} 条，共 {} 字符", count, out.length());

@@ -112,6 +112,21 @@ class AgentReachClientTest {
     }
 
     @Test
+    @DisplayName("单条正文上限可调：读榜单/列表页时能放大（默认 1500 会只截到导航栏）")
+    void renderItemCharsIsConfigurable() {
+        String body = "x".repeat(5000);
+        String json = "{\"ok\":true,\"channel\":\"web\",\"action\":\"read\",\"items\":"
+                + "[{\"title\":\"t\",\"url\":\"https://e.com\",\"text\":\"" + body + "\"}]}";
+        AgentReachClient.Result result = AgentReachClient.parse(json);
+
+        String narrow = client().render(result, 500);
+        String wide = client().render(result, 8000);
+
+        assertThat(narrow.length()).isLessThan(900);
+        assertThat(wide.length()).isGreaterThan(4000);
+    }
+
+    @Test
     @DisplayName("没结果时给可执行的下一步，而不是空字符串")
     void rendersEmptyResult() {
         String text = client().render(AgentReachClient.parse(

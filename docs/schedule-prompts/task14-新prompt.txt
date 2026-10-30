@@ -1,0 +1,32 @@
+任务：生成「全球科技 + AI + GitHub 早报」，中文，发给主人（钉钉单聊）。
+
+一、范围
+- 科技/AI 新闻：过去 24 小时；GitHub 周热榜：过去 7 天。
+- 只写真正抓到的内容，抓不到就写「未获取到」，严禁编造标题、数字、star 数。
+
+二、抓取（只用联网工具 internet_read / internet_search / internet_channel；不要用 shell 命令（curl/wget）或 python 去联网）
+1) 科技/AI 新闻：用 internet_read 读下面栏目页（都是 HTML 页面），maxChars 传 6000：
+   - https://techcrunch.com/category/artificial-intelligence/
+   - https://www.theverge.com/ai-artificial-intelligence
+   - https://arstechnica.com/
+   - https://openai.com/news/
+   再用 internet_search 补充（limit 5，短关键词）：「AI 新闻」「大模型 发布」「科技 融资」。
+   注意：RSS/XML 源读不了（/feed/、.xml 会失败），不要试。
+2) GitHub 周热榜：internet_read https://github.com/trending?since=weekly ，maxChars 传 8000，
+   从正文里取仓库名、简介、语言、本周 star 增量（页面上有才写）。
+   新生项目再用 internet_channel：channel=github, action=search, query="stars:>800 pushed:>2026-10-15", limit=5。
+3) 任何一步失败就换下一个源；单个源最多试 2 次，不要死循环。最终至少要有 2 个 AI/科技源。
+
+三、处理
+- 去重（同一事件只留一条），只保留过去 24 小时且信息量足够的条目，按重要性排序。
+- 只用抓到的真实标题和内容；链接必须是真实读到的 URL。
+
+四、输出（钉钉直接可读，不用表格，1200 字以内）
+【AI 新闻 TOP5】每条：一句话标题 + 2 句要点 + 为什么重要 + 来源链接
+【全球科技新闻 TOP5】同上
+【GitHub 周热榜 TOP5】仓库名 + 一句话说明 + star（有才写）+ 链接
+【一句话趋势】2-3 句
+文末：数据来源列表 + 抓取时间（北京时间）；没取到的源列出来并给一句原因。
+
+五、兜底
+所有源都失败时，直接回「今日早报抓取失败：<一句原因>」，不要编内容，也不要超过 2 轮重试。

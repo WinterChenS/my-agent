@@ -1,0 +1,19 @@
+# 任务 #8 每日科技+AI新闻早报(钉钉9点)
+# 备份时间：更新为「只走 internet_* 联网工具」之前
+
+任务：汇总过去 24 小时的全球科技新闻与 AI 新闻，生成中文早报并推送。
+
+抓取方式：web_search 不可用（TAVILY_API_KEY 未配置），全部用 web_fetch 抓 RSS。
+已验证可用源：
+- AI：https://techcrunch.com/category/artificial-intelligence/feed/ 、https://venturebeat.com/category/ai/feed/
+- 科技：https://hnrss.org/frontpage 、https://techcrunch.com/feed/ 、https://www.theverge.com/rss/index.xml
+注意：Google News RSS（news.google.com）连接超时，不要使用。
+任一源失败就换上面的备用源重试（每源最多 3 次），最终至少拿到 2 个 AI 源 + 2 个科技源。
+
+处理：去重，筛选过去 24 小时内、有实质信息量的条目，按重要性排序。只使用抓到的真实标题与内容，严禁编造。
+
+输出中文早报（钉钉直接可读，不用表格，1200 字以内）：
+【AI 新闻 TOP5】每条：一句话标题 + 2 句要点 + 为什么重要 + 来源链接
+【全球科技新闻 TOP5】同上格式
+【一句话趋势】2-3 句总结当天最值得注意的方向
+文末注明：数据来源列表 + 抓取时间（北京时间）；未取到的源列出并附错误信息。

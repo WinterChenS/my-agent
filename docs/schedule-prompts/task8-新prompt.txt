@@ -1,0 +1,24 @@
+任务：汇总过去 24 小时的全球科技新闻与 AI 新闻，生成中文早报并推送给主人（钉钉单聊）。
+
+一、抓取（只用联网工具 internet_read / internet_search；不要用 shell 命令（curl/wget）或 python 去联网）
+1) 用 internet_read 读这些栏目页（HTML 页面），maxChars 传 6000：
+   - https://techcrunch.com/category/artificial-intelligence/
+   - https://venturebeat.com/category/ai/
+   - https://techcrunch.com/
+   - https://www.theverge.com/
+2) 用 internet_search 补充（limit 5，短关键词）：「AI 新闻」「大模型 发布」「科技 融资」，用来交叉验证当天新消息。
+   注意：RSS/XML 源读不了（/feed/、.xml 会失败），不要试。
+3) 任一源失败就换下一个；单源最多试 2 次，不要死循环。最终至少要有 2 个 AI 源 + 2 个科技源。
+
+二、处理
+- 去重（同一事件只留一条），筛选过去 24 小时内有实质信息量的条目，按重要性排序。
+- 只使用抓到的真实标题与内容，严禁编造；链接必须是真实读到的 URL。
+
+三、输出（钉钉直接可读，不用表格，1200 字以内）
+【AI 新闻 TOP5】每条：一句话标题 + 2 句要点 + 为什么重要 + 来源链接
+【全球科技新闻 TOP5】同上格式
+【一句话趋势】2-3 句总结当天最值得注意的方向
+文末：数据来源列表 + 抓取时间（北京时间）；没取到的源列出来并附一句原因。
+
+四、兜底
+所有源都失败时，直接回「今日早报抓取失败：<一句原因>」，不要编内容，重试不要超过 2 轮。

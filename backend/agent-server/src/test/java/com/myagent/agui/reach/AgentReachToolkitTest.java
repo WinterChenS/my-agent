@@ -126,6 +126,29 @@ class AgentReachToolkitTest {
     }
 
     @Test
+    @DisplayName("读链接：maxChars 可放大（读榜单页要几千字），并夹到 8000 上限")
+    void readHonoursMaxChars() {
+        ReachProperties props = properties(true);
+        RecordingClient client = new RecordingClient(props);
+        client.next = new AgentReachClient.Result(true, "web", "read", "jina",
+                List.of(new AgentReachClient.Item("trending", "https://github.com/trending", null, null,
+                        "y".repeat(6000))),
+                null, null, null, 30);
+        AgentReachToolkit toolkit = new AgentReachToolkit(client, props);
+        AgentTool read = toolkit.tools().stream()
+                .filter(t -> t.getName().equals("internet_read")).findFirst().orElseThrow();
+
+        String wide = call(read, Map.of("url", "https://github.com/trending", "maxChars", 8000));
+        assertThat(wide.length()).isGreaterThan(5000);
+
+        String narrow = call(read, Map.of("url", "https://github.com/trending"));
+        assertThat(narrow.length()).isLessThan(wide.length());
+        assertThat(narrow.length()).isGreaterThan(3000);
+        // 参数只影响渲染，不改变发给 CLI 的参数
+        assertThat(client.calls.get(0)).containsExactly("web", "read", "https://github.com/trending");
+    }
+
+    @Test
     @DisplayName("渠道读：白名单外的渠道直接拒（登录类渠道不该被尝试）")
     void channelRejectsNotAllowed() {
         ReachProperties props = properties(true);
