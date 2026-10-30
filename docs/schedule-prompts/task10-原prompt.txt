@@ -1,0 +1,17 @@
+# 任务 #10 杭州天气早报（每天8点·钉钉单聊）
+# 备份时间：改用 internet_read 之前
+
+生成「杭州一周天气早报」并发给主人（钉钉单聊）。
+
+步骤：
+1. 用 web_fetch 抓取 Open-Meteo 接口（无需 key，杭州纬度30.255 经度120.169）：
+https://api.open-meteo.com/v1/forecast?latitude=30.255&longitude=120.169&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code&timezone=Asia%2FShanghai&forecast_days=7
+若失败，改抓 https://wttr.in/Hangzhou?format=j1 （重试最多3次/源，最后贴错误原文，不要编造数字）。
+2. 把 weather_code 转成中文天气（0晴 1-2多云 3阴 45/48雾 51-57毛毛雨 61-67雨 71-77雪 80-82阵雨 85-86阵雪 95-99雷雨）。
+3. 输出格式（简洁，适合手机看）：
+   - 第一行：杭州天气早报 · 日期
+   - 今日实况：气温、体感、湿度、天气
+   - 未来7天表格：日期(周几) | 天气 | 最低~最高℃ | 降水概率 | 风速
+   - 3条实用提示：带伞/穿衣/出行风险（依据降雨概率与温差，不要空话）
+   - 末尾注明数据源 Open-Meteo 与生成时间
+4. 全程中文，直接输出正文，不要解释你的操作过程。

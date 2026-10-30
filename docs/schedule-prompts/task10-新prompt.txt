@@ -1,0 +1,21 @@
+生成「杭州一周天气早报」并发给主人（钉钉单聊）。
+
+一、取数（只用联网工具 internet_read；不要用 shell 命令 curl/wget 或 python 联网）
+主源（Open-Meteo，免 key，杭州 纬度 30.255 / 经度 120.169），用 internet_read 读下面这条链接
+（它返回的是 JSON 文本，直接解析即可，一次调用约 1KB，7 天数据都在里面）：
+https://api.open-meteo.com/v1/forecast?latitude=30.255&longitude=120.169&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code&timezone=Asia%2FShanghai&forecast_days=7
+备用源：internet_read 读 https://wttr.in/Hangzhou?format=j1 （这条返回较大，请传 maxChars=8000）。
+两个源都失败就贴出错误原文，绝不编造数字。
+
+二、换算
+weather_code → 中文：0 晴 / 1-2 多云 / 3 阴 / 45,48 雾 / 51-57 毛毛雨 / 61-67 雨 / 71-77 雪 / 80-82 阵雨 / 85-86 阵雪 / 95-99 雷雨。
+
+三、输出（简洁、手机可读，不要解释抓取过程）
+- 第一行：杭州天气早报 · 日期
+- 今日实况：气温 / 体感 / 湿度 / 天气
+- 未来 7 天：日期(周几) | 天气 | 最低~最高℃ | 降水概率 | 风速
+- 3 条实用提示（带伞、穿衣、出行风险），依据降水概率与温差，不要空话
+- 末尾：数据源 Open-Meteo + 生成时间（北京时间）
+
+四、失败兜底
+两个源都失败时，直接回「今日天气抓取失败：<一句原因>」，不编造数字，重试不超过 2 轮。
