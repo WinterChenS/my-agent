@@ -51,6 +51,20 @@ class DingTalkDocGuardTest {
     }
 
     @Test
+    void 缺文档权限时把权限点和一键开通链接都给出来() {
+        String body = "{\"code\":\"Forbidden.AccessDenied.AccessTokenPermissionDenied\","
+                + "\"requestid\":\"01A18AC8-17DC\","
+                + "\"message\":\"应用尚未开通所需的权限：[Document.WorkspaceDocument.Read]，"
+                + "点击链接申请并开通即可：https://open-dev.dingtalk.com/appscope/apply?content=ding84%23Document.WorkspaceDocument.Read\"}";
+
+        String message = DingTalkDocClient.toHumanError(403, body).getMessage();
+
+        assertThat(message).contains("Document.WorkspaceDocument.Read");
+        assertThat(message).contains("https://open-dev.dingtalk.com/appscope/apply?content=ding84");
+        assertThat(message).doesNotContain("点击链接申请并开通即可");
+    }
+
+    @Test
     void 缺通讯录权限时把申请链接直接给用户() {
         String reason = "应用尚未开通所需的权限：[qyapi_get_member]，点击链接申请并开通即可："
                 + "https://open-dev.dingtalk.com/appscope/apply?content=ding84org4u4zruvivxe%23qyapi_get_member, "

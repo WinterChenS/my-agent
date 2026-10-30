@@ -67,32 +67,50 @@ public class DingTalkDocConnectorProvider implements ConnectorProvider {
         }
 
         DingTalkDocClient client = new DingTalkDocClient(app.get("appKey"), app.get("appSecret"), operatorId);
+        steps.add("客户端实际使用的 operatorId = " + mask(operatorId));
+        boolean ok = true;
         try {
             JsonNode workspaces = client.mineWorkspaces(5);
-            int count = workspaces.path("result").path("workspaces").size();
+            int count = firstArraySize(workspaces, "workspaces", "data");
+            steps.add("✓ 知识库接口正常（我参与的知识库 " + count + " 个）");
             if (count == 0) {
-                count = workspaces.path("result").path("data").size();
+                steps.add("  知识库为 0：确认你已加入知识库，且应用有知识库读权限");
             }
-            steps.add("access token 获取成功；查到我参与的知识库 " + count + " 个");
-            try {
-                JsonNode recent = client.recentEditDocs(5);
-                int docs = recent.path("result").path("docs").size();
-                if (docs == 0) {
-                    docs = recent.path("result").path("data").size();
-                }
-                steps.add("我最近编辑的文档 " + docs + " 篇");
-            } catch (RuntimeException ex) {
-                steps.add("读取最近编辑文档失败（不影响读文档本身）：" + ex.getMessage());
-            }
-            if (count == 0) {
-                steps.add("知识库为 0：确认你已加入知识库，且应用有文档/知识库权限");
-            }
-            return new ConnectorTestResult(true, "连接正常", steps);
-        } catch (DingTalkDocClient.DingTalkException ex) {
-            return new ConnectorTestResult(false, ex.getMessage(), steps);
         } catch (RuntimeException ex) {
-            return new ConnectorTestResult(false, "测试失败：" + ex.getMessage(), steps);
+            ok = false;
+            steps.add("✗ 知识库接口失败：" + ex.getMessage());
         }
+        ok &= diagnose(steps, "文档空间列表", () -> client.docWorkspaces(5), "workspaces", "data");
+        ok &= diagnose(steps, "搜索文档接口", () -> client.searchDocs("", null, 5), "docs", "documents", "data");
+        ok &= diagnose(steps, "最近编辑文档", () -> client.recentEditDocs(5), "docs", "documents", "data");
+        return new ConnectorTestResult(ok, ok ? "连接正常" : "部分接口不可用（见下面的逐项结果）", steps);
+    }
+
+    /** 逐个接口试一遍：成功/失败都写进 steps，省得用户和我们都靠猜。 */
+    private static boolean diagnose(List<String> steps, String label,
+            java.util.function.Supplier<JsonNode> call, String... arrayKeys) {
+        try {
+            JsonNode response = call.get();
+            steps.add("✓ " + label + "正常（返回 " + firstArraySize(response, arrayKeys) + " 条）");
+            return true;
+        } catch (RuntimeException ex) {
+            steps.add("✗ " + label + "失败：" + ex.getMessage());
+            return false;
+        }
+    }
+
+    private static int firstArraySize(JsonNode response, String... keys) {
+        JsonNode node = response.path("result");
+        if (node.isMissingNode() || node.isNull()) {
+            node = response;
+        }
+        for (String key : keys) {
+            JsonNode candidate = node.path(key);
+            if (candidate.isArray()) {
+                return candidate.size();
+            }
+        }
+        return 0;
     }
 
     @Override

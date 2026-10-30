@@ -234,7 +234,10 @@ public class DingTalkDocClient {
     }
 
     private JsonNode send(String method, String url, JsonNode body) {
-        return send(method, url, body, true);
+        // 钉钉文档接口要 unionId（机器人里拿到的是 staffId）；这里**主动**换算一次并缓存，
+        // 而不是等 400/403 之后再补救 —— 实测 403 里根本不含 "operatorId" 字样，补救逻辑永远不触发。
+        String effective = resolveUnionId(operatorId);
+        return send(method, withOperator(url, effective), body, true);
     }
 
     private JsonNode send(String method, String url, JsonNode body, boolean withOperator) {
@@ -255,7 +258,17 @@ public class DingTalkDocClient {
                     http.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             String raw = response.body();
             if (response.statusCode() >= 400) {
+                org.slf4j.LoggerFactory.getLogger(DingTalkDocClient.class)
+                        .debug("DX {} {} -> {} body={}", method, url, response.statusCode(), raw);
                 DingTalkException error = toHumanError(response.statusCode(), raw);
+                if (withOperator && operatorId != null && !operatorId.isBlank()
+                        && !operatorId.equals(resolveUnionId(operatorId))) {
+                    // unionId 不被接受（个别接口要 userId）→ 用原始 staffId 再试一次
+                    String original = withOperator(url, operatorId);
+                    if (!original.equals(url)) {
+                        return send(method, original, body, false);
+                    }
+                }
                 if (withOperator && raw != null && raw.contains("operatorId")) {
                     String unionId = resolveUnionId(operatorId);
                     if (unionId != null && !unionId.equals(operatorId)) {
@@ -324,18 +337,7 @@ public class DingTalkDocClient {
      * 把"缺通讯录权限"翻成用户能直接操作的提示（钉钉会在错误里给申请链接，抽出来给他）。
      */
     static String unionIdHint(String reason) {
-        String link = "";
-        String marker = "https://open-dev.dingtalk.com/appscope/apply?content=";
-        String text = reason == null ? "" : reason;
-        int at = text.indexOf(marker);
-        if (at >= 0) {
-            int end = at;
-            while (end < text.length() && ", ]".indexOf(text.charAt(end)) < 0
-                    && !Character.isWhitespace(text.charAt(end))) {
-                end++;
-            }
-            link = text.substring(at, end);
-        }
+        String link = extractApplyLink(reason);
         return "钉钉文档接口的 operatorId 要的是 **unionId**，而机器人里拿到的是 staffId，"
                 + "换算需要「通讯录成员信息读权限」(qyapi_get_member)。"
                 + (link.isBlank() ? "请到开放平台给应用勾选该权限后再试。" : "点这个链接一键申请/开通：" + link)
@@ -408,6 +410,14 @@ public class DingTalkDocClient {
         }
         if (lowerCode.contains("forbidden") || status == 403
                 || message.contains("权限") || message.contains("permission")) {
+            String scopes = extractScopes(message);
+            String link = extractApplyLink(message);
+            if (!scopes.isBlank() || !link.isBlank()) {
+                return new DingTalkException("钉钉应用还缺权限："
+                        + (scopes.isBlank() ? "（接口未返回权限点名称）" : scopes)
+                        + (link.isBlank() ? "" : "。点这里一键开通：" + link)
+                        + suffix);
+            }
             return new DingTalkException("没有权限操作这个文档/知识库：" + explainPermission() + suffix);
         }
         if (status == 404 || lowerCode.contains("notfound")) {
@@ -418,6 +428,35 @@ public class DingTalkDocClient {
         }
         return new DingTalkException("钉钉接口出错（HTTP " + status + "）："
                 + (message.isBlank() ? code : message) + suffix);
+    }
+
+    /** 从 "应用尚未开通所需的权限：[A, B]，点击链接申请并开通即可：<url>" 里抽权限点。 */
+    static String extractScopes(String message) {
+        if (message == null) {
+            return "";
+        }
+        int open = message.indexOf('[');
+        int close = open < 0 ? -1 : message.indexOf(']', open);
+        if (open < 0 || close < 0) {
+            return "";
+        }
+        return message.substring(open + 1, close).trim();
+    }
+
+    /** 从钉钉的错误文案里抽"一键申请"链接（没有就返回空）。 */
+    static String extractApplyLink(String message) {
+        String marker = "https://open-dev.dingtalk.com/appscope/apply?content=";
+        String text = message == null ? "" : message;
+        int at = text.indexOf(marker);
+        if (at < 0) {
+            return "";
+        }
+        int end = at;
+        while (end < text.length() && ", ]".indexOf(text.charAt(end)) < 0
+                && !Character.isWhitespace(text.charAt(end))) {
+            end++;
+        }
+        return text.substring(at, end);
     }
 
     private static String explainPermission() {
