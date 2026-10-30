@@ -48,6 +48,7 @@ public final class DingTalkDocTools {
                 new CreateWorkspaceTool(agentId, connectorService, credentials, operatorResolver),
                 new CreateDocTool(agentId, connectorService, credentials, operatorResolver),
                 new AppendContentTool(agentId, connectorService, credentials, operatorResolver),
+                new DeleteDocTool(agentId, connectorService, credentials, operatorResolver),
                 new OverwriteContentTool(agentId, connectorService, credentials, operatorResolver));
     }
 
@@ -661,7 +662,9 @@ public final class DingTalkDocTools {
             }
             connectorService.logAction(ctx.connector().record().id(),
                     ctx.connector().record().ownerUserId(), "CREATE_DOC", docKey, title, true, null);
+            String nodeId = nodeIdOf(nameOf(body, "url"), docKey);
             return "已创建文档「" + title + "」：docKey=" + docKey
+                    + (nodeId == null ? "" : "，nodeId=" + nodeId)
                     + (nameOf(body, "url").isBlank() ? "" : "，链接：" + nameOf(body, "url")) + note;
         }
     }
@@ -720,6 +723,64 @@ public final class DingTalkDocTools {
         }
     }
 
+    /** 删除文档（进回收站）。 */
+    static final class DeleteDocTool extends AbstractDingTalkTool {
+
+        DeleteDocTool(long agentId, ConnectorService connectorService,
+                DingTalkAppCredentials credentials, DingTalkOperatorResolver operatorResolver) {
+            super(agentId, connectorService, credentials, operatorResolver);
+        }
+
+        @Override
+        public String getName() {
+            return "dt_delete_doc";
+        }
+
+        @Override
+        public String getDescription() {
+            return "把一篇钉钉文档**移入回收站**（可恢复）。需要 workspaceId + 文档的 nodeId"
+                    + "（也可以直接给文档链接，会自动解析）；workspaceId 不填时用连接器的默认知识库。";
+        }
+
+        @Override
+        public boolean isReadOnly() {
+            return false;
+        }
+
+        @Override
+        public Map<String, Object> getParameters() {
+            Map<String, Object> properties = new LinkedHashMap<>(connectorParam());
+            properties.put("urlOrNodeId", Map.of("type", "string", "description", "文档链接或 nodeId"));
+            properties.put("workspaceId", Map.of("type", "string", "description", "可选：知识库 id（默认用连接器配置）"));
+            return schema(properties, List.of("urlOrNodeId"));
+        }
+
+        @Override
+        protected String run(Ctx ctx, ToolCallParam param) {
+            String raw = asString(param.getInput().get("urlOrNodeId"));
+            String workspaceId = DingTalkDocSettings.Ids.normalize(asString(param.getInput().get("workspaceId")));
+            if (workspaceId == null || workspaceId.isBlank()) {
+                workspaceId = ctx.settings().defaultWorkspaceId();
+            }
+            if (workspaceId == null || workspaceId.isBlank()) {
+                return "没有指定知识库：请给 workspaceId，或让用户在连接器里配置「默认知识库」。";
+            }
+            String nodeId = nodeIdOf(raw, null);
+            if (nodeId == null) {
+                return "没能从「" + raw + "」解析出 nodeId，请给文档链接（.../i/nodes/xxx）或直接给 nodeId。";
+            }
+            String rejection = writeGuard(ctx.settings(), workspaceId, true);
+            if (rejection != null) {
+                return rejection;
+            }
+            ctx.client().deleteDoc(workspaceId, nodeId);
+            connectorService.logAction(ctx.connector().record().id(),
+                    ctx.connector().record().ownerUserId(), "DELETE_DOC", nodeId, "workspace=" + workspaceId,
+                    true, null);
+            return "已把文档移入回收站（nodeId=" + nodeId + "）。";
+        }
+    }
+
     /** 整篇覆盖（高风险）。 */
     static final class OverwriteContentTool extends AbstractDingTalkTool {
 
@@ -769,6 +830,21 @@ public final class DingTalkDocTools {
                     markdown.length() + " 字符", true, null);
             return "已覆盖文档 docKey=" + docKey + " 的正文（" + markdown.length() + " 字符）。";
         }
+    }
+
+    /** 从文档链接里取 nodeId；链接里没有就用传入的兜底值（可能是 nodeId 本身）。 */
+    static String nodeIdOf(String urlOrId, String fallback) {
+        if (urlOrId != null && !urlOrId.isBlank()) {
+            java.util.regex.Matcher matcher =
+                    java.util.regex.Pattern.compile("/nodes/([A-Za-z0-9]{8,})").matcher(urlOrId);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+            if (!urlOrId.contains("/")) {
+                return urlOrId.trim();
+            }
+        }
+        return fallback;
     }
 
     // ===================== 辅助 =====================

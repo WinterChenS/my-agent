@@ -251,12 +251,16 @@ public class DingTalkDocClient {
         return post("/v1.0/doc/suites/documents/" + encode(docKey) + "/overwriteContent", body);
     }
 
-    /** 删文档（放进回收站）。 */
-    public JsonNode deleteDoc(String workspaceId, String docKey) {
+    /**
+     * 删文档（放进回收站）。
+     *
+     * <p>注意：官方接口是 {@code DELETE /v1.0/doc/workspaces/{workspaceId}/docs/{nodeId}}，
+     * 要的是 **nodeId**（不是创建时返回的 docKey）；nodeId 可以从文档链接 {@code .../i/nodes/{nodeId}} 里取。
+     */
+    public JsonNode deleteDoc(String workspaceId, String nodeId) {
         ObjectNode body = JSON.createObjectNode();
         body.put("operatorId", operatorId);
-        body.put("docKey", docKey);
-        return delete("/v1.0/doc/workspaces/" + encode(workspaceId) + "/docs", body);
+        return delete("/v1.0/doc/workspaces/" + encode(workspaceId) + "/docs/" + encode(nodeId), body);
     }
 
     // ===================== 传输 =====================
@@ -278,7 +282,9 @@ public class DingTalkDocClient {
         // 钉钉文档接口要 unionId（机器人里拿到的是 staffId）；这里**主动**换算一次并缓存，
         // 而不是等 400/403 之后再补救 —— 实测 403 里根本不含 "operatorId" 字样，补救逻辑永远不触发。
         String effective = resolveUnionId(operatorId);
-        return send(method, withOperator(url, effective), body, true);
+        // 坑（实测踩了一整轮）：operatorId 在 GET 里是 query 参数，在 POST/PATCH 里是 **body 字段**。
+        // 只改 URL 不改 body，新建知识库/新建文档就会带着 staffId 发出去 → 钉钉回 500「系统内部错误」（不是权限问题！）。
+        return send(method, withOperator(url, effective), withBodyOperator(body, effective), true);
     }
 
     private JsonNode send(String method, String url, JsonNode body, boolean withOperator) {
@@ -320,14 +326,16 @@ public class DingTalkDocClient {
                         && !operatorId.equals(resolveUnionId(operatorId))) {
                     // unionId 不被接受（个别接口要 userId）→ 用原始 staffId 再试一次
                     String original = withOperator(url, operatorId);
-                    if (!original.equals(url)) {
-                        return send(method, original, body, false, mayRefreshToken);
+                    JsonNode originalBody = withBodyOperator(body, operatorId);
+                    if (!original.equals(url) || originalBody != body) {
+                        return send(method, original, originalBody, false, mayRefreshToken);
                     }
                 }
                 if (withOperator && raw != null && raw.contains("operatorId")) {
                     String unionId = resolveUnionId(operatorId);
                     if (unionId != null && !unionId.equals(operatorId)) {
-                        return send(method, withOperator(url, unionId), body, false, mayRefreshToken);
+                        return send(method, withOperator(url, unionId), withBodyOperator(body, unionId),
+                                false, mayRefreshToken);
                     }
                     String reason = UNION_ID_ERRORS.get(appKey + "|" + operatorId);
                     if (reason != null && !reason.isBlank()) {
@@ -399,6 +407,19 @@ public class DingTalkDocClient {
                 + "换算需要「通讯录成员信息读权限」(qyapi_get_member)。"
                 + (link.isBlank() ? "请到开放平台给应用勾选该权限后再试。" : "点这个链接一键申请/开通：" + link)
                 + " 开通后重新点「测试连接」即可（不需要重填任何东西）。";
+    }
+
+    /** 把请求体里的 operatorId 换成 unionId（返回副本，避免影响重试时用的原始 body）。 */
+    static JsonNode withBodyOperator(JsonNode body, String operatorId) {
+        if (!(body instanceof ObjectNode object) || operatorId == null || operatorId.isBlank()) {
+            return body;
+        }
+        if (!object.hasNonNull("operatorId")) {
+            return body;
+        }
+        ObjectNode copy = object.deepCopy();
+        copy.put("operatorId", operatorId);
+        return copy;
     }
 
     /** 把 URL 里 operatorId 的值换成 unionId（用于参数错误后的重试）。 */
