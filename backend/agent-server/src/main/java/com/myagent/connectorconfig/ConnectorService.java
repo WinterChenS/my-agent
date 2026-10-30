@@ -132,14 +132,22 @@ public class ConnectorService {
         validateFieldValues(descriptor, config);
         String alias = normalizeAlias(request.alias());
         String inboundMode = normalizeInboundMode(request.inboundMode(), descriptor);
-        long id = store.insert(
-                descriptor.typeUpper(),
-                name,
-                alias,
-                ownerUserId,
-                crypto.encrypt(toJson(config)),
-                request.enabled() == null || request.enabled(),
-                inboundMode);
+        long id;
+        try {
+            id = store.insert(
+                    descriptor.typeUpper(),
+                    name,
+                    alias,
+                    ownerUserId,
+                    crypto.encrypt(toJson(config)),
+                    request.enabled() == null || request.enabled(),
+                    inboundMode);
+        } catch (org.springframework.dao.DuplicateKeyException ex) {
+            // 同一用户下「类型 + 名称」唯一：以前这里直接把数据库异常抛成 500，
+            // 用户只看到"服务器内部错误"；现在告诉他换个名字或者去编辑已有的那个。
+            throw BizException.conflict("你已经有一个叫「" + name + "」的" + descriptor.displayName()
+                    + "连接器了：换个名字，或者直接编辑已有的那个");
+        }
         if (request.agentIds() != null) {
             store.replaceAgents(id, distinct(request.agentIds()));
         }

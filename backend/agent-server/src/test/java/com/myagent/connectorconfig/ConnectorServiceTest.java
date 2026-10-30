@@ -269,6 +269,18 @@ class ConnectorServiceTest {
     }
 
     @Test
+    void 同名连接器给出可操作提示而不是500() {
+        when(store.insert(anyString(), anyString(), any(), anyLong(), anyString(), anyBoolean(), anyString()))
+                .thenThrow(new org.springframework.dao.DuplicateKeyException("duplicate"));
+
+        assertThatThrownBy(() -> service.create(
+                new ConnectorRequest("MAIL", "工作邮箱", null, true, mailConfig(), "OFF", null), 9L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("你已经有一个叫「工作邮箱」")
+                .hasMessageContaining("换个名字");
+    }
+
+    @Test
     void 类型描述的字段都声明了控件类型() {
         ConnectorTypeDescriptor descriptor = registry.require("MAIL");
         assertThat(descriptor.fields()).allSatisfy(field ->
