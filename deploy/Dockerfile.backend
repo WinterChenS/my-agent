@@ -44,6 +44,19 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages /tmp/agent-rea
     && rm -f /tmp/agent-reach.tar.gz \
     && agent-reach version
 
+# 浏览器运行时依赖库（chrome-headless-shell 需要这些；缺一个就启动失败）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+        libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libatspi2.0-0 \
+        libx11-xcb1 libxcb1 libxext6 fontconfig fonts-liberation unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# 浏览器二进制（由 scripts/build-artifacts.sh 下载到 deploy/artifacts/chrome）
+COPY deploy/artifacts/chrome/ /opt/chrome/
+RUN chmod +x /opt/chrome/chrome-headless-shell \
+    && /opt/chrome/chrome-headless-shell --version
+ENV MYAGENT_BROWSER_BIN=/opt/chrome/chrome-headless-shell
+
 # 预热 matplotlib 字体缓存（中文字体首次扫描很慢，别让用户的第一张图等它）
 RUN python3 -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print('mpl ok')"
 

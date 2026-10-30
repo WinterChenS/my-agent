@@ -29,6 +29,26 @@ mybatis-plus:
       id-type: auto
 
 myagent:
+  # 浏览器：服务端真实 Chromium（Agent 操作，用户在预览区看画面并可接管）
+  browser:
+    enabled: ${MYAGENT_BROWSER_ENABLED:true}
+    # 二进制路径（镜像里由 build-artifacts 下载 chrome-headless-shell 并设 MYAGENT_BROWSER_BIN）
+    chrome-binary: ${MYAGENT_BROWSER_BIN:chrome-headless-shell}
+    viewport-width: ${MYAGENT_BROWSER_VIEWPORT_W:1280}
+    viewport-height: ${MYAGENT_BROWSER_VIEWPORT_H:800}
+    # JPEG 画质与推帧上限：60fps x 56KB ≈ 3.4MB/s 太肥，15fps 足够"看着它在动"
+    jpeg-quality: ${MYAGENT_BROWSER_JPEG_QUALITY:60}
+    max-fps: ${MYAGENT_BROWSER_MAX_FPS:15}
+    # 空闲回收：没人看也没人操作就杀掉进程（一个 Chromium 150~300MB）
+    idle-timeout-seconds: ${MYAGENT_BROWSER_IDLE_SECONDS:600}
+    cleanup-millis: ${MYAGENT_BROWSER_CLEANUP_MILLIS:60000}
+    # 并发：这台机器 2 核，3 个页面就能打满 CPU，默认只允许 1 个
+    max-concurrent-sessions: ${MYAGENT_BROWSER_MAX_SESSIONS:1}
+    navigate-timeout-ms: ${MYAGENT_BROWSER_NAV_TIMEOUT_MS:30000}
+    # 是否允许用户从画面上接管点击/输入
+    allow-user-input: ${MYAGENT_BROWSER_ALLOW_USER_INPUT:true}
+    # 每用户 profile 目录（登录态隔离）；留空 = <workspace>/.browser-profiles
+    profile-root: ${MYAGENT_BROWSER_PROFILE_ROOT:}
   # 联网出口：Agent Reach（只读：搜索 / 读网页 / GitHub / V2EX / B站 / YouTube 字幕）
   # 它是 Agent 访问互联网的**唯一途径**：其它工具不该直接出网。
   reach:

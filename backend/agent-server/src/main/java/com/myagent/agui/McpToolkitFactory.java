@@ -54,6 +54,9 @@ public class McpToolkitFactory {
     /** 互联网出口：Agent Reach 的只读联网工具（搜索 / 读网页 / 读指定渠道）。 */
     private final com.myagent.agui.reach.AgentReachToolkit reachToolkit;
 
+    /** 服务端真实浏览器：Agent 打开/点击/输入，用户在预览区看画面并可接管。 */
+    private final com.myagent.agui.browser.BrowserTools browserTools;
+
     public McpToolkitFactory(
             com.myagent.agui.skillimport.SkillInstallTool skillInstallTool,
             com.myagent.agui.channel.SendImMessageTool sendImMessageTool,
@@ -63,7 +66,8 @@ public class McpToolkitFactory {
             com.myagent.schedule.tool.ScheduleTaskTool scheduleTaskTool,
             com.myagent.schedule.tool.ManageScheduledTaskTool manageScheduledTaskTool,
             com.myagent.schedule.tool.ListImTargetsTool listImTargetsTool,
-            com.myagent.agui.reach.AgentReachToolkit reachToolkit) {
+            com.myagent.agui.reach.AgentReachToolkit reachToolkit,
+            com.myagent.agui.browser.BrowserTools browserTools) {
         this.skillInstallTool = skillInstallTool;
         this.sendImMessageTool = sendImMessageTool;
         this.listSkillsTool = listSkillsTool;
@@ -73,6 +77,7 @@ public class McpToolkitFactory {
         this.manageScheduledTaskTool = manageScheduledTaskTool;
         this.listImTargetsTool = listImTargetsTool;
         this.reachToolkit = reachToolkit;
+        this.browserTools = browserTools;
     }
 
     /** 平台 transport → 官方 McpServerConfig.transport 字面量。 */
@@ -114,6 +119,8 @@ public class McpToolkitFactory {
             // 联网：平台对外的唯一出口（只读）。关掉 myagent.reach.enabled 就会整体消失，
             // 此时模型只能回答"我上不了网"，不会退回去用别的野路子。
             reachToolkit.register(toolkit);
+            // 浏览器：服务端真实 Chromium（用户在右侧预览区能看画面、能接管）
+            browserTools.register(toolkit);
             log.info("已注册 {} 个 AG-UI 卡片工具 + install_skill + send_im_message + execute/run_command"
                     + " + schedule_task/manage_scheduled_task", DemoCardTools.tools().size());
         }

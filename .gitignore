@@ -89,3 +89,7 @@ e2e/.stub-started-by-tests
 
 # Docker 构建产物（由 scripts/build-artifacts.sh 生成，不入库）
 deploy/artifacts/
+
+# 浏览器 profile（本地跑浏览器工具时生成，含 cookie，绝不能进仓库）
+**/.browser-profiles/
+**/workspace/.reach-home/

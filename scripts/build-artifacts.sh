@@ -34,4 +34,22 @@ rm -rf "$ARTIFACTS/dist"
 cp -r dist "$ARTIFACTS/dist"
 echo "    -> $ARTIFACTS/dist ($(du -sh "$ARTIFACTS/dist" | cut -f1))"
 
+# 浏览器二进制（chrome-headless-shell）：Agent 的"真实浏览器"。
+# 版本写死保证可重复；已存在就跳过（120MB，别每次都下）。
+CHROME_VERSION="${CHROME_VERSION:-156.0.8078.80}"
+CHROME_ZIP="$ARTIFACTS/chrome.zip"
+if [ ! -x "$ARTIFACTS/chrome/chrome-headless-shell" ]; then
+  echo "==> 下载 chrome-headless-shell $CHROME_VERSION"
+  if [ ! -f "$CHROME_ZIP" ]; then
+    curl -fsSL -o "$CHROME_ZIP"       "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-headless-shell-linux64.zip"
+  fi
+  rm -rf "$ARTIFACTS/chrome" && mkdir -p "$ARTIFACTS/chrome"
+  unzip -q -o "$CHROME_ZIP" -d "$ARTIFACTS/chrome.tmp"
+  cp -r "$ARTIFACTS/chrome.tmp/chrome-headless-shell-linux64/." "$ARTIFACTS/chrome/"
+  rm -rf "$ARTIFACTS/chrome.tmp"
+  echo "    -> $ARTIFACTS/chrome ($(du -sh "$ARTIFACTS/chrome" | cut -f1))"
+else
+  echo "==> chrome-headless-shell 已存在，跳过下载"
+fi
+
 echo "==> 完成。接下来： docker compose up -d --build"

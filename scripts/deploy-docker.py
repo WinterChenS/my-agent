@@ -33,6 +33,8 @@ INCLUDE = [
     # 运行期镜像只需要这两个产物（在本机用 scripts/build-artifacts.sh 生成）
     "deploy/artifacts/app.jar",
     "deploy/artifacts/dist",
+    # 浏览器二进制（chrome-headless-shell）：后端镜像 COPY 进 /opt/chrome
+    "deploy/artifacts/chrome",
     "deploy/Dockerfile.backend",
     "deploy/Dockerfile.backend.from-source",
     "deploy/Dockerfile.frontend",

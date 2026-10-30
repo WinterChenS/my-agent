@@ -48,6 +48,28 @@ describe("ArtifactPreviewPanel", () => {
     return { onSelect, onCloseTab, onClose, onWidthChange };
   }
 
+  /** 带「文件 / 浏览器」切换的模式化渲染 */
+  function setupWithModes(mode: "files" | "browser") {
+    const onModeChange = vi.fn();
+    render(
+      <ArtifactPreviewPanel
+        tabs={tabs}
+        activeId={1}
+        onSelect={vi.fn()}
+        onCloseTab={vi.fn()}
+        onClose={vi.fn()}
+        width={PREVIEW_PANEL_DEFAULT}
+        onWidthChange={vi.fn()}
+        browserTrigger={<button data-testid="open-artifact-browser-panel" />}
+        mode={mode}
+        onModeChange={onModeChange}
+        browserActive
+        browserContent={<div data-testid="fake-browser">浏览器画面</div>}
+      />,
+    );
+    return { onModeChange };
+  }
+
   it("每个产物一个 tab，当前 tab 的内容在下面渲染", () => {
     setup(2);
     const rendered = screen.getAllByTestId("preview-tab").map((tab) => tab.textContent);
@@ -100,5 +122,40 @@ describe("ArtifactPreviewPanel", () => {
       />,
     );
     expect(screen.queryByTestId("preview-panel")).toBeNull();
+  });
+
+  it("顶部有「文件 / 浏览器」两个按钮，点击切换视图（互不覆盖）", () => {
+    const { onModeChange } = setupWithModes("files");
+    // 文件视图：产物 tab 与内容都在，浏览器内容不渲染
+    expect(screen.getAllByTestId("preview-tab")).toHaveLength(2);
+    expect(screen.queryByTestId("fake-browser")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("preview-mode-browser"));
+    expect(onModeChange).toHaveBeenCalledWith("browser");
+
+    cleanup();
+    setupWithModes("browser");
+    // 浏览器视图：只渲染浏览器内容，不渲染产物正文
+    expect(screen.getByTestId("fake-browser")).toBeTruthy();
+    expect(screen.queryByTestId("artifact-preview-full")).toBeNull();
+  });
+
+  it("浏览器视图在没有任何产物时也能显示（agent 只开了浏览器）", () => {
+    render(
+      <ArtifactPreviewPanel
+        tabs={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onCloseTab={vi.fn()}
+        onClose={vi.fn()}
+        width={PREVIEW_PANEL_DEFAULT}
+        onWidthChange={vi.fn()}
+        browserTrigger={<button />}
+        mode="browser"
+        onModeChange={vi.fn()}
+        browserContent={<div data-testid="fake-browser">浏览器画面</div>}
+      />,
+    );
+    expect(screen.getByTestId("fake-browser")).toBeTruthy();
   });
 });

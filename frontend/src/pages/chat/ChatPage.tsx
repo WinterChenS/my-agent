@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import type { HttpAgent } from "@ag-ui/client";
-import { Bot, ChevronDown, Clock, Files, Plus, Send, Square } from "lucide-react";
+import { Bot, ChevronDown, Clock, Files, PanelsTopLeft, Plus, Send, Square } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,6 +10,8 @@ import { PendingIndicator } from "@/components/chat/PendingBubble";
 import { ArtifactBrowserPopover } from "@/components/chat/ArtifactBrowserPopover";
 import { ArtifactBox } from "@/components/chat/ArtifactBox";
 import { ArtifactPreviewPanel } from "@/components/chat/ArtifactPreviewPanel";
+import { BrowserPreview } from "@/components/chat/BrowserPreview";
+import { fetchBrowserStatus } from "@/api/browser";
 import { isImageArtifact, listArtifacts, type ArtifactInfo } from "@/api/artifacts";
 import { canPreviewArtifact } from "@/lib/artifacts/previewKind";
 import { PREVIEW_PANEL_DEFAULT } from "@/lib/chat/previewPanelWidth";
@@ -155,6 +157,17 @@ export default function ChatPage() {
   const [activePreviewId, setActivePreviewId] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   /**
+   * 预览面板看的是「文件（产物）」还是「浏览器（agent 实时画面）」。
+   *
+   * <p>两套内容互不干扰：产物来了还是照旧自动打开产物（并强制切回 files），
+   * agent 打开浏览器时才自动切到 browser。
+   */
+  const [previewMode, setPreviewMode] = useState<"files" | "browser">("files");
+  /** 当前用户是否有一个活跃的浏览器会话（用于按钮上的小绿点 + 面板可见性） */
+  const [browserActive, setBrowserActive] = useState(false);
+  /** 已经自动切过去的那次浏览器会话（URL）——避免每 3 秒把用户强行拽回浏览器视图 */
+  const lastBrowserAutoKey = useRef<string | null>(null);
+  /**
    * 预览面板宽度（px）：**拖左边界**调整它和聊天区的比例（用户要求）。
    *
    * <p>默认 448px，不持久化（刷新回默认，与面板开关一致）。
@@ -194,8 +207,47 @@ export default function ChatPage() {
     [previewTabs],
   );
 
-  /** 面板是否真的可见（开着且有 tab 才算） */
-  const panelVisible = previewOpen && previewTabs.length > 0;
+  /**
+   * 面板是否真的可见。
+   *
+   * <p>看文件时要有产物 tab；看浏览器时即使一个产物都没有也要能显示（agent 只开了浏览器）。
+   */
+  const panelVisible = previewOpen && (previewMode === "browser" || previewTabs.length > 0);
+
+  /**
+   * 感知"agent 打开了浏览器"：轮询一次状态，active 且 URL 变了就自动切到浏览器视图。
+   *
+   * <p>为什么轮询而不是靠事件：工具调用事件在 reducer 里，把"要不要开面板"这种 UI 决策
+   * 塞进事件流会让两边耦合；3 秒一次的轻量 GET 足够，且用户手动切回文件后不会被反复打断。
+   */
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const status = await fetchBrowserStatus();
+        if (!alive) return;
+        setBrowserActive(Boolean(status.active));
+        if (status.active) {
+          const key = status.url ?? "about:blank";
+          if (lastBrowserAutoKey.current !== key) {
+            lastBrowserAutoKey.current = key;
+            setPreviewMode("browser");
+            setPreviewOpen(true);
+          }
+        } else if (lastBrowserAutoKey.current !== null) {
+          lastBrowserAutoKey.current = null;
+        }
+      } catch {
+        // 后端没启用浏览器功能时静默（不打扰用户）
+      }
+    };
+    void tick();
+    const timer = window.setInterval(tick, 3000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
   const [uploading, setUploading] = useState(false);
   // Phase 13：拖拽进聊天区时高亮提示
   const [dragging, setDragging] = useState(false);
@@ -356,6 +408,9 @@ export default function ChatPage() {
     }
     fresh.forEach((item) => seenPreviewIds.current.add(item.id));
     if (!previewOpen) {
+      // 产物照旧自动打开（原有的行为不变），并把视图切回「文件」，
+      // 免得"agent 刚开了浏览器、又产出文件"时把产物藏起来看不到
+      setPreviewMode("files");
       openPreview(fresh[0]);
     }
   }, [artifacts, previewOpen, openPreview, session?.id]);
@@ -1242,6 +1297,35 @@ export default function ChatPage() {
             <span className="text-sm font-medium">聊天</span>
             {chat.status === "running" && <Badge variant="secondary">生成中…</Badge>}
             {chat.status === "error" && <Badge variant="destructive">出错</Badge>}
+            {/* 右上角：一键打开/收起「输出物 + 浏览器」面板（面板收起时也能从这里进来） */}
+            <button
+              type="button"
+              data-testid="toggle-preview-panel"
+              title={panelVisible ? "收起输出物 / 浏览器" : "打开输出物 / 浏览器"}
+              aria-pressed={panelVisible}
+              onClick={() => {
+                if (panelVisible) {
+                  setPreviewOpen(false);
+                  return;
+                }
+                // 没有任何产物时直接进浏览器视图（否则会打开一个空面板）
+                if (previewTabs.length === 0) {
+                  setPreviewMode("browser");
+                }
+                setPreviewOpen(true);
+              }}
+              className={`ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors ${
+                panelVisible
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              }`}
+            >
+              <PanelsTopLeft className="size-3.5" />
+              <span className="hidden sm:inline">{panelVisible ? "收起" : "产物 / 浏览器"}</span>
+              {browserActive ? (
+                <span className="size-1.5 rounded-full bg-emerald-500" title="浏览器正在运行" />
+              ) : null}
+            </button>
           </div>
         </header>
 
@@ -1512,6 +1596,10 @@ export default function ChatPage() {
           width={previewWidth}
           onWidthChange={setPreviewWidth}
           browserTrigger={browserTrigger("open-artifact-browser-panel")}
+          mode={previewMode}
+          onModeChange={setPreviewMode}
+          browserActive={browserActive}
+          browserContent={<BrowserPreview onClose={() => setPreviewOpen(false)} />}
         />
       )}
     </div>

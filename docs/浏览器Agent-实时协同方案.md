@@ -147,3 +147,88 @@
 > 一句话：**你要的"页面里真有一个浏览器、agent 点哪我看得到、我也能上手" = L2a + L2b，
 > 技术已实测可行（31ms / 60fps / 双路输入），主要代价是每会话一个 Chromium 进程的内存，
 > 以及必须先定好"控制权归谁"和"出站白名单"。**
+
+---
+
+## 十、落地记录（v1 已上线）
+
+### 10.1 已实现的东西
+
+| 需求 | 实现 |
+|---|---|
+| 面板上方两个图标按钮（文件 / 浏览器）切换 | `ArtifactPreviewPanel` 顶部加 `FileText` / `Globe` 分段按钮，两种视图互不覆盖 |
+| 面板收起时，右上角一键打开/关闭 | `ChatPage` header 加「产物 / 浏览器」按钮（`PanelsTopLeft`），浏览器在跑时带绿点 |
+| agent 打开浏览器 → 自动打开浏览器页面 | `ChatPage` 每 3 秒轻量轮询 `/api/browser/status`，`active && url 变化` 时自动切到浏览器视图并展开面板（**不打断**原有的"产物自动打开"逻辑：产物来了会切回「文件」） |
+| agent 能操作 | 7 个工具：`browser_open / read / click / type / scroll / screenshot / close` |
+| 用户也能操作 | 「我要操作」→ 点击/滚轮/键盘回传 `/api/browser/input`；此时服务端把 agent 的下一步操作挡住（控制权锁） |
+| 铺满、无上下黑边 | canvas 内部像素 = 面板尺寸；同时 `Emulation.setDeviceMetricsOverride` 改**真实视口** → 页面 reflow（不是缩放截图） |
+| 拖拽面板 = 像浏览器一样挤压 | `ResizeObserver`（防抖 250ms）→ `/api/browser/viewport` → 页面重新排版，新帧正好填满 |
+
+### 10.2 踩过并修掉的 3 个坑（都在生产实测暴露）
+
+1. **在 CDP 事件回调里同步等响应 → 接收线程自锁**：
+   `Page.screencastFrame` 里同步发 `screencastFrameAck` 并等响应，把 JDK WebSocket 的接收线程堵死，
+   表现为 `Page.navigate` / `Input.dispatchMouseEvent` **全部 30 秒超时**。
+   → 新增 `CdpClient.fire()`（只发不等），事件回调里一律用它。
+2. **会话还没初始化就被回收**：`acquire()` 里先 `sessions.put()` 再 `ensureStarted()`，
+   cleanupIdle 看到"还没 cdp 的半初始化会话"就当死会话 close 掉 → `Page.navigate` 报「CDP 已关闭」。
+   → 改成"启动成功后再放入 map"，并给刚启动的会话 20 秒免回收保护。
+3. **拖一下就白板**：改 `canvas.width/height` 会清空画布，而 screencast 只在画面变化时推帧 →
+   静态页面拖完就再也画不出来。
+   → 前端缓存最后一帧、尺寸变化后立刻重绘；后端改视口后主动 `dispatchEvent(new Event('resize'))`
+   触发一次推帧。
+
+### 10.3 接口
+
+```
+GET  /api/browser/status      → {enabled, active, url, title, width, height, userControlled, allowUserInput}
+GET  /api/browser/frames      → SSE，每条 {"image":"<base64 jpeg>","width":W,"height":H}
+POST /api/browser/input       → {type:click|scroll|text|key, x,y,deltaY,text,key}
+POST /api/browser/navigate    → {url}
+POST /api/browser/viewport    → {width,height}   # 拖拽面板时同步真实视口
+POST /api/browser/takeover    → {on:true|false}  # 控制权在用户/agent 之间切换
+POST /api/browser/close
+```
+注：`frames` 用 SSE 而不是 WebSocket，是因为我们已经有 SSE 通道且 nginx 已配 `proxy_buffering off`；
+`EventSource` 不能带 Authorization，所以前端用 fetch + ReadableStream 自己解析。
+
+### 10.4 配置（`myagent.browser.*`）
+
+```yaml
+myagent.browser:
+  enabled: true
+  chrome-binary: ${MYAGENT_BROWSER_BIN:chrome-headless-shell}   # 镜像里指向 /opt/chrome/chrome-headless-shell
+  viewport-width: 1280
+  viewport-height: 800
+  jpeg-quality: 60
+  max-fps: 15                # 60fps×56KB≈3.4MB/s 太肥；15fps 足够"看着它在动"
+  idle-timeout-seconds: 600  # 没人看也没人点 → 杀进程
+  max-concurrent-sessions: 1 # 2 核机器：3 个页面就能打满 CPU
+  allow-user-input: true
+  profile-root: ""           # 空 = <workspace>/.browser-profiles/<userId>（每用户登录态隔离）
+```
+
+镜像侧：`scripts/build-artifacts.sh` 下载 `chrome-headless-shell`（Chrome for Testing，版本写死）
+到 `deploy/artifacts/chrome/`，`Dockerfile.backend` 装运行时依赖库（libnss3/libatk/libgbm…）并 `COPY` 进去。
+
+### 10.5 本地 → 线上验证（先本地跑通再发布）
+
+本地（Windows，`MYAGENT_BROWSER_BIN` 指向 win64 的 chrome-headless-shell）：
+```
+mvn verify → 666 通过 / 0 失败
+npm test  → 241 通过、lint 0 error、build 通过
+
+scripts/verify-browser-ui.py（Playwright 真截图）
+  agent 调 browser_open → 面板自动出现，example.com 铺满无黑边
+  拖窄面板 → 真实视口 447x785 → 320x785（页面 reflow）
+scripts/verify-browser-takeover.py
+  点「我要操作」→ 点页面上的 Learn more → URL 变成 https://www.iana.org/help/example-domains ✅
+```
+线上（192.168.3.10:18080）同样脚本复跑：面板铺满、agent 不再自动关浏览器、接管 UI 正常。
+
+### 10.6 还没做的（下一步）
+
+- 前后退历史（现在是"重新导航到地址栏的值"）、多标签
+- 视频/音频（screencast 只有画面；要声音要上 WebRTC）
+- 高危动作确认（付款/提交/发消息前弹审批卡）
+- 多用户并发（需加内存或独立浏览器节点）
