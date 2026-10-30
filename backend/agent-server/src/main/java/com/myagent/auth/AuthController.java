@@ -3,6 +3,7 @@ package com.myagent.auth;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.myagent.auth.captcha.SliderCaptchaService;
 import com.myagent.auth.captcha.dto.CaptchaResponse;
+import com.myagent.auth.crypto.LoginKeyService;
 import com.myagent.auth.captcha.dto.CaptchaVerifyRequest;
 import com.myagent.auth.captcha.dto.CaptchaVerifyResponse;
 import com.myagent.auth.dto.LoginRequest;
@@ -14,6 +15,9 @@ import com.myagent.common.BizException;
 import com.myagent.common.Result;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,21 +33,39 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private static final String STATUS_ENABLED = "ENABLED";
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final SysUserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final SliderCaptchaService captchaService;
+    private final LoginKeyService loginKeyService;
+
+    /** 是否仍接受明文密码（默认 false）。仅供本地脚本/联调，生产务必保持关闭。 */
+    @Value("${myagent.auth.allow-plaintext-password:false}")
+    private boolean allowPlaintextPassword;
 
     public AuthController(
             SysUserMapper userMapper,
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
-            SliderCaptchaService captchaService) {
+            SliderCaptchaService captchaService,
+            LoginKeyService loginKeyService) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.captchaService = captchaService;
+        this.loginKeyService = loginKeyService;
+    }
+
+    /**
+     * 下发登录密码的加密公钥。
+     *
+     * <p>只给公钥，私钥永远留在服务端；前端拿它做 RSA-OAEP(SHA-256) 加密，链路上不再出现明文密码。
+     */
+    @GetMapping("/login-key")
+    public Result<LoginKeyService.PublicKeyInfo> loginKey() {
+        return Result.ok(loginKeyService.publicKey());
     }
 
     /**
@@ -70,9 +92,10 @@ public class AuthController {
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         // 先验人机（一次性 + 会话绑定），再查账号 —— 让"猜密码"必须先过验证码
         captchaService.consumeTicket(request.captchaTicket(), request.sessionKey());
+        String password = resolvePassword(request);
         SysUser user = userMapper.selectOne(
                 Wrappers.<SysUser>lambdaQuery().eq(SysUser::getUsername, request.username()));
-        if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        if (user == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
             throw BizException.unauthorized("用户名或密码错误");
         }
         if (!STATUS_ENABLED.equals(user.getStatus())) {
@@ -92,6 +115,30 @@ public class AuthController {
             throw BizException.unauthorized("用户不存在");
         }
         return Result.ok(toInfo(user));
+    }
+
+    /**
+     * 取出真实密码：优先解密前端密文；明文只在显式放开兼容开关时接受（并留痕）。
+     *
+     * <p>这里不把"解密失败"和"密码错误"混在一起：解密失败直接 400，避免让人误以为是密码错。
+     */
+    private String resolvePassword(LoginRequest request) {
+        String encrypted = request.encryptedPassword();
+        if (encrypted != null && !encrypted.isBlank()) {
+            if (!loginKeyService.keyIdMatches(request.keyId())) {
+                throw BizException.badRequest("加密公钥已更新，请刷新页面后重试");
+            }
+            return loginKeyService.decrypt(encrypted, request.sessionKey()).password();
+        }
+        String plain = request.password();
+        if (plain == null || plain.isEmpty()) {
+            throw BizException.badRequest("密码必须加密传输");
+        }
+        if (!allowPlaintextPassword) {
+            throw BizException.badRequest("密码必须加密传输");
+        }
+        log.warn("收到明文密码登录（兼容开关已打开），建议尽快关闭 myagent.auth.allow-plaintext-password");
+        return plain;
     }
 
     /** 取客户端 IP：优先 X-Forwarded-For（nginx 反代），否则用直连地址。IP 只做辅助限流。 */

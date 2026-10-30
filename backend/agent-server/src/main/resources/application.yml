@@ -29,6 +29,19 @@ mybatis-plus:
       id-type: auto
 
 myagent:
+  # 登录相关
+  auth:
+    # 是否仍接受**明文**密码。默认 false：前端一律用下发的公钥做 RSA-OAEP 加密。
+    # 只有本地联调脚本需要时才临时打开，生产必须保持 false。
+    allow-plaintext-password: ${MYAGENT_ALLOW_PLAINTEXT_PASSWORD:false}
+    login-key:
+      # 密文里时间戳允许的偏差（秒）：超过就当作重放拒掉
+      payload-ttl-seconds: ${MYAGENT_LOGIN_PAYLOAD_TTL:120}
+      # 公钥有效期（秒），下发给前端做缓存
+      ttl-seconds: ${MYAGENT_LOGIN_KEY_TTL:300}
+      # nonce 去重缓存上限与清理间隔
+      nonce-cache-size: ${MYAGENT_LOGIN_NONCE_CACHE:20000}
+      nonce-cleanup-millis: ${MYAGENT_LOGIN_NONCE_CLEANUP_MILLIS:60000}
   # 登录滑动验证（拼图）：答案只存在后端库里，前端只看到图
   captcha:
     enabled: ${MYAGENT_CAPTCHA_ENABLED:true}

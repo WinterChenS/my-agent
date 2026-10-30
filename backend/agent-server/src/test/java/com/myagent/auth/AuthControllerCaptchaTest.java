@@ -8,7 +8,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myagent.auth.captcha.SliderCaptchaService;
+import com.myagent.auth.crypto.LoginKeyService;
 import com.myagent.auth.dto.LoginRequest;
 import com.myagent.auth.entity.SysUser;
 import com.myagent.auth.mapper.SysUserMapper;
@@ -38,7 +40,11 @@ class AuthControllerCaptchaTest {
         passwordEncoder = mock(PasswordEncoder.class);
         jwtService = mock(JwtService.class);
         captchaService = mock(SliderCaptchaService.class);
-        controller = new AuthController(userMapper, passwordEncoder, jwtService, captchaService);
+        controller = new AuthController(userMapper, passwordEncoder, jwtService, captchaService,
+                new LoginKeyService(new ObjectMapper()));
+        // 这些用例只关心"验证码票据是否被消费"，密码走明文兼容开关
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                controller, "allowPlaintextPassword", true);
     }
 
     @Test
@@ -48,7 +54,7 @@ class AuthControllerCaptchaTest {
                 .when(captchaService).consumeTicket(null, "session-abcdefgh");
 
         assertThatThrownBy(() -> controller.login(
-                new LoginRequest("admin", "secret", null, "session-abcdefgh")))
+                new LoginRequest("admin", "secret", null, null, null, "session-abcdefgh")))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("验证");
 
@@ -62,7 +68,7 @@ class AuthControllerCaptchaTest {
                 .when(captchaService).consumeTicket("t-used", "session-abcdefgh");
 
         assertThatThrownBy(() -> controller.login(
-                new LoginRequest("admin", "secret", "t-used", "session-abcdefgh")))
+                new LoginRequest("admin", "secret", null, null, "t-used", "session-abcdefgh")))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("无效");
     }
@@ -81,7 +87,7 @@ class AuthControllerCaptchaTest {
         when(passwordEncoder.matches("secret", "hash")).thenReturn(true);
         when(jwtService.issue(1L, "admin", "ADMIN")).thenReturn("jwt-token");
 
-        var response = controller.login(new LoginRequest("admin", "secret", "t-1", "session-abcdefgh"));
+        var response = controller.login(new LoginRequest("admin", "secret", null, null, "t-1", "session-abcdefgh"));
 
         assertThat(response.data().token()).isEqualTo("jwt-token");
         ArgumentCaptor<String> ticket = ArgumentCaptor.forClass(String.class);

@@ -1,4 +1,6 @@
 import { apiFetch } from "./client";
+import { encryptPassword, resetPasswordCipherCache } from "@/lib/passwordCipher";
+import { captchaSessionKey } from "@/lib/captchaSession";
 import type { LoginResponse, UserInfo } from "./types";
 
 /** 验证码题目。注意：**里面没有任何正确答案**，判定只发生在服务端。 */
@@ -44,19 +46,35 @@ export function verifyCaptcha(body: CaptchaVerifyBody) {
   });
 }
 
-export function login(
+/**
+ * 登录。**密码不上明文链路**：先用服务端下发的公钥做 RSA-OAEP(SHA-256) 加密，
+ * 只传 `encryptedPassword` + `keyId`。
+ *
+ * <p>加密失败（比如公钥刚好轮换）时清缓存重取一次，仍然失败才把错误抛给用户。
+ */
+export async function login(
   username: string,
   password: string,
   captchaTicket?: string | null,
   sessionKey?: string | null,
 ) {
+  const session = sessionKey ?? captchaSessionKey();
+  let encrypted;
+  try {
+    encrypted = await encryptPassword(password, session);
+  } catch {
+    resetPasswordCipherCache();
+    encrypted = await encryptPassword(password, session);
+  }
+
   return apiFetch<LoginResponse>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({
       username,
-      password,
+      encryptedPassword: encrypted.encryptedPassword,
+      keyId: encrypted.keyId,
       captchaTicket: captchaTicket ?? null,
-      sessionKey: sessionKey ?? null,
+      sessionKey: session,
     }),
   });
 }

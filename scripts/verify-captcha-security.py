@@ -1,6 +1,9 @@
 """验证码安全自测（本地 8080）：服务端判定 / 会话绑定 / 重放 / 并发 / 限流 / 行为 / 无障碍题。"""
-import json, os, threading, time, urllib.request, sys
+import base64
+import json, os, secrets, threading, time, urllib.request, sys
 import psycopg2
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 B = os.environ.get("CAPTCHA_BASE", "http://localhost:8080")
@@ -32,9 +35,46 @@ def db(sql, args=()):
     return row
 
 
+def encrypt_password(password, session):
+    """按前端同样的方案加密：RSA-2048/OAEP，摘要 SHA-256，MGF1 也是 SHA-256。"""
+    key = call("/api/auth/login-key")["data"]
+    public_key = serialization.load_pem_public_key(key["publicKey"].encode())
+    payload = json.dumps({
+        "p": password,
+        "t": int(time.time() * 1000),
+        "n": secrets.token_hex(8),
+        "s": session,
+    }).encode()
+    ciphertext = public_key.encrypt(payload, padding.OAEP(
+        mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None))
+    return key["keyId"], base64.b64encode(ciphertext).decode()
+
+
+def login(password="Admin@123", ticket=None, session=SESSION):
+    key_id, encrypted = encrypt_password(password, session)
+    return call("/api/auth/login", "POST", {
+        "username": "admin",
+        "encryptedPassword": encrypted,
+        "keyId": key_id,
+        "captchaTicket": ticket,
+        "sessionKey": session,
+    })
+
+
 def new_challenge(mode="slider", session=SESSION):
+    """出题。撞到限流（429）就等一会儿重试 —— 脚本连续跑时 IP 限流很常见。"""
     q = f"/api/auth/captcha?sessionKey={session}&mode={mode}"
-    data = call(q)["data"]
+    for attempt in range(40):
+        resp = call(q)
+        if resp.get("code") == 0:
+            data = resp["data"]
+            break
+        if resp.get("msg") and "频繁" in resp["msg"]:
+            time.sleep(3)
+            continue
+        raise SystemExit(f"出题失败：{resp}")
+    else:
+        raise SystemExit("出题一直被限流，稍后再跑")
     row = db("select answer_x, piece_y, text_answer, mode from captcha_challenge where id=%s", (data["id"],))
     return data, row
 
@@ -79,16 +119,48 @@ results.append(ok("位置错 → 失败且不泄露正确位置", r["code"] == 4
 results.append(ok("失败信息里没有正确坐标", str(row[0]) not in r["msg"]))
 
 print("== 3. 重放 ticket ==")
-r2 = call("/api/auth/login", "POST",
-          {"username": "admin", "password": "Admin@123", "captchaTicket": ticket, "sessionKey": SESSION})
-results.append(ok("首次登录成功", r2["code"] == 0))
-r3 = call("/api/auth/login", "POST",
-          {"username": "admin", "password": "Admin@123", "captchaTicket": ticket, "sessionKey": SESSION})
+r2 = login(ticket=ticket)
+results.append(ok("首次登录成功（密码密文传输）", r2["code"] == 0, r2.get("msg", "")))
+r3 = login(ticket=ticket)
 results.append(ok("重复使用同一 ticket 被拒", r3["code"] == 400, r3["msg"]))
 
 print("== 4. 跳过验证码直接登录 ==")
-r = call("/api/auth/login", "POST", {"username": "admin", "password": "Admin@123"})
+r = login()
 results.append(ok("无 ticket 登录被拒", r["code"] == 400, r["msg"]))
+
+print("== 4b. 明文密码 ==")
+# 先老老实实过验证码，再证明"验证码过了也不行，密码必须是密文"
+d, row = new_challenge(session=SESSION + "-plain")
+v = call("/api/auth/captcha/verify", "POST", {"id": d["id"], "sessionKey": SESSION + "-plain",
+                                              "x": row[0], "track": human_track()})
+r = call("/api/auth/login", "POST", {"username": "admin", "password": "Admin@123",
+                                     "captchaTicket": v["data"]["ticket"],
+                                     "sessionKey": SESSION + "-plain"})
+results.append(ok("明文密码被拒（必须加密传输）", r["code"] == 400 and "加密" in r["msg"], r["msg"]))
+
+print("== 4c. 密文重放 ==")
+key = call("/api/auth/login-key")["data"]
+pub = serialization.load_pem_public_key(key["publicKey"].encode())
+payload = json.dumps({"p": "Admin@123", "t": int(time.time() * 1000),
+                      "n": secrets.token_hex(8), "s": SESSION + "-replay"}).encode()
+cipher = base64.b64encode(pub.encrypt(payload, padding.OAEP(
+    mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None))).decode()
+
+
+def ticket_for(session):
+    dd, rrow = new_challenge(session=session)
+    vv = call("/api/auth/captcha/verify", "POST",
+              {"id": dd["id"], "sessionKey": session, "x": rrow[0], "track": human_track()})
+    return vv["data"]["ticket"]
+
+
+body = {"username": "admin", "encryptedPassword": cipher, "keyId": key["keyId"],
+        "sessionKey": SESSION + "-replay"}
+first = call("/api/auth/login", "POST", dict(body, captchaTicket=ticket_for(SESSION + "-replay")))
+results.append(ok("密文首次登录成功", first["code"] == 0, first.get("msg", "")))
+second = call("/api/auth/login", "POST", dict(body, captchaTicket=ticket_for(SESSION + "-replay")))
+results.append(ok("同一段密文重放被拒（nonce 去重）", second["code"] == 400 and "重复" in second["msg"],
+                  second["msg"]))
 
 print("== 5. 会话绑定 ==")
 data, row = new_challenge()
@@ -120,13 +192,16 @@ wins = [x for x in out if x["code"] == 0]
 results.append(ok("8 个并发请求只成功 1 个", len(wins) == 1, f"成功 {len(wins)} 个"))
 
 print("== 8. 高频错误 → 限流 ==")
+# 只出一道题，然后反复用错误位置提交：验证的是"验证接口限流 + 渐进冷却"，
+# 而不是把出题接口打到 429（那会掩盖真正要测的东西）
+flood_session = SESSION + "-flood"
+d, row = new_challenge(session=flood_session)
 codes = []
 for _ in range(15):
-    d, rw = new_challenge(session=SESSION + "-flood")
     resp = call("/api/auth/captcha/verify", "POST",
-                {"id": d["id"], "sessionKey": SESSION + "-flood", "x": 5, "track": human_track()})
+                {"id": d["id"], "sessionKey": flood_session, "x": 3, "track": human_track()})
     codes.append(resp["code"])
-results.append(ok("连续失败后出现 429", 429 in codes, f"codes={sorted(set(codes))}"))
+results.append(ok("连续失败后出现 429（限流/冷却）", 429 in codes, f"codes={sorted(set(codes))}"))
 
 print("== 9. 无障碍文字题 ==")
 data, row = new_challenge(mode="text", session=SESSION + "-text")

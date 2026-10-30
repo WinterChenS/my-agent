@@ -2,7 +2,18 @@ import { expect, type APIRequestContext } from "@playwright/test";
 
 export const API = "http://localhost:8080";
 
-/** 登录拿 admin token（多数用例需要直接调接口造/清数据）。 */
+/**
+ * 登录拿 admin token（多数用例需要直接调接口造/清数据）。
+ *
+ * ⚠️ 自动化没法"过滑验证码"（那正是它的目的），所以跑 e2e 时后端必须带这两个开关启动：
+ *
+ * ```bash
+ * MYAGENT_CAPTCHA_ENABLED=false MYAGENT_ALLOW_PLAINTEXT_PASSWORD=true mvn spring-boot:run
+ * ```
+ *
+ * 生产环境两者都保持默认（验证码开启、只收密文密码），这里是给测试用的明确逃生口，
+ * 不是可以随手打开的旁路。
+ */
 export async function apiToken(request: APIRequestContext): Promise<string> {
   const res = await request.post(`${API}/api/auth/login`, {
     data: { username: "admin", password: "Admin@123" },

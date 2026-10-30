@@ -68,7 +68,7 @@ public class SecurityConfig {
                         // Spring Security 会在已提交的响应上抛异常（Task 4.2 实测发现）。
                         .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR)
                         .permitAll()
-                        .requestMatchers("/api/auth/login", "/api/auth/captcha",
+                        .requestMatchers("/api/auth/login", "/api/auth/login-key", "/api/auth/captcha",
                                 "/api/auth/captcha/**", "/api/health")
                         .permitAll()
                         // 定时任务：登录即可，普通用户只能看到/管理自己的（服务层按 created_by 过滤）
