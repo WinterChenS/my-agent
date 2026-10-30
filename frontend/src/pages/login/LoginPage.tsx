@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { login } from "@/api/auth";
+import { SliderCaptcha } from "@/components/auth/SliderCaptcha";
 import { useAuthStore } from "@/stores/auth";
 
 export default function LoginPage() {
@@ -11,6 +12,9 @@ export default function LoginPage() {
   const setAuth = useAuthStore((s) => s.setAuth);
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [captchaTicket, setCaptchaTicket] = useState<string | null>(null);
+  /** 登录失败时换一张验证图：用计数而不是用错误文案当 key（同样的错误文案连续出现时也能复位） */
+  const [captchaRound, setCaptchaRound] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -19,11 +23,14 @@ export default function LoginPage() {
     setError(null);
     setBusy(true);
     try {
-      const { token, user } = await login(username, password);
+      const { token, user } = await login(username, password, captchaTicket);
       setAuth(token, user);
       navigate("/chat", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
+      // 票据一次一用：提交过就作废，失败后必须重新验证
+      setCaptchaTicket(null);
+      setCaptchaRound((round) => round + 1);
     } finally {
       setBusy(false);
     }
@@ -60,6 +67,7 @@ export default function LoginPage() {
                 autoComplete="current-password"
               />
             </div>
+            <SliderCaptcha key={`captcha-${captchaRound}`} onVerified={setCaptchaTicket} />
             {error && <p className="text-destructive text-sm">{error}</p>}
             <Button type="submit" className="w-full" disabled={busy}>
               {busy ? "登录中…" : "登录"}

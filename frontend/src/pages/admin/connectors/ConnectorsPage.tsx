@@ -229,7 +229,6 @@ function ConnectorsPage() {
                   <TableHead>名称</TableHead>
                   <TableHead>账号</TableHead>
                   <TableHead>状态</TableHead>
-                  <TableHead>新邮件</TableHead>
                   <TableHead>绑定 Agent</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
@@ -253,7 +252,6 @@ function ConnectorsPage() {
                         </div>
                       ) : null}
                     </TableCell>
-                    <TableCell className="text-xs">{inboundLabel(connector.inboundMode)}</TableCell>
                     <TableCell className="text-xs">
                       {connector.agentIds.length === 0 ? (
                         <span className="text-muted-foreground">未绑定</span>
@@ -418,17 +416,6 @@ function capabilityLabel(capability: string) {
       return "新邮件";
     default:
       return capability;
-  }
-}
-
-function inboundLabel(mode: ConnectorInfo["inboundMode"]) {
-  switch (mode) {
-    case "NOTIFY":
-      return "推 IM 通知";
-    case "AUTOREPLY":
-      return "Agent 自动回复";
-    default:
-      return "只记录";
   }
 }
 

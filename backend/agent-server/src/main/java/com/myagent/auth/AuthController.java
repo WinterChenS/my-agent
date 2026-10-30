@@ -1,6 +1,10 @@
 package com.myagent.auth;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.myagent.auth.captcha.SliderCaptchaService;
+import com.myagent.auth.captcha.dto.CaptchaResponse;
+import com.myagent.auth.captcha.dto.CaptchaVerifyRequest;
+import com.myagent.auth.captcha.dto.CaptchaVerifyResponse;
 import com.myagent.auth.dto.LoginRequest;
 import com.myagent.auth.dto.LoginResponse;
 import com.myagent.auth.dto.UserInfo;
@@ -27,16 +31,35 @@ public class AuthController {
     private final SysUserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final SliderCaptchaService captchaService;
 
     public AuthController(
-            SysUserMapper userMapper, PasswordEncoder passwordEncoder, JwtService jwtService) {
+            SysUserMapper userMapper,
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService,
+            SliderCaptchaService captchaService) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.captchaService = captchaService;
+    }
+
+    /** 取一道滑动验证题（背景图 + 拼图，答案只在后端）。 */
+    @GetMapping("/captcha")
+    public Result<CaptchaResponse> captcha() {
+        return Result.ok(captchaService.create());
+    }
+
+    /** 判定拼图位置，对了发一次性 ticket。 */
+    @PostMapping("/captcha/verify")
+    public Result<CaptchaVerifyResponse> verifyCaptcha(@Valid @RequestBody CaptchaVerifyRequest request) {
+        return Result.ok(new CaptchaVerifyResponse(captchaService.verify(request.id(), request.x())));
     }
 
     @PostMapping("/login")
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        // 先验人机（一次一用），再查账号 —— 让"猜密码"必须先过滑动验证
+        captchaService.consumeTicket(request.captchaTicket());
         SysUser user = userMapper.selectOne(
                 Wrappers.<SysUser>lambdaQuery().eq(SysUser::getUsername, request.username()));
         if (user == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {

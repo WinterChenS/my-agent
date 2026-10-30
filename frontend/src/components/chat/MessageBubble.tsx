@@ -1,7 +1,8 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Paperclip, Sparkles } from "lucide-react";
+import { Check, Copy, Paperclip, Sparkles } from "lucide-react";
+import { copyText } from "@/lib/clipboard";
 import {
   formatSize,
   INLINE_IMAGE_MAX_BYTES,
@@ -56,8 +57,9 @@ export function MessageBubble({
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
       <div
+        data-testid="message-bubble"
         className={cn(
-          "max-w-[min(48rem,85%)] rounded-2xl px-4 py-2.5 text-sm shadow-sm",
+          "group relative max-w-[min(48rem,85%)] rounded-2xl px-4 py-2.5 text-sm shadow-sm",
           isUser
             ? "bg-primary text-primary-foreground rounded-br-md"
             : "bg-card text-card-foreground rounded-bl-md border",
@@ -166,8 +168,65 @@ export function MessageBubble({
             )}
           </div>
         )}
+        <CopyButton
+          text={isUser ? parsed.text : content}
+          streaming={streaming}
+          inverted={isUser}
+        />
       </div>
     </div>
+  );
+}
+
+/**
+ * 气泡右下角的「复制」按钮。
+ *
+ * <p>只有鼠标移到气泡上才出现（opacity 0 → 100），不打扰阅读；
+ * 复制的是**Markdown 原文**（不是渲染后的纯文本），粘到别处格式还在。
+ * 注意走 {@link copyText}：内网 http 下 navigator.clipboard 不存在。
+ */
+function CopyButton({
+  text,
+  streaming,
+  inverted,
+}: {
+  text: string;
+  streaming?: boolean;
+  /** 用户气泡是主色底，按钮要反色 */
+  inverted: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = useCallback(async () => {
+    const ok = await copyText(text);
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }, [text]);
+
+  // 流式生成中内容还在变，复制了也没意义
+  if (streaming || !text.trim()) {
+    return null;
+  }
+  return (
+    <button
+      type="button"
+      data-testid="copy-message"
+      title={copied ? "已复制" : "复制 Markdown 原文"}
+      aria-label="复制 Markdown 原文"
+      onClick={(event) => {
+        event.stopPropagation();
+        void onCopy();
+      }}
+      className={cn(
+        "absolute -right-1 -bottom-1 rounded-md border p-1 opacity-0 transition-opacity",
+        "group-hover:opacity-100 focus-visible:opacity-100",
+        inverted
+          ? "border-primary-foreground/30 bg-primary text-primary-foreground/80 hover:text-primary-foreground"
+          : "bg-card text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </button>
   );
 }
 

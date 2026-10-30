@@ -29,6 +29,17 @@ mybatis-plus:
       id-type: auto
 
 myagent:
+  # 登录滑动验证（拼图）：答案只存在后端库里，前端只看到图
+  captcha:
+    enabled: ${MYAGENT_CAPTCHA_ENABLED:true}
+    # 一道题的存活时间（秒）
+    ttl-seconds: ${MYAGENT_CAPTCHA_TTL_SECONDS:120}
+    # 位置容差（原图像素）：±6px 肉眼几乎看不出来，脚本猜不中
+    tolerance: ${MYAGENT_CAPTCHA_TOLERANCE:6}
+    # 一道题最多允许试几次，超过就作废
+    max-attempts: ${MYAGENT_CAPTCHA_MAX_ATTEMPTS:5}
+    # 过期题目清理间隔（毫秒）
+    cleanup-millis: ${MYAGENT_CAPTCHA_CLEANUP_MILLIS:60000}
   # Agent 默认最大迭代步数（一轮对话里「思考→调工具→看结果」的循环次数）。
   # 技能 / 命令执行类任务很吃步数，默认给 100；单 Agent 可在「Agent 配置」里单独覆盖。
   agent:

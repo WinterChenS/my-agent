@@ -161,8 +161,9 @@ describe("ConnectorsPage", () => {
 
     await waitFor(() => expect(screen.getByText("连接异常")).toBeTruthy());
     expect(screen.getByText("IMAP 登录失败：授权码错误")).toBeTruthy();
-    expect(screen.getByText("推 IM 通知")).toBeTruthy();
     expect(screen.getByText("小梅")).toBeTruthy();
+    // 「新邮件」这一列已按用户要求去掉（新邮件处理方式在编辑弹窗里配），表格里不应再出现
+    expect(screen.queryByText("推 IM 通知")).toBeNull();
   });
 
   it("测试连接失败时用后端消息提示", async () => {

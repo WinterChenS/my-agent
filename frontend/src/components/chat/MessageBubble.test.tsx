@@ -1,7 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MessageBubble } from "./MessageBubble";
 import { INLINE_IMAGE_MAX_BYTES, type ArtifactInfo } from "@/api/artifacts";
+
+/*
+ * 复制走 lib/clipboard（内网 http 下没有 navigator.clipboard）：换成可断言的空实现
+ */
+const { copyText } = vi.hoisted(() => ({ copyText: vi.fn(async () => true) }));
+vi.mock("@/lib/clipboard", () => ({ copyText }));
 
 /*
  * 把「取字节」换掉：组件测试不联网（真实请求要带 Bearer，jsdom 里也没法真解码图片）。
@@ -37,6 +43,28 @@ describe("MessageBubble 气泡内图片", () => {
    * 这条分支之前只有实现、没有测试（e2e 造不出 8MB 以上的图片）：
    * 超过上限时**不得**内联渲染 <img>，而是给一个可点开的占位。
    */
+  /**
+   * 用户要求：气泡右下角有个"鼠标移上去才显示"的复制按钮，且复制的是 **Markdown 原文**，
+   * 不是渲染后的纯文本（否则粘出去格式全丢）。
+   */
+  it("复制按钮复制 Markdown 原文（而不是渲染后的文本）", async () => {
+    copyText.mockClear();
+    const markdown = ["## 结论", "", "- 第一点", "- 第二点"].join("\n");
+    render(<MessageBubble role="assistant" content={markdown} />);
+
+    const button = screen.getByTestId("copy-message");
+    // 默认是隐藏的（靠 group-hover 显示），但必须可点
+    expect(button.className).toContain("opacity-0");
+    fireEvent.click(button);
+
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith(markdown));
+  });
+
+  it("流式生成中不显示复制按钮（内容还在变，复制了没意义）", () => {
+    render(<MessageBubble role="assistant" content="正在" streaming />);
+    expect(screen.queryByTestId("copy-message")).toBeNull();
+  });
+
   it("超过 INLINE_IMAGE_MAX_BYTES 的图片不内联，给可点开的占位", () => {
     const huge = artifact({ id: 7, fileName: "huge.png", sizeBytes: INLINE_IMAGE_MAX_BYTES + 1 });
     const { container } = render(
