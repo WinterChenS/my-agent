@@ -258,9 +258,9 @@ public class DingTalkDocClient {
      * 要的是 **nodeId**（不是创建时返回的 docKey）；nodeId 可以从文档链接 {@code .../i/nodes/{nodeId}} 里取。
      */
     public JsonNode deleteDoc(String workspaceId, String nodeId) {
-        ObjectNode body = JSON.createObjectNode();
-        body.put("operatorId", operatorId);
-        return delete("/v1.0/doc/workspaces/" + encode(workspaceId) + "/docs/" + encode(nodeId), body);
+        // 注意：删文档的 operatorId 在 **query** 里（其他接口多在 body），放错位置会报 paramError-operatorId
+        return delete("/v1.0/doc/workspaces/" + encode(workspaceId) + "/docs/" + encode(nodeId)
+                + "?" + toQuery(params("operatorId", operatorId)), null);
     }
 
     // ===================== 传输 =====================
