@@ -155,6 +155,11 @@ public class DingTalkDocClient {
                 "endIndex", String.valueOf(Math.max(endIndex, 1))));
     }
 
+    /** 文档空间详情（含 rootDentryUuid：在空间根目录建文档时的父节点）。 */
+    public JsonNode workspace(String workspaceId) {
+        return get("/v1.0/doc/workspaces/" + encode(workspaceId), params("operatorId", operatorId));
+    }
+
     /** 通过链接解析知识库节点（用户直接粘链接时用）。 */
     public JsonNode nodeByUrl(String url) {
         return get("/v2.0/wiki/nodes/queryByUrl", params(
@@ -180,10 +185,28 @@ public class DingTalkDocClient {
         body.put("operatorId", operatorId);
         // 实测：必须是 "DOC"（大写）；传 "doc" 会报 "Specified parameter docType is not valid."
         body.put("docType", "DOC");
-        if (parentNodeId != null && !parentNodeId.isBlank()) {
-            body.put("parentNodeId", parentNodeId);
+        String parent = parentNodeId;
+        if (parent == null || parent.isBlank()) {
+            parent = rootNodeOf(workspaceId);
+        }
+        if (parent != null && !parent.isBlank()) {
+            body.put("parentNodeId", parent);
         }
         return post("/v1.0/doc/workspaces/" + encode(workspaceId) + "/docs", body);
+    }
+
+    /** 取空间根节点（rootDentryUuid）；拿不到就返回 null，让创建接口自己报错。 */
+    String rootNodeOf(String workspaceId) {
+        try {
+            JsonNode info = workspace(workspaceId);
+            String root = info.path("result").path("rootDentryUuid").asText("");
+            if (root.isBlank()) {
+                root = info.path("rootDentryUuid").asText("");
+            }
+            return root.isBlank() ? null : root;
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     /**
