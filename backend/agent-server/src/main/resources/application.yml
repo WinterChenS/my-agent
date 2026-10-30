@@ -32,14 +32,39 @@ myagent:
   # 登录滑动验证（拼图）：答案只存在后端库里，前端只看到图
   captcha:
     enabled: ${MYAGENT_CAPTCHA_ENABLED:true}
-    # 一道题的存活时间（秒）
-    ttl-seconds: ${MYAGENT_CAPTCHA_TTL_SECONDS:120}
+    # 一道题的存活时间（秒）。过期必须重新出题
+    ttl-seconds: ${MYAGENT_CAPTCHA_TTL_SECONDS:90}
     # 位置容差（原图像素）：±6px 肉眼几乎看不出来，脚本猜不中
     tolerance: ${MYAGENT_CAPTCHA_TOLERANCE:6}
-    # 一道题最多允许试几次，超过就作废
+    # 单题最多允许试几次，超过就作废（防坐标暴力枚举）
     max-attempts: ${MYAGENT_CAPTCHA_MAX_ATTEMPTS:5}
     # 过期题目清理间隔（毫秒）
     cleanup-millis: ${MYAGENT_CAPTCHA_CLEANUP_MILLIS:60000}
+    # 滑动轨迹行为分析（辅助风险信号，前端轨迹可伪造，不作为唯一依据）
+    behavior:
+      enabled: ${MYAGENT_CAPTCHA_BEHAVIOR_ENABLED:true}
+      # 少于这么多采样点 → 判为脚本
+      min-points: ${MYAGENT_CAPTCHA_BEHAVIOR_MIN_POINTS:5}
+      # 人拖动一般不会低于这个总时长（毫秒）
+      min-duration-ms: ${MYAGENT_CAPTCHA_BEHAVIOR_MIN_DURATION_MS:130}
+      # 速度变异系数低于该值 → 视为"全程匀速机械化"
+      uniform-speed-cv: ${MYAGENT_CAPTCHA_BEHAVIOR_UNIFORM_SPEED_CV:0.12}
+      # 风险分达到该值就拒绝。注意：任何单项最高只有 40，所以至少两个独立信号才会被拒
+      reject-score: ${MYAGENT_CAPTCHA_BEHAVIOR_REJECT_SCORE:60}
+      # 同一会话保留多少条历史轨迹，用于"重复轨迹"检测
+      history-size: ${MYAGENT_CAPTCHA_BEHAVIOR_HISTORY_SIZE:20}
+    # 限流与渐进式冷却（IP 只做辅助，不作为唯一身份）
+    rate-limit:
+      create-per-minute-session: ${MYAGENT_CAPTCHA_RL_CREATE_SESSION:20}
+      create-per-minute-ip: ${MYAGENT_CAPTCHA_RL_CREATE_IP:60}
+      verify-per-minute-session: ${MYAGENT_CAPTCHA_RL_VERIFY_SESSION:12}
+      verify-per-minute-ip: ${MYAGENT_CAPTCHA_RL_VERIFY_IP:60}
+      # 连续失败达到该次数开始冷却（指数退避）
+      cooldown-threshold: ${MYAGENT_CAPTCHA_RL_COOLDOWN_THRESHOLD:5}
+      cooldown-base-seconds: ${MYAGENT_CAPTCHA_RL_COOLDOWN_BASE_SECONDS:15}
+      cooldown-max-seconds: ${MYAGENT_CAPTCHA_RL_COOLDOWN_MAX_SECONDS:300}
+      fail-window-seconds: ${MYAGENT_CAPTCHA_RL_FAIL_WINDOW_SECONDS:300}
+      cleanup-millis: ${MYAGENT_CAPTCHA_RL_CLEANUP_MILLIS:120000}
   # Agent 默认最大迭代步数（一轮对话里「思考→调工具→看结果」的循环次数）。
   # 技能 / 命令执行类任务很吃步数，默认给 100；单 Agent 可在「Agent 配置」里单独覆盖。
   agent:

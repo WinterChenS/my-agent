@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { login } from "@/api/auth";
 import { SliderCaptcha } from "@/components/auth/SliderCaptcha";
+import { captchaSessionKey } from "@/lib/captchaSession";
 import { useAuthStore } from "@/stores/auth";
 
 export default function LoginPage() {
@@ -23,7 +24,8 @@ export default function LoginPage() {
     setError(null);
     setBusy(true);
     try {
-      const { token, user } = await login(username, password, captchaTicket);
+      // 票据与出题时的会话绑定：这里必须带同一个 sessionKey，否则服务端会拒绝
+      const { token, user } = await login(username, password, captchaTicket, captchaSessionKey());
       setAuth(token, user);
       navigate("/chat", { replace: true });
     } catch (err) {

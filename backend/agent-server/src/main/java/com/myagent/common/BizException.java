@@ -42,6 +42,10 @@ public class BizException extends RuntimeException {
         return new BizException(404, message, HttpStatus.NOT_FOUND);
     }
 
+    public static BizException tooManyRequests(String message) {
+        return new BizException(429, message, HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     public static BizException conflict(String message) {
         return new BizException(409, message, HttpStatus.CONFLICT);
     }
