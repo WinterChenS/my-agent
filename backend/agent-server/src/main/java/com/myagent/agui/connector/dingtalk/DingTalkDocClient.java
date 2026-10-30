@@ -265,6 +265,10 @@ public class DingTalkDocClient {
     }
 
     private JsonNode send(String method, String url, JsonNode body, boolean withOperator) {
+        return send(method, url, body, withOperator, true);
+    }
+
+    private JsonNode send(String method, String url, JsonNode body, boolean withOperator, boolean mayRefreshToken) {
         throttle();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -285,18 +289,28 @@ public class DingTalkDocClient {
                 org.slf4j.LoggerFactory.getLogger(DingTalkDocClient.class)
                         .debug("DX {} {} -> {} body={}", method, url, response.statusCode(), raw);
                 DingTalkException error = toHumanError(response.statusCode(), raw);
+                if (mayRefreshToken && response.statusCode() == 403
+                        && raw != null && raw.contains("AccessTokenPermissionDenied")) {
+                    // 钉钉的 access token 在**签发时**就固定了权限范围：
+                    // 用户在控制台刚开通权限，但进程里缓存的还是老 token，会一直报缺权限。
+                    // 这里清掉缓存、重新取 token，再重试一次。
+                    TOKENS.remove(appKey);
+                    org.slf4j.LoggerFactory.getLogger(DingTalkDocClient.class)
+                            .info("钉钉返回权限不足，已强制刷新 access token 后重试一次");
+                    return send(method, url, body, withOperator, false);
+                }
                 if (withOperator && operatorId != null && !operatorId.isBlank()
                         && !operatorId.equals(resolveUnionId(operatorId))) {
                     // unionId 不被接受（个别接口要 userId）→ 用原始 staffId 再试一次
                     String original = withOperator(url, operatorId);
                     if (!original.equals(url)) {
-                        return send(method, original, body, false);
+                        return send(method, original, body, false, mayRefreshToken);
                     }
                 }
                 if (withOperator && raw != null && raw.contains("operatorId")) {
                     String unionId = resolveUnionId(operatorId);
                     if (unionId != null && !unionId.equals(operatorId)) {
-                        return send(method, withOperator(url, unionId), body, false);
+                        return send(method, withOperator(url, unionId), body, false, mayRefreshToken);
                     }
                     String reason = UNION_ID_ERRORS.get(appKey + "|" + operatorId);
                     if (reason != null && !reason.isBlank()) {
