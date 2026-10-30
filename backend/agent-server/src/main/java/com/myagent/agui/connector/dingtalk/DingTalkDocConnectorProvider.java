@@ -68,35 +68,44 @@ public class DingTalkDocConnectorProvider implements ConnectorProvider {
 
         DingTalkDocClient client = new DingTalkDocClient(app.get("appKey"), app.get("appSecret"), operatorId);
         steps.add("客户端实际使用的 operatorId = " + mask(operatorId));
-        boolean ok = true;
+
+        // 判断口径：**核心链路**（拿 token + 能搜索文档）通了就算连接正常；
+        // 空间列表 / 最近编辑属于"锦上添花"的接口（钉钉给它们单列了权限点，
+        // 而该权限点在控制台里可能压根开不出来），它们的失败只在 steps 里标 ⚠，不该让整个连接器看起来是坏的。
+        boolean core;
         try {
-            JsonNode workspaces = client.mineWorkspaces(5);
-            int count = firstArraySize(workspaces, "workspaces", "data");
-            steps.add("✓ 知识库接口正常（我参与的知识库 " + count + " 个）");
-            if (count == 0) {
-                steps.add("  知识库为 0：确认你已加入知识库，且应用有知识库读权限");
-            }
+            JsonNode search = client.searchDocs("文档", null, 5);
+            steps.add("✓ 搜索文档正常（返回 " + firstArraySize(search, "docs", "documents", "data") + " 条）");
+            core = true;
         } catch (RuntimeException ex) {
-            ok = false;
-            steps.add("✗ 知识库接口失败：" + ex.getMessage());
+            steps.add("✗ 搜索文档失败：" + ex.getMessage());
+            core = false;
         }
-        ok &= diagnose(steps, "文档空间列表", () -> client.docWorkspaces(5), "workspaces", "data");
-        // 搜索接口要求 keyword 非空（空串会被判 "keyword is not valid"），诊断时用一个通用词
-        ok &= diagnose(steps, "搜索文档接口", () -> client.searchDocs("文档", null, 5), "docs", "documents", "data");
-        ok &= diagnose(steps, "最近编辑文档", () -> client.recentEditDocs(5), "docs", "documents", "data");
-        return new ConnectorTestResult(ok, ok ? "连接正常" : "部分接口不可用（见下面的逐项结果）", steps);
+
+        try {
+            JsonNode wiki = client.mineWorkspaces(5);
+            steps.add("✓ 知识库接口正常（我参与的知识库 " + firstArraySize(wiki, "workspaces", "data") + " 个）");
+        } catch (RuntimeException ex) {
+            steps.add("⚠ 知识库列表不可用（不影响读写文档）：" + ex.getMessage());
+        }
+
+        optional(steps, "文档空间列表", () -> client.docWorkspaces(5), "workspaces", "data");
+        optional(steps, "最近编辑文档", () -> client.recentEditDocs(5), "docs", "documents", "data");
+
+        steps.add(core
+                ? "结论：读写文档的核心接口可用（新建/读取/追加/删除请看下面的工具说明）"
+                : "结论：核心接口不可用，请按上面的 ✗ 处理（多半是应用权限或应用可见范围）");
+        return new ConnectorTestResult(core, core ? "连接正常" : "核心接口不可用（见下面的逐项结果）", steps);
     }
 
-    /** 逐个接口试一遍：成功/失败都写进 steps，省得用户和我们都靠猜。 */
-    private static boolean diagnose(List<String> steps, String label,
+    /** 可选接口：失败只标 ⚠，不影响整体结论。 */
+    private static void optional(List<String> steps, String label,
             java.util.function.Supplier<JsonNode> call, String... arrayKeys) {
         try {
             JsonNode response = call.get();
-            steps.add("✓ " + label + "正常（返回 " + firstArraySize(response, arrayKeys) + " 条）");
-            return true;
+            steps.add("✓ " + label + "正常（" + firstArraySize(response, arrayKeys) + " 条）");
         } catch (RuntimeException ex) {
-            steps.add("✗ " + label + "失败：" + ex.getMessage());
-            return false;
+            steps.add("⚠ " + label + "不可用（不影响新建/读取文档）：" + ex.getMessage());
         }
     }
 

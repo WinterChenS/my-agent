@@ -307,11 +307,26 @@ public final class DingTalkDocTools {
         @Override
         protected String run(Ctx ctx, ToolCallParam param) {
             int limit = Math.min(Math.max(asInt(param.getInput().get("limit"), 10), 1), 50);
-            List<JsonNode> wiki = items(safe(() -> ctx.client().mineWorkspaces(limit)), "workspaces", "result", "data");
-            List<JsonNode> spaces = items(safe(() -> ctx.client().docWorkspaces(limit)), "workspaces", "result", "data");
+            String error = null;
+            List<JsonNode> wiki;
+            List<JsonNode> spaces;
+            try {
+                wiki = items(ctx.client().mineWorkspaces(limit), "workspaces", "result", "data");
+            } catch (RuntimeException ex) {
+                wiki = List.of();
+                error = ex.getMessage();
+            }
+            try {
+                spaces = items(ctx.client().docWorkspaces(limit), "workspaces", "result", "data");
+            } catch (RuntimeException ex) {
+                spaces = List.of();
+                error = error == null ? ex.getMessage() : error;
+            }
             if (wiki.isEmpty() && spaces.isEmpty()) {
-                return "没查到可访问的知识库/文档空间。可能是：① 钉钉应用没开文档权限；"
-                        + "② 你的钉钉账号还没加入任何知识库。";
+                // 把真实原因说出来（多半是缺 Document.Workspace.Read），并给出替代做法
+                return "没查到可访问的知识库/文档空间。"
+                        + (error == null ? "" : "原因：" + error + " ")
+                        + "可以用 dt_search_docs 直接按关键词找文档（搜索不需要这个权限）。";
             }
             StringBuilder out = new StringBuilder("可访问的知识库/空间：\n");
             for (JsonNode item : wiki) {
