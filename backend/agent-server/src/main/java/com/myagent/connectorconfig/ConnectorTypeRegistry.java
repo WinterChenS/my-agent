@@ -103,6 +103,32 @@ public class ConnectorTypeRegistry {
                         ConnectorTypeDescriptor.Capability.WRITE),
                 false,
                 true));
+
+        register(new ConnectorTypeDescriptor(
+                "DINGTALK_DOC",
+                "钉钉文档",
+                "让 Agent 搜索、读取、新建与修改你的钉钉文档/知识库（以你的钉钉身份操作）",
+                List.of(
+                        text("operatorId", "操作人（钉钉 userId）", false,
+                                "以谁的钉钉身份操作，决定能看哪些文档；**留空=自动**用你在钉钉机器人里的身份", ""),
+                        text("defaultWorkspaceId", "默认知识库/空间（可选）", false,
+                                "新建文档时的默认落点；可粘贴知识库链接", ""),
+                        tags("allowedWorkspaceIds", "知识库/空间白名单（可选）",
+                                "留空=不限；填了就只允许操作这些知识库（可粘链接，自动提取 id）"),
+                        tags("allowedDocKeys", "文档白名单（可选）",
+                                "留空=不限；填了就只允许读写这些文档（可粘文档链接，自动提取 docKey）"),
+                        number("maxBlocks", "单篇最多读取多少块", false,
+                                "默认 300；超大文档会截断，防止一次读爆上下文", "300"),
+                        select("allowWrite", "允许写入", "关闭后只能读；写入需要 Agent 的审批通过",
+                                WRITE_OPTIONS)),
+                List.of(),
+                Set.of(),
+                Set.of(
+                        ConnectorTypeDescriptor.Capability.READ,
+                        ConnectorTypeDescriptor.Capability.SEARCH,
+                        ConnectorTypeDescriptor.Capability.WRITE),
+                false,
+                true));
     }
 
     private static ConnectorTypeDescriptor.FieldOption option(String value, String label) {

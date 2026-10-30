@@ -6,7 +6,7 @@
 - **后端**：Java 21 + Spring Boot + AgentScope Java v2
 - **中间件**：PostgreSQL + Redis（内网）
 
-能力：大模型配置、Agent 配置、Skill 配置（含**从仓库链接导入标准 Skill**：SKILL.md + scripts/references/assets）、MCP 支持、**连接器（邮件：读/搜/附件/发信/回复/新邮件通知；Notion：搜索/读页面/查库/新建与修改页面）**、AG-UI 聊天卡片（审批卡 / 确认卡 / 映射卡 / 工具调用卡）、按用户维度的 Token 审计。
+能力：大模型配置、Agent 配置、Skill 配置（含**从仓库链接导入标准 Skill**：SKILL.md + scripts/references/assets）、MCP 支持、**连接器（邮件：读/搜/附件/发信/回复/新邮件通知；Notion：搜索/读页面/查库/新建与修改页面；钉钉文档：列知识库/搜文档/读正文/新建·追加·覆盖）**、AG-UI 聊天卡片（审批卡 / 确认卡 / 映射卡 / 工具调用卡）、按用户维度的 Token 审计。
 
 ## 文档
 

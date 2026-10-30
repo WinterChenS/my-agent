@@ -73,6 +73,11 @@ myagent:
       max-sends-per-hour: ${MYAGENT_CONNECTOR_MAIL_MAX_SENDS_PER_HOUR:60}
       # 每邮箱每小时自动回复上限（AUTOREPLY 模式）
       max-auto-replies-per-hour: ${MYAGENT_CONNECTOR_MAIL_MAX_AUTO_REPLIES_PER_HOUR:10}
+    # 钉钉文档连接器：默认复用「系统设置 → IM 渠道」里那个钉钉应用的凭据；
+    # 想用单独的应用就在这里填（填了优先用这里的）。
+    dingtalk-doc:
+      app-key: ${MYAGENT_CONNECTOR_DINGTALK_DOC_APP_KEY:}
+      app-secret: ${MYAGENT_CONNECTOR_DINGTALK_DOC_APP_SECRET:}
     inbound:
       # 新邮件轮询（NOTIFY / AUTOREPLY 模式才需要）
       enabled: ${MYAGENT_CONNECTOR_INBOUND_ENABLED:true}

@@ -2,6 +2,9 @@ package com.myagent.agui.connector;
 
 import com.myagent.agui.AguiProperties;
 import com.myagent.agui.connector.mail.MailConnectorProvider;
+import com.myagent.agui.connector.dingtalk.DingTalkAppCredentials;
+import com.myagent.agui.connector.dingtalk.DingTalkDocConnectorProvider;
+import com.myagent.agui.connector.dingtalk.DingTalkOperatorResolver;
 import com.myagent.agui.connector.notion.NotionConnectorProvider;
 import com.myagent.connectorconfig.ConnectorProbePort;
 import com.myagent.connectorconfig.ConnectorService;
@@ -41,6 +44,29 @@ public class ConnectorConfiguration {
                 Math.max(maxAttachmentsTotalMb, 1) * 1024L * 1024L,
                 Math.max(maxBodyChars, 1000),
                 Math.max(maxBatch, 1));
+    }
+
+    @Bean
+    public DingTalkDocConnectorProvider dingTalkDocConnectorProvider(
+            ConnectorService connectorService,
+            DingTalkAppCredentials credentials,
+            DingTalkOperatorResolver operatorResolver) {
+        return new DingTalkDocConnectorProvider(connectorService, credentials, operatorResolver);
+    }
+
+    @Bean
+    public ConnectorProbePort dingTalkDocConnectorProbePort(DingTalkDocConnectorProvider provider) {
+        return new ConnectorProbePort() {
+            @Override
+            public String type() {
+                return provider.type();
+            }
+
+            @Override
+            public ConnectorTestResult probe(Map<String, String> config) {
+                return provider.probe(config);
+            }
+        };
     }
 
     @Bean

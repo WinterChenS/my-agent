@@ -186,3 +186,36 @@ P2 可选：`dt_update_block`、`dt_delete_block`、`dt_export_pdf`、`dt_commen
 3. **operatorId**：用「自动映射（跟机器人说过话就有）+ 手填兜底」这个组合可以吗？
 4. **写入范围**：新建文档、追加内容、整篇覆盖 —— 三个都要吗？（我建议前两个默认开，**整篇覆盖**默认要求审批）
 5. 有没有一个**测试知识库/文档**可以先授权给我联调（我会像 Notion 那样测完把测试文档删掉）？
+
+---
+
+## 8. P0 实施记录（2026-10-30，已实现并部署）
+
+按确认结论落地：**文档 + 知识库（表格放 P2）**、**复用现有钉钉应用的凭据**、
+**operatorId 自动映射 + 手填兜底**、写入（新建/追加默认开，整篇覆盖需审批）。
+
+### 8.1 落地清单
+
+| 层 | 内容 |
+|---|---|
+| 迁移 | `V22__connector_dingtalk_doc.sql`：`connector.type` 允许 `DINGTALK_DOC` |
+| 类型描述 | 新增 `DINGTALK_DOC`（operatorId / defaultWorkspaceId / allowedWorkspaceIds / allowedDocKeys / maxBlocks / allowWrite），白名单是 tag 输入 |
+| 凭据 | `DingTalkAppCredentials`：默认取 `channel_app` 里启用中的钉钉应用（appKey/appSecret 解密），可用 `myagent.connector.dingtalk-doc.app-key/app-secret` 覆盖 |
+| 身份 | `DingTalkOperatorResolver`：`channel_peer(peer_key=staffId) → chat_session.user_id` 反查，自动得到 operatorId |
+| 客户端 | `DingTalkDocClient`：`/v1.0/oauth2/accessToken` 换 token（进程内缓存、提前 60s 过期）、120ms 节流、错误人话化 |
+| 转换 | `DingTalkDocMarkdown`：块 → Markdown（**宽容解析**：认不出类型也能把 `content/text/textRun` 里的文字取出来；children 不重复输出） |
+| 工具 | 8 个：`dt_list_workspaces`、`dt_search_docs`、`dt_recent_docs`、`dt_get_doc`、`dt_get_doc_by_url`、`dt_create_doc`、`dt_append_content`、`dt_overwrite_content` |
+| 前端 | 零改动（动态表单 + tag 白名单 + 聊天页连接器入口） |
+
+### 8.2 两个工程取舍（需要知道）
+
+1. **读**走「块 → Markdown」的宽容解析；**写**走 `overwriteContent(dataType=markdown)`，
+   先发 markdown，若该租户不接受 `dataType` 就自动降级成纯文本重试一次。
+2. **追加** = 「读当前正文 → 拼接 → 覆盖」。原因是钉钉的块级插入要准确的 `blockId/element` 结构，
+   猜错会写坏文档；读-拼-覆盖语义等价、风险可控。等真实文档验证过块结构再换原生块插入。
+
+### 8.3 待联调（需要你操作）
+
+1. 在钉钉开放平台给应用开文档/知识库权限（见第 5 节）；
+2. 把要用的知识库/文档对我们这个应用可见（你自己的账号有权限即可，因为 operatorId 用的是你本人）；
+3. 在平台上创建 `DINGTALK_DOC` 连接器 → 点「测试连接」→ 若提示"知识库 0 个"，按提示检查三步。
