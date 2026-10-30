@@ -9,10 +9,11 @@ import { cn } from "@/lib/utils";
  * <p>为什么不用现成的 npm 组件：内网是 http 非安全上下文，canvas 指纹/加密类库全都不可用；
  * 而且多数开源滑块把答案算在前端（等于没防护）。这里**答案只在后端**，前端只负责把拖到的 x 发过去。
  *
- * <p>交互：
+ * <p>交互（按产品要求）：
  * <ul>
- *   <li>拖动下面的滑块，上面的拼图块跟着横移，滑到缺口里松手
- *   <li>松手即校验（前后端联动）：对了变绿、锁住，把 ticket 交给登录表单；错了变红并自动换一张
+ *   <li>平时只占一条滑轨的宽度 —— 拼图**不占位**，不会把密码框和登录按钮挤开
+ *   <li>按下滑块的瞬间，拼图面板**浮**在滑轨上方出现；拖动时拼图块跟着横移
+ *   <li>松手即校验（前后端联动）：通过变绿、失败变红，短暂显示结果后面板自动收起
  * </ul>
  */
 export function SliderCaptcha({
@@ -26,16 +27,27 @@ export function SliderCaptcha({
   const [challenge, setChallenge] = useState<CaptchaChallenge | null>(null);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<"idle" | "dragging" | "verifying" | "ok" | "fail">("idle");
+  /** 拼图面板是否浮出（只在拖动/显示结果时出现） */
+  const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef(false);
   // 拖动/松手发生在 window 上的监听里，拿不到最新 state，用 ref 同步一份
   const progressRef = useRef(0);
+  const closeTimer = useRef<number | null>(null);
+
+  const hideSoon = useCallback((delay: number) => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+    }
+    closeTimer.current = window.setTimeout(() => setPanelOpen(false), delay);
+  }, []);
 
   const load = useCallback(async () => {
     setStatus("idle");
     setProgress(0);
     progressRef.current = 0;
+    setPanelOpen(false);
     setError(null);
     try {
       const next = await fetchCaptcha();
@@ -50,6 +62,11 @@ export function SliderCaptcha({
 
   useEffect(() => {
     void load();
+    return () => {
+      if (closeTimer.current !== null) {
+        window.clearTimeout(closeTimer.current);
+      }
+    };
   }, [load]);
 
   const submit = useCallback(
@@ -62,15 +79,17 @@ export function SliderCaptcha({
         setStatus("ok");
         setError(null);
         onVerified(ticket);
+        hideSoon(900);
       } catch (err) {
         setStatus("fail");
         setError(err instanceof Error ? err.message : "验证失败");
         onVerified(null);
+        hideSoon(900);
         // 失败就换一张：题目已作废（或机会-1），留着没意义
-        window.setTimeout(() => void load(), 700);
+        window.setTimeout(() => void load(), 1000);
       }
     },
-    [challenge, load, onVerified],
+    [challenge, hideSoon, load, onVerified],
   );
 
   const updateFromClientX = useCallback((clientX: number) => {
@@ -83,6 +102,17 @@ export function SliderCaptcha({
     setProgress(ratio);
     return ratio;
   }, []);
+
+  const startDrag = useCallback(() => {
+    if (status === "ok" || status === "verifying") return;
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+    dragging.current = true;
+    setPanelOpen(true); // 按下才浮出拼图
+    setStatus("dragging");
+  }, [status]);
 
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
@@ -111,28 +141,34 @@ export function SliderCaptcha({
   const percent = Math.round(progress * 100);
 
   return (
+    // 外层只占一条滑轨的高度：拼图面板是 absolute，不参与排版
     <div
       data-testid="slider-captcha"
-      className={cn("space-y-2 select-none", className)}
+      className={cn("relative select-none", className)}
       aria-label="滑动验证"
     >
-      <div
-        data-testid="captcha-canvas"
-        className="bg-muted relative w-full overflow-hidden rounded-lg border"
-        style={{ aspectRatio: challenge ? `${challenge.width} / ${challenge.height}` : "2 / 1" }}
-      >
-        {challenge?.background ? (
+      {challenge ? (
+        <div
+          data-testid="captcha-panel"
+          data-open={panelOpen ? "true" : "false"}
+          className={cn(
+            "pointer-events-none absolute inset-x-0 bottom-full z-20 mb-1.5 overflow-hidden rounded-lg border bg-card shadow-lg",
+            "transition-all duration-150",
+            panelOpen
+              ? "translate-y-0 scale-100 opacity-100"
+              : "invisible translate-y-1 scale-95 opacity-0",
+          )}
+          style={{ aspectRatio: `${challenge.width} / ${challenge.height}` }}
+        >
           <img
-            src={challenge.background}
+            src={challenge.background ?? ""}
             alt="验证背景"
             draggable={false}
-            className="block h-full w-full object-fill"
+            className="absolute inset-0 h-full w-full object-fill"
           />
-        ) : null}
-        {challenge?.piece ? (
           <img
             data-testid="captcha-piece"
-            src={challenge.piece}
+            src={challenge.piece ?? ""}
             alt="拼图块"
             draggable={false}
             className="absolute drop-shadow-md"
@@ -142,18 +178,13 @@ export function SliderCaptcha({
               left: `${percent}%`,
             }}
           />
-        ) : null}
-        {status === "ok" ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-emerald-500/15">
-            <Check className="size-8 text-emerald-600" />
-          </div>
-        ) : null}
-        {!challenge && !error ? (
-          <div className="text-muted-foreground absolute inset-0 grid place-items-center text-xs">
-            验证图加载中…
-          </div>
-        ) : null}
-      </div>
+          {status === "ok" ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-emerald-500/20">
+              <Check className="size-8 text-emerald-600" />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-2">
         <div
@@ -176,20 +207,12 @@ export function SliderCaptcha({
             data-testid="captcha-handle"
             role="slider"
             tabIndex={0}
-            aria-label="拖动滑块完成拼图"
+            aria-label="按住拖动完成拼图"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percent}
-            onMouseDown={() => {
-              if (locked) return;
-              dragging.current = true;
-              setStatus("dragging");
-            }}
-            onTouchStart={() => {
-              if (locked) return;
-              dragging.current = true;
-              setStatus("dragging");
-            }}
+            onMouseDown={startDrag}
+            onTouchStart={startDrag}
             onTouchMove={(event) => {
               if (!dragging.current) return;
               const touch = event.touches[0];
@@ -229,7 +252,7 @@ export function SliderCaptcha({
 
       <p
         className={cn(
-          "text-xs",
+          "mt-1 text-xs",
           status === "ok" ? "text-emerald-600" : error ? "text-destructive" : "text-muted-foreground",
         )}
       >

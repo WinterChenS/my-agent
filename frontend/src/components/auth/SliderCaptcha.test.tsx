@@ -38,6 +38,33 @@ describe("SliderCaptcha 滑动验证", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("拼图平时不展示（不占位），按下滑块才浮出来，校验完自动收起", async () => {
+    fetchCaptcha.mockResolvedValue(challenge());
+    verifyCaptcha.mockResolvedValue({ ticket: "t-0" });
+    render(<SliderCaptcha onVerified={vi.fn()} />);
+
+    const handle = await screen.findByTestId("captcha-handle");
+    // 平时：面板 invisible（absolute 定位，不挤占密码框和按钮的位置）
+    const panel = screen.getByTestId("captcha-panel");
+    expect(panel.className).toContain("invisible");
+    expect(panel.getAttribute("data-open")).toBe("false");
+    expect(panel.className).toContain("absolute");
+
+    // 按下 → 浮出
+    fireEvent.mouseDown(handle);
+    expect(screen.getByTestId("captcha-panel").getAttribute("data-open")).toBe("true");
+    expect(screen.getByTestId("captcha-panel").className).not.toContain("invisible");
+
+    fireEvent.mouseMove(window, { clientX: 100 });
+    fireEvent.mouseUp(window);
+    // 松手校验完，短暂展示结果后自动收起
+    await waitFor(() => expect(verifyCaptcha).toHaveBeenCalledTimes(1));
+    await waitFor(
+      () => expect(screen.getByTestId("captcha-panel").getAttribute("data-open")).toBe("false"),
+      { timeout: 3000 },
+    );
+  });
+
   it("拖动滑块松手后校验通过：回调拿到 ticket，题目锁住", async () => {
     fetchCaptcha.mockResolvedValue(challenge());
     verifyCaptcha.mockResolvedValue({ ticket: "t-1" });
@@ -74,7 +101,7 @@ describe("SliderCaptcha 滑动验证", () => {
   it("点「换一张」会重新出题", async () => {
     fetchCaptcha.mockResolvedValue(challenge());
     render(<SliderCaptcha onVerified={vi.fn()} />);
-    await screen.findByTestId("captcha-canvas");
+    await screen.findByTestId("captcha-panel");
     fireEvent.click(screen.getByTitle("换一张"));
     await waitFor(() => expect(fetchCaptcha).toHaveBeenCalledTimes(2));
   });
