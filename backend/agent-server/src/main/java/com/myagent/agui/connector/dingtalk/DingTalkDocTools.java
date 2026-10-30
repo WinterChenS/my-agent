@@ -564,7 +564,9 @@ public final class DingTalkDocTools {
 
         @Override
         public String getDescription() {
-            return "用户直接给你一个钉钉文档链接时用它：先解析链接拿节点信息，再读正文。";
+            return "用户直接给你钉钉文档链接时用它：先解析链接拿节点信息，再尝试读正文。"
+                    + "注意：钉钉只对「通过 API 创建的文档」开放正文读取（需要创建时返回的 docKey），"
+                    + "对「我的文档」里的既有文档没有公开读取接口；读不到时会明确告这说明。";
         }
 
         @Override
