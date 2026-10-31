@@ -107,9 +107,15 @@ public class BrowserControlSessionService {
             store.updateTab(sessionId, tabHandle, origin, title, pageRevision);
             String control = text(frame, "controlState");
             if (AWAITING_TAB.equals(row.state()) && tabHandle != null) {
-                // 方案要求：授权后默认在人类控制状态，用户点「交还」才交给 Agent
-                store.transition(sessionId, HUMAN_CONTROL, null);
-                log.info("会话 {} 已授权标签页 {} ({}), 进入 HUMAN_CONTROL", sessionId, tabHandle, origin);
+                // 两种授权路径分开处理：
+                //  * 手动授权（用户点扩展）：默认 HUMAN_CONTROL，用户点「交还」才交给 Agent；
+                //  * 自动接管（用户开了一次性全局授权）：扩展明确上报 AGENT_CONTROL，直接生效。
+                String target = AGENT_CONTROL.equals(control) ? AGENT_CONTROL : HUMAN_CONTROL;
+                store.transition(sessionId, target, null);
+                log.info("会话 {} 已授权标签页 {} ({}), 进入 {}", sessionId, tabHandle, origin, target);
+                // 必须把递增后的 leaseVersion 回给扩展：否则扩展本地还是旧租期，
+                // Agent 的下一步命令会被它自己判成「命令过期」。
+                hub.send(conn.deviceId(), sessionUpdate(sessionId, pageRevision));
             } else if (control != null && !control.equals(row.state())) {
                 applyState(sessionId, control, null);
             }

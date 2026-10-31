@@ -89,27 +89,54 @@ async function handleCommand(command) {
     }
 
     if (command.action === 'request_tab_grant') {
-      // 一次性全局授权：不再打扰用户，直接接管当前活动标签页
+      const targetUrl = String((command.args || {}).url || '');
+      // 网页由扩展自己打开：Agent 说"打开某站"，用户不该再手动敲地址
+      let tab = null;
+      if (targetUrl) {
+        const policy = checkUrl(targetUrl);
+        if (!policy.ok) {
+          await finish({ ok: false, errorCode: ERR.POLICY_BLOCKED, message: policy.reason });
+          return;
+        }
+        tab = await openUrlForCommand(targetUrl);
+      }
+
+      // 一次性全局授权：打开即接管，直接进 AGENT_CONTROL（用户已同意 agent 控制）
       if (await get('myagent.autoGrant', false)) {
-        const granted = await autoGrantTab(command);
-        if (granted) {
+        const picked = tab || (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+        if (picked) {
+          const granted = await grantTab(command, picked);
           await finish({
             ok: true,
             controlState: 'AGENT_CONTROL',
-            data: { text: '已自动接管『' + granted.title + '』（' + granted.origin + '），可以继续操作' },
+            data: {
+              text: '已打开并接管『' + (granted.title || granted.origin) + '』（' + granted.origin + '），可以继续操作',
+              origin: granted.origin,
+              title: granted.title,
+              url: granted.url,
+            },
           });
           return;
         }
       }
+
       await set(KEYS.pending, {
         controlSessionId: command.controlSessionId,
-        url: (command.args || {}).url || null,
+        url: targetUrl || null,
+        tabId: tab ? tab.id : null,
         at: Date.now(),
       });
-      chrome.runtime.sendMessage({ type: 'needs-grant', url: (command.args || {}).url }).catch(() => {});
-      await chrome.sidePanel.open({ windowId: (await chrome.windows.getLastFocused()).id }).catch(() => {});
-      // 这是"请用户授权"的通知，不是执行结果；返回明确状态让 Agent 停下来等
-      await finish({ ok: false, errorCode: 'AWAITING_TAB', message: '已请求用户在本机浏览器授权标签页' });
+      chrome.runtime.sendMessage({ type: 'needs-grant', url: targetUrl }).catch(() => {});
+      await chrome.sidePanel
+        .open({ windowId: (await chrome.windows.getLastFocused()).id })
+        .catch(() => {});
+      await finish({
+        ok: false,
+        errorCode: 'AWAITING_TAB',
+        message: tab
+          ? '已经打开「' + (tab.title || targetUrl) + '」，请在扩展侧边栏点「授权当前标签页」后继续'
+          : '请在扩展侧边栏里选择要操作的网页',
+      });
       return;
     }
 
@@ -316,6 +343,47 @@ async function autoGrantTab(command) {
   if (!tab || !tab.url) {
     return null;
   }
+  return grantTab(command, tab);
+}
+
+/** Agent 要打开的网页：已授权且同站就就地导航，否则新建标签页并等它加载完。 */
+async function openUrlForCommand(url) {
+  const existing = await grant();
+  if (existing) {
+    const tab = await chrome.tabs.get(existing.tabId).catch(() => null);
+    if (tab) {
+      let sameSite = false;
+      try {
+        sameSite = new URL(tab.url).origin === new URL(url).origin;
+      } catch {
+        sameSite = false;
+      }
+      if (sameSite) {
+        await attach(tab.id);
+        await navigate(tab.id, url);
+        return await chrome.tabs.get(tab.id).catch(() => tab);
+      }
+    }
+  }
+  const created = await chrome.tabs.create({ url, active: true });
+  await waitForTabReady(created.id);
+  return await chrome.tabs.get(created.id).catch(() => created);
+}
+
+async function waitForTabReady(tabId, timeoutMs = 12000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab && tab.status === 'complete' && tab.url && tab.url !== 'about:blank') {
+      return tab;
+    }
+    await sleep(250);
+  }
+  return await chrome.tabs.get(tabId).catch(() => null);
+}
+
+/** 把一个具体标签页登记为「已授权」，并把 lease 同步成服务端下发的值。 */
+async function grantTab(command, tab) {
   const policy = checkUrl(tab.url);
   if (!policy.ok) {
     throw new BridgeError(ERR.POLICY_BLOCKED, policy.reason);
@@ -608,7 +676,15 @@ async function setState(nextState, message) {
 }
 
 async function grantCurrentTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const pending = (await get(KEYS.pending)) || null;
+  // 优先授权 Agent 刚打开的那个标签页（用户已经在新页面上了，但焦点可能在别处）
+  let tab = null;
+  if (pending && pending.tabId) {
+    tab = await chrome.tabs.get(pending.tabId).catch(() => null);
+  }
+  if (!tab) {
+    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  }
   if (!tab || !tab.url) {
     return { ok: false, message: '没有可授权的标签页' };
   }
@@ -616,7 +692,6 @@ async function grantCurrentTab() {
   if (!policy.ok) {
     return { ok: false, message: policy.reason };
   }
-  const pending = (await get(KEYS.pending)) || null;
   const c = (await control()) || {};
   const controlSessionId = pending && pending.controlSessionId ? pending.controlSessionId : c.controlSessionId;
   if (!controlSessionId) {
@@ -637,8 +712,8 @@ async function grantCurrentTab() {
   sendTabState(controlSessionId, { ...g, controlState: 'HUMAN_CONTROL' });
   await remove(KEYS.pending);
 
-  // 任务里带了目标网址且与当前页不同 → 顺便导航过去（读操作，不触发写动作）
-  if (pending && pending.url && pending.url !== tab.url) {
+  // 只有「复用用户当前标签页」的情况才需要导航到目标网址（Agent 自己开过页的话已经是目标页了）
+  if (pending && pending.url && !pending.tabId && pending.url !== tab.url) {
     try {
       await attach(tab.id);
       const state = await navigate(tab.id, pending.url);

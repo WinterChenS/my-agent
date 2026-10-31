@@ -79,9 +79,20 @@ public class LocalExtensionExecutor implements BrowserExecutionGateway {
         String state = session.state();
         if (BrowserControlSessionService.AWAITING_TAB.equals(state)) {
             requestTabGrant(session, args);
-            return ExecResult.fail("AWAITING_TAB",
-                    "已请求在你本机浏览器中选择要操作的网页：请切到目标页面，点击扩展图标，"
-                            + "在侧边栏确认「授权这个标签页」。授权完成后告诉我继续。");
+            // 扩展会**自己打开网页**；如果用户开了「自动接管」，它打开后立刻上报授权，
+            // 这里等一小会儿就能直接继续执行，不用让 Agent 白跑一轮、也不用用户再说什么。
+            session = awaitGranted(session, 5_000);
+            state = session.state();
+            if (BrowserControlSessionService.AWAITING_TAB.equals(state)) {
+                return ExecResult.fail("AWAITING_TAB",
+                        "已经在你的浏览器里打开这个网页，请在扩展侧边栏点一次「授权当前标签页」"
+                                + "（或在右侧面板打开「自动接管」，以后就不用点了），然后继续。");
+            }
+            if (BrowserControlSessionService.HUMAN_CONTROL.equals(state)) {
+                return ExecResult.fail("AWAITING_TAB",
+                        "网页已打开并授权，但现在是你自己控制（还没交还给 Agent）。"
+                                + "点侧边栏的「交还给 Agent」后继续。");
+            }
         }
         if (BrowserControlSessionService.HUMAN_CONTROL.equals(state)) {
             return ExecResult.fail("HUMAN_CONTROL",
@@ -159,6 +170,26 @@ public class LocalExtensionExecutor implements BrowserExecutionGateway {
                     origin, title, pageRevision);
         }
         return new ExecResult(true, null, null, text, data, origin, pageRevision, session.state(), session.id());
+    }
+
+    /** 轮询等待扩展上报授权（自动接管时是毫秒级；手动授权则等到超时返回 AWAITING_TAB）。 */
+    private BrowserExtensionStore.SessionRow awaitGranted(
+            BrowserExtensionStore.SessionRow initial, long timeoutMs) {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        BrowserExtensionStore.SessionRow current = initial;
+        while (System.currentTimeMillis() < deadline) {
+            if (!BrowserControlSessionService.AWAITING_TAB.equals(current.state())) {
+                return current;
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return current;
+            }
+            current = store.sessionById(initial.id()).orElse(current);
+        }
+        return current;
     }
 
     /** 请求扩展弹「选择网页」：不阻塞，用户操作完再继续。 */

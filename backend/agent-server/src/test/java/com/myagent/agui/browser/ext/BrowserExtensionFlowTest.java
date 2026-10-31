@@ -260,6 +260,56 @@ class BrowserExtensionFlowTest {
         assertThat(result.message()).contains("el-9");
     }
 
+    @Test
+    @DisplayName("自动接管：扩展上报 AGENT_CONTROL 时直接进 Agent 控制，并把新 lease 回给扩展")
+    void autoGrantTabStateEntersAgentControl() {
+        var row = session("cs-ag", BrowserControlSessionService.AWAITING_TAB, 1);
+        var after = session("cs-ag", BrowserControlSessionService.AGENT_CONTROL, 2);
+        when(store.sessionById("cs-ag")).thenReturn(Optional.of(row), Optional.of(after));
+
+        jakarta.websocket.Session ws = mock(jakarta.websocket.Session.class);
+        when(ws.getId()).thenReturn("ws-1");
+        var conn = new BrowserBridgeHub.Conn("dv-1", 7L, ws, java.time.Instant.now(),
+                new java.util.concurrent.atomic.AtomicLong(1));
+
+        ObjectNode frame = BrowserBridgeHub.frame("tab.state");
+        frame.put("controlSessionId", "cs-ag");
+        frame.put("tabHandle", "99");
+        frame.put("origin", "https://example.com");
+        frame.put("pageRevision", 1);
+        frame.put("controlState", "AGENT_CONTROL");
+
+        sessions.onTabState(conn, frame);
+
+        org.mockito.Mockito.verify(store).transition(eq("cs-ag"),
+                eq(BrowserControlSessionService.AGENT_CONTROL), org.mockito.ArgumentMatchers.isNull());
+        // 关键：必须把递增后的 lease 推回扩展，否则下一步命令会被判「过期」
+        org.mockito.Mockito.verify(hub).send(eq("dv-1"), any());
+    }
+
+    @Test
+    @DisplayName("手动授权：扩展没上报控制权时仍然进 HUMAN_CONTROL（不自动给 Agent 写权限）")
+    void manualGrantStaysHumanControl() {
+        var row = session("cs-mn", BrowserControlSessionService.AWAITING_TAB, 1);
+        var after = session("cs-mn", BrowserControlSessionService.HUMAN_CONTROL, 2);
+        when(store.sessionById("cs-mn")).thenReturn(Optional.of(row), Optional.of(after));
+
+        jakarta.websocket.Session ws = mock(jakarta.websocket.Session.class);
+        when(ws.getId()).thenReturn("ws-2");
+        var conn = new BrowserBridgeHub.Conn("dv-1", 7L, ws, java.time.Instant.now(),
+                new java.util.concurrent.atomic.AtomicLong(1));
+
+        ObjectNode frame = BrowserBridgeHub.frame("tab.state");
+        frame.put("controlSessionId", "cs-mn");
+        frame.put("tabHandle", "77");
+        frame.put("origin", "https://example.com");
+
+        sessions.onTabState(conn, frame);
+
+        org.mockito.Mockito.verify(store).transition(eq("cs-mn"),
+                eq(BrowserControlSessionService.HUMAN_CONTROL), org.mockito.ArgumentMatchers.isNull());
+    }
+
     // ---------------- fixtures ----------------
 
     private static BrowserExtensionStore.DeviceRow device(String id) {
