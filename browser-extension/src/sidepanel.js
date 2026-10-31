@@ -38,6 +38,9 @@ function render() {
   dot.className = 'dot' + (view.connection && view.connection.connected ? ' on' : '');
   $('version').textContent = 'v' + view.version;
   $('auto-grant').checked = !!view.autoGrant;
+  $('auto-grant-label').textContent = view.autoGrant
+    ? '自动接管 · 已开启（不再逐页询问）'
+    : '自动接管 · 已关闭（每页都要点授权）';
 
   const alert = $('alert');
   alert.innerHTML = '';

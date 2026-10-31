@@ -86,7 +86,9 @@ public class LocalExtensionExecutor implements BrowserExecutionGateway {
             if (BrowserControlSessionService.AWAITING_TAB.equals(state)) {
                 return ExecResult.fail("AWAITING_TAB",
                         "已经在你的浏览器里打开这个网页，请在扩展侧边栏点一次「授权当前标签页」"
-                                + "（或在右侧面板打开「自动接管」，以后就不用点了），然后继续。");
+                                + "（点完会自动开启「自动接管」，以后就不用再点了）。"
+                                + "如果侧边栏显示「自动接管」已开启却仍然要授权，说明扩展还是旧版本："
+                                + "到 chrome://extensions 点扩展的刷新按钮更新到最新版。");
             }
             if (BrowserControlSessionService.HUMAN_CONTROL.equals(state)) {
                 return ExecResult.fail("AWAITING_TAB",

@@ -278,9 +278,9 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 // 再追加「长期记忆用法」指引：框架的 memory_search 是字面量整串匹配，
                 // 模型传整句问句必然 0 命中（用户反馈"永久记忆不生效"）
                 .sysPrompt(withSkillGuidance(
-                        withBrowserGuidance(
+                        withArtifactGuidance(withBrowserGuidance(
                                 withInternetGuidance(
-                                        withMemoryGuidance(withCardGuidance(agent.getSysPrompt()))))))
+                                        withMemoryGuidance(withCardGuidance(agent.getSysPrompt())))))))
                 // 官方产物交付：配了它，框架会向 Agent 注册内置工具 deliverArtifact，
                 // Agent 主动交付的成果会进 artifact 表（并记下所属 run，供气泡下方展示）
                 .artifactDeliveryTarget(artifactDeliveryTarget)
@@ -453,6 +453,29 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
      * <p>为什么要写进系统提示：模型容易"能读就不点"，但很多任务（登录、翻页、填表、点按钮）
      * 只有真操作才行；同时要讲清楚"别拿它当抓取器"（抓内容用 internet_read 更快更省）。
      */
+    /**
+     * 产物交付指导：只交付**用户真正需要的东西**。
+     *
+     * <p>用户反馈：让 Agent 出一份 HTML 报告时，产物区里同时冒出生成脚本、中间数据、日志，
+     * 得自己挑；但有时用户就是要脚本，所以**不做后端硬过滤**（那会把"写个脚本给我"也挡掉），
+     * 而是用提示约束模型：判断用户这次要的最终成果是什么，只交付那个。
+     */
+    static String withArtifactGuidance(String sysPrompt) {
+        String base = sysPrompt == null ? "" : sysPrompt.trim();
+        String guidance = String.join("\n",
+                "## 产物交付（本平台能力）",
+                "1. 先判断：用户这次要的**最终成果**是什么。只把那个（或那一组必要的文件）交付出去。",
+                "   - 「做一份 HTML 报告」→ 交付 .html；「做成 Excel」→ 交付 .xlsx；「画个图」→ 交付图片；",
+                "   - 「写个脚本 / 工具」→ 脚本就是成果，正常交付它（不要机械地排除脚本）。",
+                "2. 生成过程用的中间文件**不要**交付：一次性生成脚本、临时数据（data.json/tmp/…）、",
+                "   调试日志、失败版本。它们只是手段，不是用户要的东西。",
+                "3. 交付方式：做完后用 `deliverArtifact` 主动交付（路径 + 一句话说明）；",
+                "   一轮不要交付一堆同类文件，挑最能满足需求的那一个。",
+                "4. 交付前确认是可打开的最终版本（大小不为 0、内容完整），别交付半成品。",
+                "5. 如果用户没说清要什么格式，按你能给出的最有用格式交付一份，并在回复里说明；不要同时给多种格式。");
+        return base.isEmpty() ? guidance : base + "\n\n" + guidance;
+    }
+
     static String withBrowserGuidance(String sysPrompt) {
         String base = sysPrompt == null ? "" : sysPrompt.trim();
         String guidance = String.join("\n",

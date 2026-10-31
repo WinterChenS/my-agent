@@ -130,12 +130,14 @@ async function handleCommand(command) {
       await chrome.sidePanel
         .open({ windowId: (await chrome.windows.getLastFocused()).id })
         .catch(() => {});
+      const autoOn = await get(KEYS.autoGrant, true);
       await finish({
         ok: false,
         errorCode: 'AWAITING_TAB',
-        message: tab
-          ? '已经打开「' + (tab.title || targetUrl) + '」，请在扩展侧边栏点「授权当前标签页」后继续'
-          : '请在扩展侧边栏里选择要操作的网页',
+        data: { autoGrant: autoOn },
+        message: autoOn
+          ? '已经打开「' + ((tab && tab.title) || targetUrl) + '」，请点扩展图标，在侧边栏点一次「授权当前标签页」（点完会自动开启「自动接管」，以后不再询问）'
+          : '「自动接管」当前是关闭状态。请点扩展图标 → 侧边栏打开「自动接管」，或点一次「授权当前标签页」（会自动开启自动接管）',
       });
       return;
     }
@@ -795,6 +797,12 @@ async function grantCurrentTab() {
     pageRevision: (c.pageRevision || 0) + 1,
   };
   await set(KEYS.grant, g);
+  /*
+   * 用户主动点了一次「授权这个标签页」= 他同意让 Agent 干活。
+   * 立刻把「自动接管」打开：这样即使之前被关过（或旧版本留下 false），
+   * 下一次也不会再要授权 —— 用户预期就是"授权一次，之后都别再问"。
+   */
+  await set(KEYS.autoGrant, true);
   // 授权 = 允许 Agent 操作（用户反馈：每次还要再点「交还」很奇怪）。
   await set(KEYS.control, {
     controlSessionId,
