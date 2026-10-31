@@ -67,6 +67,8 @@ public class BrowserSession {
     private volatile long lastFrameAt;
     private volatile long lastFramePushedAt;
     private volatile boolean userControlled;
+    /** 用户最后一次操作的时刻：用户接管超过一段时间没动作，就自动还给 Agent */
+    private volatile long userControlledAt;
     private volatile long lastActiveAt = System.currentTimeMillis();
     /** 创建时间：给"刚启动就别回收"用（防止回收线程把正在初始化的会话杀掉） */
     private final long startedAt = System.currentTimeMillis();
@@ -140,7 +142,18 @@ public class BrowserSession {
 
     public void setUserControlled(boolean value) {
         this.userControlled = value;
-        this.lastActiveAt = System.currentTimeMillis();
+        this.userControlledAt = System.currentTimeMillis();
+        this.lastActiveAt = this.userControlledAt;
+    }
+
+    /**
+     * 用户是否正在"占着"页面（Agent 的工具应该让路）。
+     *
+     * <p>带自动过期：用户点了页面之后如果 60 秒没再操作，就自动还给 Agent，
+     * 否则 Agent 会被永久挡住（用户点了下页面就去干别的了，这是常见情况）。
+     */
+    public boolean isUserBlocking() {
+        return userControlled && (System.currentTimeMillis() - userControlledAt < 60_000);
     }
 
     public void touch() {

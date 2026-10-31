@@ -231,6 +231,10 @@ public class BrowserTools {
             if (session == null) {
                 return "还没有打开浏览器。请先调用 browser_open。";
             }
+            if (session.isUserBlocking()) {
+                return "用户正在自己操作页面，先别动。等一会儿（用户 60 秒没操作会自动交还），"
+                        + "或让用户点右上角「交还」再继续。";
+            }
             String selector = str(param, "selector");
             int x;
             int y;
@@ -284,6 +288,9 @@ public class BrowserTools {
             if (session == null) {
                 return "还没有打开浏览器。请先调用 browser_open。";
             }
+            if (session.isUserBlocking()) {
+                return "用户正在自己操作页面，先别动。等一会儿（用户 60 秒没操作会自动交还）。";
+            }
             String text = str(param, "text");
             if (text == null || text.isEmpty()) {
                 return "text 不能为空";
@@ -333,6 +340,9 @@ public class BrowserTools {
             BrowserSession session = registry.find(userId(param));
             if (session == null) {
                 return "还没有打开浏览器。请先调用 browser_open。";
+            }
+            if (session.isUserBlocking()) {
+                return "用户正在自己操作页面，先别动。等一会儿再滚。";
             }
             int delta = intOr(param, "deltaY", 600);
             session.scroll(640, 400, delta);

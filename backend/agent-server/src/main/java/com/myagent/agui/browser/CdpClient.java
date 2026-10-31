@@ -149,6 +149,12 @@ public class CdpClient {
      * CDP 响应，接收线程就被自己堵死，后续消息（包括我们正等的那个响应）永远读不到，表现为
      * "命令莫名其妙超时 30 秒"。实测踩过：在 screencastFrame 事件里同步 ack，导致 navigate/click 全部超时。
      * 所以事件回调里发起的命令一律用这个。
+     *
+     * <p><b>但 id 必须带</b>：CDP 规定"没有 id 的消息"是浏览器→客户端的**事件**；
+     * 客户端发出去的命令如果不带 id，Chrome 会当成非法 notification **直接忽略**。
+     * 实测踩过：ack 不带 id → Chrome 认为没被确认 → **推完第一帧就不再推帧**，
+     * 面板永远停在第一次的画面（用户反馈"后面再操作画面不动"就是这个）。
+     * 所以要带 id，只是**不注册等待 future**。
      */
     public void fire(String method, ObjectNode params, String sessionId) {
         WebSocket current = socket;
@@ -156,6 +162,7 @@ public class CdpClient {
             return;
         }
         ObjectNode message = mapper.createObjectNode();
+        message.put("id", ids.incrementAndGet());
         message.put("method", method);
         message.set("params", params == null ? mapper.createObjectNode() : params);
         if (sessionId != null) {

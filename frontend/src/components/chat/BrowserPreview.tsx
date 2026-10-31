@@ -171,11 +171,20 @@ export function BrowserPreview({ onClose }: { onClose: () => void }) {
     };
   };
 
+  /**
+   * 点击画面：**默认就能点**（不再要求先点「我要操作」）。
+   *
+   * <p>第一次点击会自动把控制权判给用户（服务端收到 input 也会这样标），
+   * 于是 Agent 的下一步操作会让路 60 秒 —— 用户反馈"我来操作也没反应"就是之前那段门槛造成的。
+   */
   const onClick = useCallback(
     async (event: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!takingOver) return;
       const { x, y } = toViewport(event);
       try {
+        if (!takingOver) {
+          setTakingOver(true);
+          await takeoverBrowser(true).catch(() => undefined);
+        }
         await sendBrowserInput({ type: "click", x, y });
       } catch (err) {
         setError(err instanceof Error ? err.message : "操作失败");
@@ -186,7 +195,6 @@ export function BrowserPreview({ onClose }: { onClose: () => void }) {
 
   const onWheel = useCallback(
     async (event: React.WheelEvent<HTMLCanvasElement>) => {
-      if (!takingOver) return;
       event.preventDefault();
       const { x, y } = toViewport(event);
       try {
@@ -200,7 +208,7 @@ export function BrowserPreview({ onClose }: { onClose: () => void }) {
 
   const onKeyDown = useCallback(
     async (event: React.KeyboardEvent<HTMLCanvasElement>) => {
-      if (!takingOver) return;
+      if (!takingOver) return; // 键盘只有主动接管后才转发（避免误触抢走 Agent 的输入）
       if (event.key.length === 1) {
         await sendBrowserInput({ type: "text", text: event.key });
       } else if (["Enter", "Tab", "Backspace", "Escape", "ArrowDown", "ArrowUp"].includes(event.key)) {
@@ -372,10 +380,7 @@ export function BrowserPreview({ onClose }: { onClose: () => void }) {
           onClick={onClick}
           onWheel={onWheel}
           onKeyDown={onKeyDown}
-          className={cn(
-            "absolute inset-0 block h-full w-full",
-            takingOver ? "cursor-crosshair" : "pointer-events-none",
-          )}
+          className={cn("absolute inset-0 block h-full w-full cursor-crosshair")}
         />
         {!hasFrame ? (
           <div className="text-muted-foreground absolute inset-0 grid place-items-center gap-2 text-xs">
@@ -387,7 +392,7 @@ export function BrowserPreview({ onClose }: { onClose: () => void }) {
         ) : null}
         {takingOver ? (
           <div className="pointer-events-none absolute top-2 left-2 rounded bg-amber-500/90 px-2 py-0.5 text-[11px] font-medium text-white">
-            你正在操作（Agent 已暂停）
+            你正在操作（Agent 暂停，60 秒无操作自动交还）
           </div>
         ) : null}
       </div>

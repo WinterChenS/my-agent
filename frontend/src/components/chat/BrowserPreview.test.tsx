@@ -76,15 +76,16 @@ describe("BrowserPreview 浏览器视图", () => {
     frameCallback?.({ image: "/9j/4AAQSkZJRg==", width: 1280, height: 800 });
   });
 
-  it("只读状态（没点「我要操作」）时点击画面不会把事件发给服务端", async () => {
+  it("默认就能点画面：第一次点击会自动接管，并把点击发给服务端", async () => {
     fetchBrowserStatus.mockResolvedValue(activeStatus());
     render(<BrowserPreview onClose={vi.fn()} />);
     const canvas = await screen.findByTestId("browser-canvas");
 
+    // 不再需要先点「我要操作」——用户反馈"我来操作也没反应"就是那段门槛造成的
+    expect(canvas.className).not.toContain("pointer-events-none");
     fireEvent.click(canvas, { clientX: 100, clientY: 50 });
-    expect(sendBrowserInput).not.toHaveBeenCalled();
-    // 只读时画布不接收指针事件（CSS 保证"只看不动"）
-    expect(canvas.className).toContain("pointer-events-none");
+    await waitFor(() => expect(takeoverBrowser).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(sendBrowserInput).toHaveBeenCalled());
   });
 
   it("接管后点击画面：把坐标按 canvas 比例换算成视口坐标再回传", async () => {
