@@ -74,6 +74,9 @@ export const SkillMentionInput = forwardRef<
   const composingRef = useRef(false);
   const [query, setQuery] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(0);
+  /** 菜单容器与每个选项：键盘移动高亮时要**跟着滚动**，否则下面的选项看不见（用户反馈）。 */
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   /** 外部内容变化时才重写 DOM（避免打断输入与中文输入法）。 */
   const lastHtml = useRef<string | null>(null);
   /**
@@ -94,6 +97,23 @@ export const SkillMentionInput = forwardRef<
     () => filterSkills(skills, query ?? "", selected),
     [skills, query, selected],
   );
+
+  // 输入变化 → 高亮回到第一项（否则筛选后高亮可能越界，看起来"没有选中项"）
+  useEffect(() => {
+    setHighlight(0);
+  }, [query]);
+
+  /**
+   * 高亮项始终在菜单可视区内。
+   *
+   * <p>为什么需要：菜单限高 `max-h-56`，用方向键翻到下面几项时列表不会跟着滚，
+   * 高亮的那一项就跑到可视区外了 —— 用户只看到"按了没反应"（实测反馈）。
+   */
+  useEffect(() => {
+    const option = optionRefs.current[highlight];
+    // jsdom 里没有 scrollIntoView，测试环境要容错
+    option?.scrollIntoView?.({ block: "nearest" });
+  }, [highlight, options.length]);
 
   /** 把 DOM 序列化成 parts。 */
   const serialize = useCallback((): MentionPart[] => {
@@ -368,6 +388,7 @@ export const SkillMentionInput = forwardRef<
 
       {query !== null && (
         <div
+          ref={menuRef}
           data-testid="skill-menu"
           className="bg-popover absolute bottom-full left-0 z-20 mb-1 max-h-56 w-72 overflow-auto rounded-md border shadow-md"
         >
@@ -377,6 +398,10 @@ export const SkillMentionInput = forwardRef<
               key={skill.id}
               type="button"
               data-testid="skill-option"
+              ref={(node) => {
+                optionRefs.current[index] = node;
+              }}
+              onMouseEnter={() => setHighlight(index)}
               className={cn(
                 "flex w-full flex-col items-start gap-0.5 px-2 py-1.5 text-left",
                 index === highlight ? "bg-accent" : "hover:bg-accent/60",
