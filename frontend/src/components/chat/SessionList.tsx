@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { deleteSession, listRunningThreads } from "@/api/sessions";
@@ -57,6 +57,25 @@ export function SessionList() {
       window.clearInterval(timer);
     };
   }, [setRunningThreads]);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * 内容还没填满容器时**自动加载下一页**。
+   *
+   * <p>用户反馈"没有铺满屏幕所以没法滚动"：侧栏首屏只拉 20 条，在 1080p 大屏上这 20 条
+   * 撑不满可视高度 → 不出现滚动条 → 永远不会触发"滚到底加载" → 后面的历史永远看不到。
+   * 这里在每次列表变化后检查一次：装不满就继续拉，直到填满或没有更多。
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !hasMore || loading || loadingMore) {
+      return;
+    }
+    if (el.scrollHeight <= el.clientHeight + 8) {
+      void loadMore();
+    }
+  }, [sessions.length, hasMore, loading, loadingMore, loadMore]);
 
   /**
    * 滚动到接近底部时加载下一页（后端分页，每页 20 条）。
@@ -118,6 +137,7 @@ export function SessionList() {
       </div>
 
       <div
+        ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto p-2 pt-0"
         onScroll={onScroll}
         data-testid="session-scroll"

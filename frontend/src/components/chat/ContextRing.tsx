@@ -1,4 +1,5 @@
-import { AlertTriangle, Eraser, Minimize2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, Eraser, Loader2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -36,6 +37,20 @@ export function ContextRing({
   onCompact: () => void;
   onClear: () => void;
 }) {
+  /**
+   * 正在执行的动作（压缩/清空）。
+   *
+   * <p>父组件的 `busy` 只表示"有操作在跑"，按钮被 disabled 后**没有任何视觉变化** ——
+   * 压缩大上下文要调模型、可能好几秒，用户会以为点空了（实测反馈"感觉像卡在那里"）。
+   * 这里记住点的是哪个按钮，用它显示 spinner + 文案，并在 busy 结束后清掉。
+   */
+  const [pending, setPending] = useState<"compact" | "clear" | null>(null);
+  useEffect(() => {
+    if (!busy && pending) {
+      setPending(null);
+    }
+  }, [busy, pending]);
+
   if (!usage) {
     return null;
   }
@@ -181,8 +196,18 @@ export function ContextRing({
         </p>
 
         {notice && (
-          <p className="text-muted-foreground mt-2 text-xs" data-testid="context-notice">
-            {notice}
+          <p
+            className={`mt-2 flex items-start gap-1 text-xs ${
+              notice.includes("失败") ? "text-destructive" : "text-emerald-600"
+            }`}
+            data-testid="context-notice"
+          >
+            {notice.includes("失败") ? (
+              <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+            ) : (
+              <CheckCircle2 className="mt-0.5 size-3 shrink-0" />
+            )}
+            <span>{notice}</span>
           </p>
         )}
 
@@ -190,13 +215,25 @@ export function ContextRing({
           <Button
             variant="outline"
             size="sm"
-            className="flex-1"
+            className="flex-1 active:scale-[0.98]"
             data-testid="context-compact"
             disabled={busy}
-            onClick={onCompact}
+            onClick={() => {
+              setPending("compact");
+              onCompact();
+            }}
           >
-            <Minimize2 className="size-3.5" />
-            压缩上下文
+            {pending === "compact" ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                压缩中…
+              </>
+            ) : (
+              <>
+                <Minimize2 className="size-3.5" />
+                压缩上下文
+              </>
+            )}
           </Button>
 
           <AlertDialog>
@@ -204,12 +241,21 @@ export function ContextRing({
               <Button
                 variant="outline"
                 size="sm"
-                className="text-destructive border-destructive/40 hover:bg-destructive/10 flex-1"
+                className="text-destructive border-destructive/40 hover:bg-destructive/10 flex-1 active:scale-[0.98]"
                 data-testid="context-clear"
                 disabled={busy}
               >
-                <Eraser className="size-3.5" />
-                清空上下文
+                {pending === "clear" ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    清空中…
+                  </>
+                ) : (
+                  <>
+                    <Eraser className="size-3.5" />
+                    清空上下文
+                  </>
+                )}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -221,7 +267,13 @@ export function ContextRing({
               </AlertDialogDescription>
               <div className="mt-4 flex justify-end gap-2">
                 <AlertDialogCancel data-testid="context-clear-cancel">取消</AlertDialogCancel>
-                <AlertDialogAction data-testid="context-clear-confirm" onClick={onClear}>
+                <AlertDialogAction
+                  data-testid="context-clear-confirm"
+                  onClick={() => {
+                    setPending("clear");
+                    onClear();
+                  }}
+                >
                   <Eraser className="size-3.5" />
                   确认清空
                 </AlertDialogAction>

@@ -71,6 +71,7 @@ import { listSkills, type SkillInfo } from "@/api/skills";
 import { partsAreEmpty, partsSkillIds, partsToText, type MentionPart } from "@/lib/skills/selection";
 import { probeRunningRun } from "@/lib/chat/resumeProbe";
 import { newId } from "@/lib/id";
+import { cn } from "@/lib/utils";
 
 /** 图片文件 → AG-UI 的 image 内容块（base64 内联；官方适配器会转成 ImageBlock）。 */
 async function fileToImagePart(file: File) {
@@ -1636,7 +1637,15 @@ export default function ChatPage() {
 
             {/* 输入框：圆角外框 + 自动高度（内容多了自己长高，到上限内部滚动）；
                 底部控制行也放在**框内**（附件 / Agent / 上下文圆环 / 停止 / 发送）。 */}
-            <div className="focus-within:border-ring focus-within:ring-ring/30 rounded-2xl border bg-background shadow-sm transition focus-within:ring-[3px]">
+            <div
+              className={cn(
+                "focus-within:border-ring focus-within:ring-ring/30 relative rounded-2xl border bg-background shadow-sm transition focus-within:ring-[3px]",
+                // Agent 执行中：边框变成流动的彩色渐变（纯 CSS，不影响内部布局）
+                busy && "composer-running",
+              )}
+              data-testid="composer-box"
+              data-running={busy ? "true" : "false"}
+            >
               {/* 待发送队列（处理中时发的消息会排在这里，可撤回） */}
               {queued.length > 0 && (
                 <div className="space-y-1 px-2 py-1.5" data-testid="queued-list">
