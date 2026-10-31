@@ -44,6 +44,8 @@ public class RunningRunRegistry {
         final AtomicBoolean stopped = new AtomicBoolean(false);
         /** 已生成的助手文本（供刷新后接续显示）。 */
         final StringBuilder text = new StringBuilder();
+        /** 到目前为步骤快照（思考/工具/子 Agent/正文），供刷新后一次性还原界面。 */
+        volatile java.util.List<java.util.Map<String, Object>> replay = java.util.List.of();
         volatile String runId;
         /** run 是否已进入收尾（落库完成）。 */
         volatile boolean finished;
@@ -66,7 +68,20 @@ public class RunningRunRegistry {
     }
 
     /** 给前端轮询用的快照。 */
-    public record RunSnapshot(boolean running, String text, String runId, boolean stopped) {}
+    /**
+     * 运行态快照。
+     *
+     * <p>{@code replay} 是**这一轮到目前为止**折叠好的步骤（思考/工具/子 Agent/正文），
+     * 刷新接续时用它一次性把界面还原成"和当时一样"，而不只是显示半截纯文本。
+     */
+    public record RunSnapshot(
+            boolean running, String text, String runId, boolean stopped,
+            java.util.List<java.util.Map<String, Object>> replay) {
+
+        public RunSnapshot(boolean running, String text, String runId, boolean stopped) {
+            this(running, text, runId, stopped, java.util.List.of());
+        }
+    }
 
     private final Map<String, RunHandle> runs = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler =
@@ -168,6 +183,14 @@ public class RunningRunRegistry {
         }
     }
 
+    /** 同步步骤快照（由控制器在事件循环里节流调用，避免每个事件都深拷贝）。 */
+    public void syncReplay(String threadId, java.util.List<java.util.Map<String, Object>> steps) {
+        RunHandle handle = threadId == null ? null : runs.get(threadId);
+        if (handle != null && steps != null) {
+            handle.replay = steps;
+        }
+    }
+
     /** 有客户端在跟（轮询 /run 或重新发起 SSE）：取消宽限期。 */
     public void markAttached(String threadId) {
         RunHandle handle = threadId == null ? null : runs.get(threadId);
@@ -263,7 +286,8 @@ public class RunningRunRegistry {
         if (handle == null || handle.finished || handle.agent == null) {
             return new RunSnapshot(false, "", null, false);
         }
-        return new RunSnapshot(true, handle.text.toString(), handle.runId, handle.stopped.get());
+        return new RunSnapshot(true, handle.text.toString(), handle.runId, handle.stopped.get(),
+                handle.replay);
     }
 
     /**

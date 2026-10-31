@@ -18,9 +18,14 @@ export function deleteSession(id: number) {
 
 /** 该会话当前是否在跑、已生成多少文本（Phase 14：刷新/切页回来后接续显示）。 */
 export function getRunState(sessionId: number) {
-  return apiFetch<{ running: boolean; text: string; runId: string | null; stopped: boolean }>(
-    `/api/sessions/${sessionId}/run`,
-  );
+  return apiFetch<{
+    running: boolean;
+    text: string;
+    runId: string | null;
+    stopped: boolean;
+    /** 这一轮到目前为止折叠好的步骤（思考/工具/子 agent/正文）——接续时一次性还原界面 */
+    replay?: Record<string, unknown>[] | null;
+  }>(`/api/sessions/${sessionId}/run`);
 }
 
 /** 停止该会话正在跑的 run（Phase 12 / D25）。返回是否确实发出了中断。 */

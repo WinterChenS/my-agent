@@ -37,6 +37,7 @@ import { abortCurrentRun, createChatAgent } from "@/lib/agui/agent";
 import {
   appendPendingApprovals,
   initialChatState,
+  itemsFromReplaySteps,
   markApproval,
   reduceEvent,
   replayMessages,
@@ -562,6 +563,76 @@ export default function ChatPage() {
         setBusy(true);
       };
 
+      /**
+       * 用服务端的"运行中快照"还原这一轮。
+       *
+       * <p>有 {@code replay} 就**整块替换本轮 items**（思考/工具/子 Agent/正文一次性出现，
+       * 与当时一致）；没有就退回纯文本增量。这样刷新后不用干等纯文本慢慢冒出来
+       * （用户反馈：接续时总要等一段时间才有内容）。
+       */
+      const applySnapshot = (
+        text: string,
+        runIdFromApi: string | null,
+        replay: Record<string, unknown>[] | null | undefined,
+      ) => {
+        if (!active()) {
+          return;
+        }
+        if (Array.isArray(replay) && replay.length > 0) {
+          setChat((prev) => {
+            let lastUserIndex = -1;
+            prev.items.forEach((item, index) => {
+              if (item.kind === "text" && item.role === "user") {
+                lastUserIndex = index;
+              }
+            });
+            const rebuilt = itemsFromReplaySteps(
+              replay,
+              `live-${target.id}`,
+              { runId: runIdFromApi ?? prev.runId, tailStreaming: true },
+            );
+            return {
+              ...prev,
+              items: [...prev.items.slice(0, lastUserIndex + 1), ...rebuilt],
+              status: "running",
+              runId: runIdFromApi ?? prev.runId,
+            };
+          });
+          setBusy(true);
+          return;
+        }
+        // 还没有任何内容（模型首字未到）：给一条占位，别让人以为没接上
+        if (!text) {
+          setChat((prev) => {
+            const already = prev.items.some(
+              (item) => item.kind === "text" && item.id === `resumed-${target.id}`,
+            );
+            if (already) {
+              return prev;
+            }
+            return {
+              ...prev,
+              items: [
+                ...prev.items,
+                {
+                  kind: "text",
+                  id: `resumed-${target.id}`,
+                  role: "assistant",
+                  content: "",
+                  streaming: true,
+                  resuming: true,
+                },
+              ],
+              status: "running",
+              runId: runIdFromApi ?? prev.runId,
+            };
+          });
+          setBusy(true);
+          return;
+        }
+        applyPartial(text, runIdFromApi);
+      };
+
       /*
        * 首次探测**要重试**，不能一次判定。
        *
@@ -574,20 +645,20 @@ export default function ChatPage() {
       const state = await probeRunningRun(
         () => getRunState(target.id).catch(() => null),
         (snapshot) => snapshot.running,
-        { active },
+        { active, intervalMs: 350, attempts: 12 },
       );
       // 再确认一次 active()：探测期间用户可能刚好发了消息（那一刻起归实时流，接续要让位）
       if (!state || !active()) {
         return false;
       }
-      applyPartial(state.text, state.runId ?? null);
+      applySnapshot(state.text, state.runId ?? null, state.replay);
 
       // 轮询到这一轮结束（结束/宽限期超时后服务端会落库）
       const deadline = Date.now() + 10 * 60 * 1000;
       /** 连续失败次数：偶发失败（网络抖动、后端刚重启）不该让接续直接断掉 */
       let failures = 0;
       while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await new Promise((resolve) => setTimeout(resolve, 700));
         if (!active()) {
           // 用户已经切走（或又发起了一次接续）：立即停手，不要再往界面写任何东西
           return false;
@@ -602,7 +673,7 @@ export default function ChatPage() {
           continue;
         }
         failures = 0;
-        applyPartial(next.text, next.runId ?? null);
+        applySnapshot(next.text, next.runId ?? null, next.replay);
         if (!next.running) {
           break;
         }
@@ -1288,6 +1359,7 @@ export default function ChatPage() {
             role={item.role}
             content={item.content}
             streaming={item.streaming}
+            resuming={item.resuming}
             stopped={item.stopped}
             artifacts={item.role === "assistant" ? own : undefined}
             onOpenArtifact={openPreview}

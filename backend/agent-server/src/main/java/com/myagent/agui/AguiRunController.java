@@ -186,6 +186,8 @@ public class AguiRunController {
         StringBuilder assistantText = new StringBuilder();
         // 把这一轮的事件折叠成可回放的步骤（思考/工具/子 Agent），落进 agui_meta.replay
         ReplayRecorder replayRecorder = new ReplayRecorder();
+        // 每 N 个事件同步一次快照：刷新接续时能立刻看到这一轮已产生的思考/工具（而不是空白等）
+        java.util.concurrent.atomic.AtomicInteger replayTick = new java.util.concurrent.atomic.AtomicInteger();
         List<String> customEventNames = new ArrayList<>();
         List<AguiEvent.Interrupt> interrupts = new ArrayList<>();
         // 该 run 的 token 归属信息（模型/供应商）只需解析一次
@@ -221,6 +223,9 @@ public class AguiRunController {
                             send(emitter, event, streamGuard);
                             collect(event, assistantText, customEventNames, interrupts, replayRecorder);
                             runningRuns.syncText(threadId, assistantText);
+                            if (replayTick.incrementAndGet() % 4 == 0) {
+                                runningRuns.syncReplay(threadId, replayRecorder.snapshot());
+                            }
                             recordTokenUsage(event, userId, session.getId(), agentDbId, tokenContext, runId);
                         },
                         error -> {

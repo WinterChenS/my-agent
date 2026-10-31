@@ -30,6 +30,7 @@ export function MessageBubble({
   role,
   content,
   streaming,
+  resuming,
   stopped,
   artifacts,
   onOpenArtifact,
@@ -37,6 +38,8 @@ export function MessageBubble({
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
+  /** "正在接续上一轮"占位（刷新后这一轮已有内容但首字未到） */
+  resuming?: boolean;
   /** 这一轮被用户停止（Phase 12 / D25） */
   stopped?: boolean;
   /** 本轮的产物：图片进气泡内，正文 Markdown 图片也按文件名在这里找 */
@@ -147,6 +150,9 @@ export function MessageBubble({
             >
               {content}
             </ReactMarkdown>
+            {resuming && !content ? (
+              <span className="text-muted-foreground text-xs italic">正在接续上一轮…</span>
+            ) : null}
             {streaming && (
               <span className="bg-foreground/70 ml-0.5 inline-block h-3.5 w-[2px] animate-pulse align-middle" />
             )}

@@ -87,6 +87,8 @@ export type ChatItem =
       role: "user" | "assistant";
       content: string;
       streaming: boolean;
+      /** 刷新后"正在接续上一轮"的占位气泡（还没有任何内容可显示时用） */
+      resuming?: boolean;
       /**
        * 产出这条消息的那一轮 run id。
        *

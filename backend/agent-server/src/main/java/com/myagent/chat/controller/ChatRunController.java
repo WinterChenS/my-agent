@@ -40,7 +40,9 @@ public class ChatRunController {
     public record InterruptResponse(boolean interrupted) {}
 
     /** 返回体：该会话当前是否在跑、已生成多少文本（供刷新后接续显示）。 */
-    public record RunStateResponse(boolean running, String text, String runId, boolean stopped) {}
+    public record RunStateResponse(
+            boolean running, String text, String runId, boolean stopped,
+            java.util.List<java.util.Map<String, Object>> replay) {}
 
     /**
      * 查询该会话正在跑的这一轮（Phase 14）。
@@ -58,7 +60,8 @@ public class ChatRunController {
             runningRuns.markAttached(session.getThreadId());
         }
         return Result.ok(new RunStateResponse(
-                snapshot.running(), snapshot.text(), snapshot.runId(), snapshot.stopped()));
+                snapshot.running(), snapshot.text(), snapshot.runId(), snapshot.stopped(),
+                snapshot.replay()));
     }
 
     /**

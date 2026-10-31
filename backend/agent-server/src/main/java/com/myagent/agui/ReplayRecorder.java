@@ -50,6 +50,39 @@ final class ReplayRecorder {
         return steps.isEmpty() ? null : steps;
     }
 
+    /**
+     * 深拷贝快照：给「运行中的接续」用。
+     *
+     * <p>必须拷贝 —— 运行中步骤还在被追加/合并，直接把手里的可变结构交给别的线程会读到半截状态。
+     */
+    List<Map<String, Object>> snapshot() {
+        if (steps.isEmpty()) {
+            return java.util.List.of();
+        }
+        List<Map<String, Object>> copy = new ArrayList<>(steps.size());
+        for (Map<String, Object> step : steps) {
+            copy.add(deepCopy(step));
+        }
+        return copy;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> deepCopy(Map<String, Object> step) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        step.forEach((key, value) -> {
+            if (value instanceof List<?> list) {
+                List<Object> items = new ArrayList<>(list.size());
+                for (Object item : list) {
+                    items.add(item instanceof Map<?, ?> map ? deepCopy((Map<String, Object>) map) : item);
+                }
+                result.put(key, items);
+            } else {
+                result.put(key, value);
+            }
+        });
+        return result;
+    }
+
     // ---------------- 主 Agent ----------------
 
     private void appendText(String kind, String delta) {
