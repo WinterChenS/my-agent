@@ -48,7 +48,36 @@ export function ContextRing({
    */
   const windowTokens = Number(usage.contextWindow) > 0 ? Number(usage.contextWindow) : 0;
   const windowRatio = windowTokens > 0 ? usage.estimatedTokens / windowTokens : 0;
-  const percent = Math.max(0, Math.min(100, Math.round(windowRatio * 100)));
+  const exactPercent = Math.max(0, Math.min(100, windowRatio * 100));
+  /*
+   * 百分比展示：**不要四舍五入到 0**。
+   * 上下文窗口是 1,000,000 时，一轮几千 token 的对话只有 0.3%~0.8%，
+   * 取整后一直显示 0%（用户反馈"明明输出了很多内容，一直是 0"）。
+   */
+  const percentText =
+    usage.estimatedTokens <= 0
+      ? "0"
+      : exactPercent < 0.1
+        ? "<0.1"
+        : exactPercent < 1
+          ? exactPercent.toFixed(1)
+          : String(Math.round(exactPercent));
+  const percent = exactPercent; // 圆环/进度条按真实比例画
+
+  /**
+   * 圆环中心显示 **token 数**而不是百分比。
+   *
+   * <p>为什么：模型窗口是 1,000,000，一段几千 token 的对话只有 0.x%，取整后永远是 0%——
+   * 用户看到"明明输出了很多内容，一直是 0"（实测反馈）。token 数会跟着输出稳定增长，
+   * 百分比仍保留在 tooltip / 详情里，圆环的填充长度也照旧按比例画。
+   */
+  const compactTokens = (value: number): string => {
+    if (value < 1000) return String(value);
+    if (value < 10000) return `${(value / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+    if (value < 1000000) return `${Math.round(value / 1000)}k`;
+    return `${(value / 1000000).toFixed(1).replace(/\.0$/, "")}M`;
+  };
+  const ringText = compactTokens(usage.estimatedTokens);
   const level = ratio >= 1 ? "over" : ratio >= 0.8 ? "near" : "ok";
   const strokeColor =
     level === "over"
@@ -79,8 +108,10 @@ export function ContextRing({
           size="icon"
           className="size-9 shrink-0"
           data-testid="context-ring"
-          title={`上下文占窗口 ${percent}%（点击查看详情）`}
-          aria-label={`上下文占窗口 ${percent}%`}
+          title={`上下文 ${usage.estimatedTokens.toLocaleString()} / ${
+            windowTokens > 0 ? windowTokens.toLocaleString() : "—"
+          } tokens（${percentText}%，点击查看详情）`}
+          aria-label={`上下文占窗口 ${percentText}%`}
         >
           <span className="relative inline-flex size-7 items-center justify-center">
             <svg viewBox="0 0 32 32" className="size-7 -rotate-90">
@@ -98,8 +129,9 @@ export function ContextRing({
             <span
               className={`absolute text-[9px] leading-none font-medium ${textColor}`}
               data-testid="context-ring-percent"
+              data-percent={percentText}
             >
-              {percent}%
+              {ringText}
             </span>
           </span>
         </Button>
@@ -110,7 +142,7 @@ export function ContextRing({
           <p className="text-sm font-medium">上下文用量</p>
           <span className={`text-right text-xs ${textColor}`} data-testid="context-usage">
             上下文 {usage.estimatedTokens.toLocaleString()} / 窗口{" "}
-            {windowTokens > 0 ? windowTokens.toLocaleString() : "—"} tokens（{percent}%）· 触发阈值{" "}
+            {windowTokens > 0 ? windowTokens.toLocaleString() : "—"} tokens（{percentText}%）· 触发阈值{" "}
             {usage.triggerTokens.toLocaleString()} tokens
             {/* 把阈值和窗口的关系写出来：否则大窗口只有 11% 就被压缩时，用户会以为是 bug（实际反馈过） */}
             {windowTokens > 0 ? `（窗口的 ${Math.round((usage.triggerTokens / windowTokens) * 100)}%）` : ""}

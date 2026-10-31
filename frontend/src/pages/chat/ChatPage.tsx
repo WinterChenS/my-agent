@@ -446,7 +446,6 @@ export default function ChatPage() {
   // 切会话：回到底部（否则新会话停在上一轮的滚动位置）
   useEffect(() => {
     stickToBottom();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
 
   // 换会话：预览面板整个清空（tab 是「这条会话的产物」，跨会话留着只会指错东西）
@@ -542,6 +541,18 @@ export default function ChatPage() {
    * 这里查出"已生成多少文本"，先把它接到气泡上继续显示，再轮询到这一轮结束，最后重新拉一次消息
    * 拿到落库后的完整内容。
    */
+  const refreshContext = useCallback(async (active: ChatSession | null) => {
+    if (!active) {
+      setContextUsage(null);
+      return;
+    }
+    try {
+      setContextUsage(await getContextUsage(active.id));
+    } catch {
+      setContextUsage(null);
+    }
+  }, []);
+
   const resumeRunningRun = useCallback(
     async (target: ChatSession) => {
       if (!target.threadId) {
@@ -758,9 +769,10 @@ export default function ChatPage() {
         /* 拉取失败就保留轮询到的内容 */
       }
       setBusy(false);
+      void refreshContext(target);
       return true;
     },
-    [],
+    [refreshContext],
   );
 
   /**
@@ -813,17 +825,21 @@ export default function ChatPage() {
 
   /** 发起一轮 /agui/run；text 与 resume 二选一。 */
   /** 刷新上下文用量（打开会话、每轮结束后调用）。 */
-  const refreshContext = useCallback(async (active: ChatSession | null) => {
-    if (!active) {
-      setContextUsage(null);
+
+  /**
+   * 上下文用量：**跑的时候也要刷新**。
+   *
+   * <p>之前只在打开会话时拉一次，于是新会话跑完一整轮，圆环还停在 0%（用户反馈"明明输出了很多内容，一直是 0"）。
+   * 现在：跑的过程中每 4 秒刷一次（能看到增长），本轮结束再刷一次。
+   */
+  useEffect(() => {
+    if (!busy || !session?.id) {
       return;
     }
-    try {
-      setContextUsage(await getContextUsage(active.id));
-    } catch {
-      setContextUsage(null);
-    }
-  }, []);
+    void refreshContext(session);
+    const timer = window.setInterval(() => void refreshContext(session), 4000);
+    return () => window.clearInterval(timer);
+  }, [busy, session, refreshContext]);
 
   /** 刷新额度（≥80% 提示、超限说明）。 */
   const refreshQuota = useCallback(async (agentDbId: number | null) => {
@@ -1027,6 +1043,8 @@ export default function ChatPage() {
       if (stillOnScreen()) {
         setChat((prev) => (prev.status === "running" ? { ...prev, status: "finished" } : prev));
       }
+      // 本轮跑完刷新上下文用量（圆环/百分比要跟着涨）
+      void refreshContext(active);
       // 排队：这一轮跑完，自动把队首那条接着发出去（一次发一条，避免连发把上下文打乱）
       // 注意用 queuedRef（当前值），不能用闭包里的 queued（那是这一轮启动时的旧值）
       if (queuedRef.current.length > 0) {
