@@ -523,7 +523,62 @@ function stringify(value: unknown): string {
   }
 }
 
-/** 历史消息 → 消息树（回放）。 */
+/**
+ * 把「已落库但还没决定」的审批补回消息树。
+ *
+ * <p>为什么需要：刷新/打开历史会话时审批卡本来是**内存里的** SSE 事件，
+ * 一旦刷新就消失 —— 而那一轮其实还卡在等审批，用户没法继续（用户要求"回复能衔接上"）。
+ * 现在从 {@code /api/approvals} 拉回 PENDING 记录，卡片重新出现，点了就能 resume。
+ */
+export function appendPendingApprovals(
+  state: ChatState,
+  records: { interruptId: string; toolName?: string | null; args?: unknown; message?: string | null;
+    status: string }[],
+): ChatState {
+  const pending = records.filter((record) => record.status === "PENDING");
+  if (pending.length === 0) {
+    return state;
+  }
+  const existing = new Set(
+    state.items
+      .filter((item): item is Extract<ChatItem, { kind: "approval" }> => item.kind === "approval")
+      .map((item) => item.interruptId),
+  );
+  const additions = pending
+    .filter((record) => !existing.has(record.interruptId))
+    .map((record) => ({
+      kind: "approval" as const,
+      id: `approval-${record.interruptId}`,
+      interruptId: record.interruptId,
+      toolName: record.toolName ?? "tool",
+      args: record.args ?? null,
+      message: record.message ?? null,
+      status: "pending" as const,
+    }));
+  if (additions.length === 0) {
+    return state;
+  }
+  return { ...state, items: [...state.items, ...additions] };
+}
+
+/** agui_meta.replay 里的一步（后端 ReplayRecorder 折叠过的事件序列）。 */
+type ReplayStep = Record<string, unknown>;
+
+function replayStepsOf(meta: Record<string, unknown> | null | undefined): ReplayStep[] | null {
+  const raw = meta?.["replay"];
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return null;
+  }
+  return raw.filter((step): step is ReplayStep => typeof step === "object" && step !== null);
+}
+
+/**
+ * 历史消息 → 消息树（回放）。
+ *
+ * <p>优先用后端存下的 {@code agui_meta.replay}：它按**时间顺序**保留了思考、工具调用、
+ * 子 Agent 与正文，所以刷新/打开历史会话后看到的内容与当时一致（用户要求）。
+ * 老消息没有 replay 时退回"一条正文气泡"。
+ */
 export function replayMessages(
   messages: {
     role: string;
@@ -534,11 +589,93 @@ export function replayMessages(
   const items: ChatItem[] = [];
   messages.forEach((message, index) => {
     const role = message.role === "USER" ? "user" : "assistant";
+    const stopped = message.aguiMeta?.["stopped"] === true;
+    const runId = (message.aguiMeta?.["runId"] as string | undefined) ?? null;
+    const steps = role === "assistant" ? replayStepsOf(message.aguiMeta) : null;
+
+    if (steps) {
+      let sawText = false;
+      steps.forEach((step, stepIndex) => {
+        const key = `history-${index}-${stepIndex}`;
+        const kind = String(step["kind"] ?? "");
+        if (kind === "thinking") {
+          items.push({
+            kind: "thinking",
+            id: key,
+            content: String(step["text"] ?? ""),
+            streaming: false,
+          });
+          return;
+        }
+        if (kind === "text") {
+          sawText = true;
+          items.push({
+            kind: "text",
+            id: key,
+            role: "assistant",
+            content: String(step["text"] ?? ""),
+            runId,
+            streaming: false,
+            ...(stopped && stepIndex === steps.length - 1 ? { stopped: true } : {}),
+          });
+          return;
+        }
+        if (kind === "tool") {
+          items.push({
+            kind: "tool",
+            id: key,
+            name: String(step["name"] ?? "tool"),
+            args: "",
+            result: null,
+            state: step["done"] === false ? "ready" : "done",
+          });
+          return;
+        }
+        if (kind === "subagent") {
+          const inner = Array.isArray(step["steps"]) ? (step["steps"] as ReplayStep[]) : [];
+          const subSteps: SubagentStep[] = inner.map((item) => {
+            if (item["kind"] === "tool") {
+              return { kind: "tool", name: String(item["name"] ?? "tool"), done: item["done"] !== false };
+            }
+            return {
+              kind: item["kind"] === "thinking" ? "thinking" : "text",
+              text: String(item["text"] ?? ""),
+            };
+          });
+          items.push({
+            kind: "subagent",
+            id: key,
+            source: String(step["source"] ?? "subagent"),
+            name: String(step["name"] ?? "subagent"),
+            status: step["status"] === "running" ? "running" : "done",
+            text: "",
+            thinking: "",
+            toolCalls: subSteps
+              .filter((item): item is { kind: "tool"; name: string; done: boolean } => item.kind === "tool")
+              .map((item) => ({ name: item.name, done: item.done })),
+            steps: subSteps,
+            confirm: typeof step["confirm"] === "string" ? step["confirm"] : null,
+          });
+        }
+      });
+      // 极端情况：有 replay 但没有正文（比如只调了工具就被停止）→ 用 content 兜底，别让回复消失
+      if (!sawText && message.content) {
+        items.push({
+          kind: "text",
+          id: `history-${index}-content`,
+          role: "assistant",
+          content: message.content,
+          runId,
+          streaming: false,
+          ...(stopped ? { stopped: true } : {}),
+        });
+      }
+      return;
+    }
+
     if (!message.content) {
       return;
     }
-    const stopped = message.aguiMeta?.["stopped"] === true;
-    const runId = (message.aguiMeta?.["runId"] as string | undefined) ?? null;
     items.push({
       kind: "text",
       id: `history-${index}`,

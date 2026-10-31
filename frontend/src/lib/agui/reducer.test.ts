@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { initialChatState, markApproval, reduceEvent, replayMessages } from "@/lib/agui/reducer";
+import {
+  appendPendingApprovals,
+  initialChatState,
+  markApproval,
+  reduceEvent,
+  replayMessages,
+} from "@/lib/agui/reducer";
 import type { AguiEventLike, ChatState } from "@/lib/agui/types";
 
 function applyAll(events: AguiEventLike[]): ChatState {
@@ -395,6 +401,96 @@ describe("reduceEvent：REASONING_*（思考过程）", () => {
     ]);
     const thinking = state.items.find((item) => item.kind === "thinking");
     expect(thinking && thinking.kind === "thinking" && thinking.streaming).toBe(false);
+  });
+});
+
+describe("appendPendingApprovals：刷新后审批卡还在", () => {
+  it("把 PENDING 记录补回消息树，已决定的不补、重复的不补", () => {
+    const base = replayMessages([{ role: "ASSISTANT", content: "等你确认" }]);
+    const state = appendPendingApprovals(base, [
+      { interruptId: "i-1", toolName: "send_email", args: { to: "a@b.c" }, status: "PENDING" },
+      { interruptId: "i-2", toolName: "delete_file", args: null, status: "APPROVED" },
+    ]);
+    const approvals = state.items.filter((item) => item.kind === "approval");
+    expect(approvals).toHaveLength(1);
+    expect(approvals[0].kind === "approval" && approvals[0].interruptId).toBe("i-1");
+    expect(approvals[0].kind === "approval" && approvals[0].status).toBe("pending");
+
+    // 再补一次不会重复
+    const again = appendPendingApprovals(state, [
+      { interruptId: "i-1", toolName: "send_email", args: null, status: "PENDING" },
+    ]);
+    expect(again.items.filter((item) => item.kind === "approval")).toHaveLength(1);
+  });
+});
+
+describe("replayMessages：按 agui_meta.replay 还原思考/工具/子 Agent", () => {
+  it("有 replay 时按顺序生成步骤，正文不再重复出现", () => {
+    const state = replayMessages([
+      {
+        role: "ASSISTANT",
+        content: "最终回答",
+        aguiMeta: {
+          runId: "run-1",
+          replay: [
+            { kind: "thinking", text: "先想一下" },
+            { kind: "tool", name: "browser_open", done: true },
+            { kind: "text", text: "最终回答" },
+          ],
+        },
+      },
+    ]);
+    expect(state.items.map((item) => item.kind)).toEqual(["thinking", "tool", "text"]);
+    const textItem = state.items[2];
+    expect(textItem.kind === "text" && textItem.content).toBe("最终回答");
+  });
+
+  it("replay 带子 Agent 时还原它的内部步骤与工具计数", () => {
+    const state = replayMessages([
+      {
+        role: "ASSISTANT",
+        content: "汇总",
+        aguiMeta: {
+          replay: [
+            {
+              kind: "subagent",
+              source: "t1/gp",
+              name: "general-purpose",
+              status: "done",
+              steps: [
+                { kind: "thinking", text: "想" },
+                { kind: "tool", name: "read_file", done: true },
+                { kind: "text", text: "读到了" },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+    const item = state.items[0];
+    if (item.kind !== "subagent") {
+      throw new Error("应为子 Agent 条目");
+    }
+    expect(item.name).toBe("general-purpose");
+    expect(item.steps.map((step) => step.kind)).toEqual(["thinking", "tool", "text"]);
+    expect(item.toolCalls).toEqual([{ name: "read_file", done: true }]);
+  });
+
+  it("只有工具没有正文时，用 content 兜底，回复不会消失", () => {
+    const state = replayMessages([
+      {
+        role: "ASSISTANT",
+        content: "兜底正文",
+        aguiMeta: { replay: [{ kind: "tool", name: "grep", done: true }] },
+      },
+    ]);
+    expect(state.items.map((item) => item.kind)).toEqual(["tool", "text"]);
+  });
+
+  it("没有 replay 的老消息仍然是一条正文气泡", () => {
+    const state = replayMessages([{ role: "ASSISTANT", content: "老回答" }]);
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0].kind === "text" && state.items[0].content).toBe("老回答");
   });
 });
 

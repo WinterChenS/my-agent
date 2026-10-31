@@ -184,6 +184,8 @@ public class AguiRunController {
 
         SseEmitter emitter = new SseEmitter(0L);
         StringBuilder assistantText = new StringBuilder();
+        // 把这一轮的事件折叠成可回放的步骤（思考/工具/子 Agent），落进 agui_meta.replay
+        ReplayRecorder replayRecorder = new ReplayRecorder();
         List<String> customEventNames = new ArrayList<>();
         List<AguiEvent.Interrupt> interrupts = new ArrayList<>();
         // 该 run 的 token 归属信息（模型/供应商）只需解析一次
@@ -208,7 +210,8 @@ public class AguiRunController {
             // dispose 不会触发 onComplete，所以这里要**自己**落库：
             // 已生成的内容 + 「已停止」标记（否则用户点了停止，这一段答案就丢了）
             finish(emitter, session.getId(), userId, threadId, runId,
-                    workspaceSnapshot, assistantText, customEventNames, interrupts, finished);
+                    workspaceSnapshot, assistantText, customEventNames, interrupts, finished,
+                    replayRecorder);
         });
         Disposable subscription = requestProcessor
                 .process(contextRequest)
@@ -216,7 +219,7 @@ public class AguiRunController {
                 .subscribe(
                         event -> {
                             send(emitter, event, streamGuard);
-                            collect(event, assistantText, customEventNames, interrupts);
+                            collect(event, assistantText, customEventNames, interrupts, replayRecorder);
                             runningRuns.syncText(threadId, assistantText);
                             recordTokenUsage(event, userId, session.getId(), agentDbId, tokenContext, runId);
                         },
@@ -230,10 +233,12 @@ public class AguiRunController {
                                     modelRetryHint.decorate(String.valueOf(error.getMessage())));
                             sendRunError(emitter, threadId, input.getRunId(), error, streamGuard);
                             finish(emitter, session.getId(), userId, threadId, input.getRunId(),
-                                    workspaceSnapshot, assistantText, customEventNames, interrupts, finished);
+                                    workspaceSnapshot, assistantText, customEventNames, interrupts, finished,
+                                    replayRecorder);
                         },
                         () -> finish(emitter, session.getId(), userId, threadId, input.getRunId(),
-                                workspaceSnapshot, assistantText, customEventNames, interrupts, finished));
+                                workspaceSnapshot, assistantText, customEventNames, interrupts, finished,
+                                replayRecorder));
         subscriptionRef.set(subscription);
 
         // Phase 14：客户端断开（刷新页面/切页/关标签页）时**不要立刻** dispose + 中断——
@@ -357,7 +362,8 @@ public class AguiRunController {
             StringBuilder assistantText,
             List<String> customEventNames,
             List<AguiEvent.Interrupt> interrupts,
-            java.util.concurrent.atomic.AtomicBoolean finished) {
+            java.util.concurrent.atomic.AtomicBoolean finished,
+            ReplayRecorder replayRecorder) {
         // 幂等：停止走的是 cancelAction，正常结束走 onComplete/onError，两条路可能同时到达
         // （例如 dispose 的瞬间上游正好 complete）——重复落库会多出一条空助手消息。
         if (!finished.compareAndSet(false, true)) {
@@ -369,7 +375,8 @@ public class AguiRunController {
         boolean stopped = runningRuns.consumeStopped(threadId);
         try {
             chatSessionService.appendMessage(
-                    sessionId, "ASSISTANT", assistantText.toString(), meta(customEventNames, stopped, runId));
+                    sessionId, "ASSISTANT", assistantText.toString(),
+                    meta(customEventNames, stopped, runId, replayRecorder));
             chatSessionService.touch(sessionId);
         } catch (Exception ex) {
             log.error("落库 assistant 消息失败 sessionId={}", sessionId, ex);
@@ -474,7 +481,10 @@ public class AguiRunController {
             AguiEvent event,
             StringBuilder assistantText,
             List<String> customNames,
-            List<AguiEvent.Interrupt> interrupts) {
+            List<AguiEvent.Interrupt> interrupts,
+            ReplayRecorder replay) {
+        // 回放信息与落库正文同源：这里顺手折叠，避免另起一套监听
+        replay.accept(event);
         if (event instanceof AguiEvent.TextMessageContent content && content.delta() != null) {
             assistantText.append(content.delta());
         } else if (event instanceof AguiEvent.Custom custom && custom.name() != null) {
@@ -486,11 +496,17 @@ public class AguiRunController {
         }
     }
 
-    private static Map<String, Object> meta(List<String> customEventNames, boolean stopped, String runId) {
-        if (customEventNames.isEmpty() && !stopped && runId == null) {
+    private static Map<String, Object> meta(
+            List<String> customEventNames, boolean stopped, String runId, ReplayRecorder replayRecorder) {
+        List<Map<String, Object>> replay = replayRecorder == null ? null : replayRecorder.steps();
+        if (customEventNames.isEmpty() && !stopped && runId == null && replay == null) {
             return null;
         }
         Map<String, Object> meta = new LinkedHashMap<>();
+        if (replay != null) {
+            // 刷新/打开历史会话时按它还原思考、工具调用、子 Agent（与实时看到的一致）
+            meta.put("replay", replay);
+        }
         if (runId != null) {
             // 这一轮的气泡据此挂上本轮的产物（artifact.run_id 与它对应）
             meta.put("runId", runId);

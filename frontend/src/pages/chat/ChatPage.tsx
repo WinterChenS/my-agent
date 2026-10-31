@@ -34,7 +34,13 @@ import { ApprovalCard } from "@/components/cards/ApprovalCard";
 import { ConfirmCard } from "@/components/cards/ConfirmCard";
 import { MappingCard } from "@/components/cards/MappingCard";
 import { abortCurrentRun, createChatAgent } from "@/lib/agui/agent";
-import { initialChatState, markApproval, reduceEvent, replayMessages } from "@/lib/agui/reducer";
+import {
+  appendPendingApprovals,
+  initialChatState,
+  markApproval,
+  reduceEvent,
+  replayMessages,
+} from "@/lib/agui/reducer";
 import type { ChatSession } from "@/api/types";
 import type { AgentSummary } from "@/api/types";
 import type { ChatItem, ChatState, ConfirmCardData, MappingCardData } from "@/lib/agui/types";
@@ -50,7 +56,7 @@ import {
   listAgents,
   listMessages,
 } from "@/api/sessions";
-import { decideApproval } from "@/api/approvals";
+import { decideApproval, listApprovals } from "@/api/approvals";
 import { uploadArtifact } from "@/api/artifacts";
 import {
   removeAttachment,
@@ -604,9 +610,9 @@ export default function ChatPage() {
       if (!active()) {
         return false;
       }
-      // 拉回落库后的最终内容（含「已停止」标记）
+      // 拉回落库后的最终内容（含「已停止」标记 + 思考/工具/子 Agent 的回放）
       try {
-        setChat(replayMessages(await listMessages(target.id)));
+        setChat(await restoreSessionChat(target.id));
       } catch {
         /* 拉取失败就保留轮询到的内容 */
       }
@@ -615,6 +621,19 @@ export default function ChatPage() {
     },
     [],
   );
+
+  /**
+   * 加载一个会话的完整界面状态：消息树 + 还挂着的审批卡。
+   *
+   * <p>审批卡必须一起恢复，否则刷新后那一轮卡在"等审批"，用户既看不到卡片也没法继续。
+   */
+  async function restoreSessionChat(sessionId: number) {
+    const [messages, approvals] = await Promise.all([
+      listMessages(sessionId),
+      listApprovals(sessionId).catch(() => []),
+    ]);
+    return appendPendingApprovals(replayMessages(messages), approvals);
+  }
 
   // 打开会话后、以及从别的页面/标签页回来时，都尝试接续
   useEffect(() => {
@@ -685,9 +704,8 @@ export default function ChatPage() {
     activeSessionIdRef.current = target.id;
     agentRef.current = createChatAgent();
     try {
-      const messages = await listMessages(target.id);
-      // aguiMeta 里带 stopped 标记，回放时据此标注「已停止」
-      setChat(replayMessages(messages));
+      // aguiMeta 里带 stopped 与 replay：思考/工具/子 Agent 都能还原
+      setChat(await restoreSessionChat(target.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载历史消息失败");
     }
