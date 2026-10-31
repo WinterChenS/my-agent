@@ -316,6 +316,34 @@ public class BrowserExtensionStore {
                 SESSION, userId, conversationId).stream().findFirst();
     }
 
+    /**
+     * 同一台设备最近一个还没结束的会话。
+     *
+     * <p>用途：用户已经授权过某个标签页，换了个对话（新 conversation）时不该再要求授权一次 ——
+     * 直接复用那台设备上的授权（并改绑到新 conversation）。
+     */
+    public Optional<SessionRow> recentOpenSessionOfDevice(String deviceId) {
+        return jdbc.query(
+                """
+                SELECT * FROM browser_control_session
+                 WHERE device_id = ? AND ended_at IS NULL AND expires_at > NOW()
+                   AND state IN ('AGENT_CONTROL', 'HUMAN_CONTROL', 'AWAITING_TAB')
+                 ORDER BY last_active_at DESC LIMIT 1
+                """,
+                SESSION, deviceId).stream().findFirst();
+    }
+
+    /** 把已有的控制会话改绑到另一个对话（复用授权，不再让用户重授权）。 */
+    public int attachConversation(String id, String conversationId) {
+        return jdbc.update(
+                """
+                UPDATE browser_control_session
+                   SET conversation_id = ?, last_active_at = NOW()
+                 WHERE id = ? AND ended_at IS NULL
+                """,
+                conversationId, id);
+    }
+
     public List<SessionRow> sessionsOf(long userId, int limit) {
         return jdbc.query(
                 """

@@ -60,6 +60,16 @@ public class BrowserControlSessionService {
             return existing.get();
         }
         String deviceId = preferredDeviceId != null ? preferredDeviceId : defaultDevice(userId);
+        // 这台设备上已经授权过一个标签页？直接复用，别让用户每个对话都重授权一次。
+        if (deviceId != null) {
+            Optional<BrowserExtensionStore.SessionRow> reusable = store.recentOpenSessionOfDevice(deviceId);
+            if (reusable.isPresent() && reusable.get().userId() == userId) {
+                BrowserExtensionStore.SessionRow row = reusable.get();
+                store.attachConversation(row.id(), conversationId == null ? "" : conversationId);
+                log.info("复用设备 {} 上的浏览器授权（会话 {} → 对话 {}）", deviceId, row.id(), conversationId);
+                return store.sessionById(row.id()).orElse(row);
+            }
+        }
         String id = DeviceTokenService.newId("cs-");
         BrowserExtensionStore.SessionRow row = new BrowserExtensionStore.SessionRow(
                 id, userId, conversationId, deviceId, null, null, null, 0, AWAITING_TAB, 1, null,
@@ -107,10 +117,9 @@ public class BrowserControlSessionService {
             store.updateTab(sessionId, tabHandle, origin, title, pageRevision);
             String control = text(frame, "controlState");
             if (AWAITING_TAB.equals(row.state()) && tabHandle != null) {
-                // 两种授权路径分开处理：
-                //  * 手动授权（用户点扩展）：默认 HUMAN_CONTROL，用户点「交还」才交给 Agent；
-                //  * 自动接管（用户开了一次性全局授权）：扩展明确上报 AGENT_CONTROL，直接生效。
-                String target = AGENT_CONTROL.equals(control) ? AGENT_CONTROL : HUMAN_CONTROL;
+                // 授权 = 允许 Agent 操作（用户反馈：每次都要再点「交还」很怪）。
+                // 只有扩展**明确**上报 HUMAN_CONTROL（用户点了「我要自己操作」）才停在人类控制。
+                String target = HUMAN_CONTROL.equals(control) ? HUMAN_CONTROL : AGENT_CONTROL;
                 store.transition(sessionId, target, null);
                 log.info("会话 {} 已授权标签页 {} ({}), 进入 {}", sessionId, tabHandle, origin, target);
                 // 必须把递增后的 leaseVersion 回给扩展：否则扩展本地还是旧租期，

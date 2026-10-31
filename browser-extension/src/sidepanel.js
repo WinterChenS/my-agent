@@ -44,8 +44,8 @@ function render() {
   if (view.pending && view.pending.url && !view.autoGrant) {
     const div = document.createElement('div');
     div.className = 'warn';
-    div.textContent = '任务请求操作：' + view.pending.url + '。切到目标页面后点下面「授权当前标签页」，'
-      + '或者打开上面的「自动接管」。';
+    div.textContent = '任务请求操作：' + view.pending.url + '。点下面「授权这个标签页」后 Agent 会直接开始；'
+      + '不想每次点就打开上面的「自动接管」。';
     alert.appendChild(div);
   }
 
@@ -83,7 +83,7 @@ function render() {
 
   const state = view.control ? view.control.state : null;
   if (!g) {
-    add('授权当前标签页', 'primary', async () => {
+    add('授权这个标签页（Agent 直接开始）', 'primary', async () => {
       const result = await chrome.runtime.sendMessage({ type: 'grant-tab' });
       if (result && !result.ok) showError(result.message);
     });

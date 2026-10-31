@@ -288,10 +288,10 @@ class BrowserExtensionFlowTest {
     }
 
     @Test
-    @DisplayName("手动授权：扩展没上报控制权时仍然进 HUMAN_CONTROL（不自动给 Agent 写权限）")
-    void manualGrantStaysHumanControl() {
+    @DisplayName("授权即交给 Agent：扩展没上报控制权时默认进 AGENT_CONTROL（不用再点一次交还）")
+    void manualGrantStartsAgentControl() {
         var row = session("cs-mn", BrowserControlSessionService.AWAITING_TAB, 1);
-        var after = session("cs-mn", BrowserControlSessionService.HUMAN_CONTROL, 2);
+        var after = session("cs-mn", BrowserControlSessionService.AGENT_CONTROL, 2);
         when(store.sessionById("cs-mn")).thenReturn(Optional.of(row), Optional.of(after));
 
         jakarta.websocket.Session ws = mock(jakarta.websocket.Session.class);
@@ -307,7 +307,48 @@ class BrowserExtensionFlowTest {
         sessions.onTabState(conn, frame);
 
         org.mockito.Mockito.verify(store).transition(eq("cs-mn"),
+                eq(BrowserControlSessionService.AGENT_CONTROL), org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    @DisplayName("扩展明确上报 HUMAN_CONTROL（用户点了「我要自己操作」）时停在人类控制")
+    void explicitHumanControlIsRespected() {
+        var row = session("cs-hm", BrowserControlSessionService.AWAITING_TAB, 1);
+        var after = session("cs-hm", BrowserControlSessionService.HUMAN_CONTROL, 2);
+        when(store.sessionById("cs-hm")).thenReturn(Optional.of(row), Optional.of(after));
+
+        jakarta.websocket.Session ws = mock(jakarta.websocket.Session.class);
+        when(ws.getId()).thenReturn("ws-3");
+        var conn = new BrowserBridgeHub.Conn("dv-1", 7L, ws, java.time.Instant.now(),
+                new java.util.concurrent.atomic.AtomicLong(1));
+
+        ObjectNode frame = BrowserBridgeHub.frame("tab.state");
+        frame.put("controlSessionId", "cs-hm");
+        frame.put("tabHandle", "55");
+        frame.put("origin", "https://example.com");
+        frame.put("controlState", "HUMAN_CONTROL");
+
+        sessions.onTabState(conn, frame);
+
+        org.mockito.Mockito.verify(store).transition(eq("cs-hm"),
                 eq(BrowserControlSessionService.HUMAN_CONTROL), org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    @DisplayName("换对话时复用同一设备上已授权的会话（不再要求用户重新授权）")
+    void reusesGrantOnSameDeviceAcrossConversations() {
+        var existing = session("cs-reuse", BrowserControlSessionService.AGENT_CONTROL, 3);
+        when(store.activeSession(7L, "thread-new")).thenReturn(Optional.empty());
+        when(store.devicesOf(7L)).thenReturn(java.util.List.of(device("dv-1")));
+        when(store.recentOpenSessionOfDevice("dv-1")).thenReturn(Optional.of(existing));
+        when(store.sessionById("cs-reuse")).thenReturn(Optional.of(existing));
+
+        var row = sessions.ensureSession(7L, "thread-new", null);
+
+        assertThat(row.id()).isEqualTo("cs-reuse");
+        org.mockito.Mockito.verify(store).attachConversation("cs-reuse", "thread-new");
+        // 不应该新建会话
+        org.mockito.Mockito.verify(store, org.mockito.Mockito.never()).insertSession(any());
     }
 
     // ---------------- fixtures ----------------

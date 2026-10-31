@@ -320,8 +320,9 @@ export function BrowserExtensionPanel({
           <div className="space-y-2 rounded-lg border p-3">
             <div className="text-sm font-medium">第二步：授权要操作的网页</div>
             <p className="text-xs text-muted-foreground">
-              <strong>Agent 会自己打开网页</strong>（新标签页），你只需要点浏览器工具栏上的扩展图标，
-              在侧边面板点一次「授权当前标签页」。一次只授权一个标签页，换网站要重新授权。
+              <strong>Agent 会自己打开网页</strong>，点一次浏览器工具栏上的扩展图标、在侧边面板点
+              「授权当前标签页」即可 —— 授权后 Agent 直接开始操作，不用再点「交还」。
+              想自己操作时点「暂停」，做完点「交还」。
             </p>
             <p className="text-[11px] text-muted-foreground">
               也可以直接在对话里让 Agent 打开网页：它会请求你授权，你再在扩展里确认。

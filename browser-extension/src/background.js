@@ -358,9 +358,23 @@ async function openUrlForCommand(url) {
       } catch {
         sameSite = false;
       }
-      if (sameSite) {
+      // 同站：直接就地导航。跨站只有在「自动接管」开启时才沿用这个标签页，
+      // 否则按方案要求重新授权（内容是另一个站点了）。
+      if (sameSite || (await get('myagent.autoGrant', false))) {
         await attach(tab.id);
-        await navigate(tab.id, url);
+        const state = await navigate(tab.id, url);
+        existing.url = state.url;
+        existing.origin = new URL(state.url).origin;
+        existing.title = state.title;
+        existing.pageRevision = (existing.pageRevision || 0) + 1;
+        await set(KEYS.grant, existing);
+        const current = (await control()) || {};
+        if (current.controlSessionId) {
+          sendTabState(current.controlSessionId, {
+            ...existing,
+            controlState: current.state || 'AGENT_CONTROL',
+          });
+        }
         return await chrome.tabs.get(tab.id).catch(() => tab);
       }
     }
@@ -706,10 +720,19 @@ async function grantCurrentTab() {
     pageRevision: (c.pageRevision || 0) + 1,
   };
   await set(KEYS.grant, g);
-  // 授权后默认人类控制，由用户点「交还」才交给 Agent（方案 10.1）
-  await set(KEYS.control, { controlSessionId, state: 'HUMAN_CONTROL', leaseVersion: (c.leaseVersion || 1) + 1,
-    pageRevision: g.pageRevision });
-  sendTabState(controlSessionId, { ...g, controlState: 'HUMAN_CONTROL' });
+  // 授权 = 允许 Agent 操作（用户反馈：每次还要再点「交还」很奇怪）。
+  await set(KEYS.control, {
+    controlSessionId,
+    state: 'AGENT_CONTROL',
+    leaseVersion: (c.leaseVersion || 1) + 1,
+    pageRevision: g.pageRevision,
+  });
+  sendTabState(controlSessionId, { ...g, controlState: 'AGENT_CONTROL' });
+  // 第一次授权顺手打开「自动接管」：用户要的就是"授权一次、之后自动"。
+  // 只有用户显式关过（false）才保持关闭（null = 从没设置过）。
+  if ((await get('myagent.autoGrant', null)) === null) {
+    await set('myagent.autoGrant', true);
+  }
   await remove(KEYS.pending);
 
   // 只有「复用用户当前标签页」的情况才需要导航到目标网址（Agent 自己开过页的话已经是目标页了）
