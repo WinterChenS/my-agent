@@ -473,6 +473,8 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 "   只要你主动交付过，系统就不会再把这次生成的脚本/数据/日志塞进产物区；",
                 "   一轮不要交付一堆同类文件，挑最能满足需求的那一个。",
                 "4. 交付前确认是可打开的最终版本（大小不为 0、内容完整），别交付半成品。",
+                "   **用户说「再发一份 / 同样的再来一份」时，直接对已有文件再调一次 `deliverArtifact`**，",
+                "   不要只说「文件是 xxx.html」——只有交付动作才会把它挂到本轮，否则用户在气泡下看不到。",
                 "5. 如果用户没说清要什么格式，按你能给出的最有用格式交付一份，并在回复里说明；不要同时给多种格式。");
         return base.isEmpty() ? guidance : base + "\n\n" + guidance;
     }

@@ -29,7 +29,7 @@ class ArtifactCaptureServiceTest {
     void 本轮已主动交付时不再登记过程文件(@TempDir Path root) throws Exception {
         WorkspaceArtifactScanner scanner = new WorkspaceArtifactScanner(
                 new AguiProperties(root.toString(), 120_000, 0.9, 32_000, 30_000, 1_500, 128_000));
-        ArtifactCaptureService capture = new ArtifactCaptureService(scanner, artifactService, deliveryTarget);
+        ArtifactCaptureService capture = new ArtifactCaptureService(scanner, artifactService, deliveryTarget, new com.myagent.artifact.service.ArtifactMentions(scanner));
 
         Path ws = root.resolve("7");
         Files.createDirectories(ws);
@@ -52,7 +52,7 @@ class ArtifactCaptureServiceTest {
     void 扫描登记的产物带上本轮runId(@TempDir Path root) throws Exception {
         WorkspaceArtifactScanner scanner = new WorkspaceArtifactScanner(
                 new AguiProperties(root.toString(), 120_000, 0.9, 32_000, 30_000, 1_500, 128_000));
-        ArtifactCaptureService capture = new ArtifactCaptureService(scanner, artifactService, deliveryTarget);
+        ArtifactCaptureService capture = new ArtifactCaptureService(scanner, artifactService, deliveryTarget, new com.myagent.artifact.service.ArtifactMentions(scanner));
 
         Path ws = root.resolve("7");
         Files.createDirectories(ws);

@@ -82,6 +82,28 @@ class ArtifactServiceTest {
     }
 
     @Test
+    void 同内容不同run各留一条_同一run才去重() {
+        SessionResponse session = newSession();
+        byte[] bytes = "<html>report</html>".getBytes(StandardCharsets.UTF_8);
+
+        Artifact first = artifactService.store(adminId(), session.id(), ArtifactService.ROLE_ARTIFACT,
+                "report.html", "text/html", bytes, false, "run-1");
+        // 同一轮重复交付 → 复用同一条
+        Artifact sameRun = artifactService.store(adminId(), session.id(), ArtifactService.ROLE_ARTIFACT,
+                "report.html", "text/html", bytes, false, "run-1");
+        // 另一轮再交付同一份文件 → 必须新建（产物按 runId 挂到气泡下面）
+        Artifact nextRun = artifactService.store(adminId(), session.id(), ArtifactService.ROLE_ARTIFACT,
+                "report.html", "text/html", bytes, false, "run-2");
+
+        assertThat(sameRun.getId()).isEqualTo(first.getId());
+        assertThat(nextRun.getId()).isNotEqualTo(first.getId());
+        assertThat(nextRun.getRunId()).isEqualTo("run-2");
+        assertThat(artifactMapper.selectList(
+                Wrappers.<Artifact>lambdaQuery().eq(Artifact::getSessionId, session.id())))
+                .hasSize(2);
+    }
+
+    @Test
     @Transactional
     void 文本类文件走数据库存储() {
         SessionResponse session = newSession();

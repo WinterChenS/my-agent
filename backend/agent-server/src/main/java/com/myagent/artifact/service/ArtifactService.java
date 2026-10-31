@@ -208,9 +208,17 @@ public class ArtifactService {
                         .eq(Artifact::getRole, role))
                 .stream()
                 .findFirst();
-        if (existing.isPresent()) {
-            return existing.get(); // 同会话同内容不重复登记
+        if (existing.isPresent() && java.util.Objects.equals(existing.get().getRunId(), runId)) {
+            return existing.get(); // 同一轮里同内容重复交付：只留一条
         }
+        /*
+         * 内容相同但**不是同一轮**：要新建一条。
+         *
+         * 实测问题（用户反馈"再发一份给我，气泡下面没有产物"）：模型第二轮又调了一次
+         * deliverArtifact，内容与上一轮完全一样 → 以前命中"同会话同内容不重复登记"直接返回旧记录，
+         * 那条的 runId 还是上一轮的 → 本轮气泡下自然看不到。产物是按 runId 挂到气泡下面的，
+         * 所以"每轮的交付"必须是独立记录。
+         */
 
         Artifact artifact = new Artifact();
         artifact.setSessionId(sessionId);
