@@ -23,6 +23,11 @@ export const initialChatState: ChatState = { items: [], status: "idle", runId: n
 /** 这些 CUSTOM 事件不产生可视卡片。 */
 const NON_VISUAL_CUSTOM = new Set(["token_usage"]);
 
+/** CUSTOM 事件名 → 卡片类型（replay 与实时共用）。 */
+export function cardKindOf(name: string): CardKind {
+  return CARD_BY_NAME[name] ?? "unknown";
+}
+
 const CARD_BY_NAME: Record<string, CardKind> = {
   confirm_card: "confirm",
   mapping_card: "mapping",
@@ -612,6 +617,17 @@ export function itemsFromReplaySteps(
         args: "",
         result: null,
         state: step["done"] === false ? "ready" : "done",
+      });
+      return;
+    }
+    if (kind === "card") {
+      const name = String(step["name"] ?? "");
+      items.push({
+        kind: "card",
+        id: key,
+        card: cardKindOf(name),
+        name,
+        data: step["data"] ?? null,
       });
       return;
     }

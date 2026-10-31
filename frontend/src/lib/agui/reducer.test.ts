@@ -445,6 +445,36 @@ describe("replayMessages：按 agui_meta.replay 还原思考/工具/子 Agent", 
     expect(textItem.kind === "text" && textItem.content).toBe("最终回答");
   });
 
+  it("replay 带卡片时还原成可交互卡片（刷新后卡片不再消失）", () => {
+    const state = replayMessages([
+      {
+        role: "ASSISTANT",
+        content: "等你选",
+        aguiMeta: {
+          replay: [
+            {
+              kind: "card",
+              name: "confirm_card",
+              data: {
+                title: "需要你的选择",
+                message: "用哪种模板？",
+                options: [{ label: "月度", value: "月度" }],
+              },
+            },
+            { kind: "text", text: "等你选" },
+          ],
+        },
+      },
+    ]);
+    expect(state.items.map((item) => item.kind)).toEqual(["card", "text"]);
+    const card = state.items[0];
+    if (card.kind !== "card") {
+      throw new Error("应为卡片");
+    }
+    expect(card.card).toBe("confirm");
+    expect(card.name).toBe("confirm_card");
+  });
+
   it("replay 带子 Agent 时还原它的内部步骤与工具计数", () => {
     const state = replayMessages([
       {

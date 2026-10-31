@@ -121,9 +121,24 @@ final class ReplayRecorder {
     // ---------------- 子 Agent ----------------
 
     @SuppressWarnings("unchecked")
+    /** 这些 CUSTOM 是**交互卡片**（要落库，否则刷新/接续后卡片就没了）。 */
+    private static final java.util.Set<String> CARD_EVENTS = java.util.Set.of(
+            "confirm_card", "mapping_card", "approval", "approval_card", "permission_confirm");
+
     private void acceptCustom(AguiEvent.Custom custom) {
         String name = custom.name();
-        if (name == null || !name.startsWith("subagent.")) {
+        if (name == null) {
+            return;
+        }
+        if (CARD_EVENTS.contains(name)) {
+            Map<String, Object> step = new LinkedHashMap<>();
+            step.put("kind", "card");
+            step.put("name", name);
+            step.put("data", asMap(custom.value()));
+            steps.add(step);
+            return;
+        }
+        if (!name.startsWith("subagent.")) {
             return;
         }
         Map<String, Object> payload = asMap(custom.value());

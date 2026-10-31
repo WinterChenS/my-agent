@@ -56,6 +56,23 @@ class ReplayRecorderTest {
     }
 
     @Test
+    @DisplayName("交互卡片也进 replay（否则刷新/接续后卡片直接消失）")
+    void keepsInteractiveCards() {
+        ReplayRecorder recorder = new ReplayRecorder();
+        recorder.accept(new AguiEvent.Custom("t1", "r1", "confirm_card",
+                Map.of("title", "需要你的选择", "message", "用哪种模板？",
+                        "options", List.of(Map.of("label", "月度", "value", "月度")))));
+        recorder.accept(new AguiEvent.Custom("t1", "r1", "token_usage", Map.of("total", 1)));
+
+        List<Map<String, Object>> steps = recorder.steps();
+        assertThat(steps).hasSize(1);
+        assertThat(steps.get(0)).containsEntry("kind", "card").containsEntry("name", "confirm_card");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) steps.get(0).get("data");
+        assertThat(data).containsEntry("message", "用哪种模板？");
+    }
+
+    @Test
     @DisplayName("没有任何内容时返回 null（不写无意义的 replay 字段）")
     void emptyReturnsNull() {
         assertThat(new ReplayRecorder().steps()).isNull();

@@ -591,9 +591,20 @@ export default function ChatPage() {
               `live-${target.id}`,
               { runId: runIdFromApi ?? prev.runId, tailStreaming: true },
             );
+            /*
+             * 保留本轮的交互卡片/审批卡：快照可能比卡片事件「早一点」，
+             * 直接整块替换会把刚弹出来的卡片抹掉（用户反馈过"卡片没收到"）。
+             */
+            const keepInteractive = prev.items
+              .slice(lastUserIndex + 1)
+              .filter(
+                (item) =>
+                  (item.kind === "card" || item.kind === "approval") &&
+                  !rebuilt.some((built) => built.id === item.id),
+              );
             return {
               ...prev,
-              items: [...prev.items.slice(0, lastUserIndex + 1), ...rebuilt],
+              items: [...prev.items.slice(0, lastUserIndex + 1), ...rebuilt, ...keepInteractive],
               status: "running",
               runId: runIdFromApi ?? prev.runId,
             };
