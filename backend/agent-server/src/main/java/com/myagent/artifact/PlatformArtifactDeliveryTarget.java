@@ -34,6 +34,30 @@ public class PlatformArtifactDeliveryTarget implements ArtifactDeliveryTarget {
 
     private static final Logger log = LoggerFactory.getLogger(PlatformArtifactDeliveryTarget.class);
 
+    /**
+     * 本轮 run 主动交付过的文件名（runId 可能为空时用 threadId 兜底）。
+     *
+     * <p>用途：{@code ArtifactCaptureService} 在 run 结束时判断"这一轮到底要不要把工作区里
+     * 所有新文件都登记成产物" —— 只要 Agent 已经主动交付过成果，就说明**意图明确**，
+     * 中途生成的脚本/数据/日志不该再进产物区（用户反馈：产物里全是过程文件）。
+     */
+    private final java.util.Map<String, java.util.Set<String>> deliveredByRun =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static String deliveryKey(String runId, String threadId) {
+        return runId != null && !runId.isBlank() ? runId : "thread:" + threadId;
+    }
+
+    /** 本轮（runId 或 threadId）主动交付过的文件名。 */
+    public java.util.Set<String> deliveredOf(String runId, String threadId) {
+        return deliveredByRun.getOrDefault(deliveryKey(runId, threadId), java.util.Set.of());
+    }
+
+    /** run 结束收尾用：清掉记录，避免长期占用内存。 */
+    public void clearDelivered(String runId, String threadId) {
+        deliveredByRun.remove(deliveryKey(runId, threadId));
+    }
+
     private final ArtifactService artifactService;
     private final ChatSessionMapper chatSessionMapper;
     private final RunningRunRegistry runningRuns;
@@ -82,6 +106,9 @@ public class PlatformArtifactDeliveryTarget implements ArtifactDeliveryTarget {
                     false,
                     runId);
 
+            deliveredByRun
+                    .computeIfAbsent(deliveryKey(runId, threadId), key -> java.util.concurrent.ConcurrentHashMap.newKeySet())
+                    .add(fileName);
             log.info(
                     "Agent 交付产物已登记 sessionId={} fileName={} size={} runId={}",
                     session.getId(),

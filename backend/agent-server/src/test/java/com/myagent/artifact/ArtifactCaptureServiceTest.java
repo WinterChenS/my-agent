@@ -23,12 +23,36 @@ import org.junit.jupiter.api.io.TempDir;
 class ArtifactCaptureServiceTest {
 
     private final ArtifactService artifactService = mock(ArtifactService.class);
+    private final PlatformArtifactDeliveryTarget deliveryTarget = mock(PlatformArtifactDeliveryTarget.class);
+
+    @Test
+    void 本轮已主动交付时不再登记过程文件(@TempDir Path root) throws Exception {
+        WorkspaceArtifactScanner scanner = new WorkspaceArtifactScanner(
+                new AguiProperties(root.toString(), 120_000, 0.9, 32_000, 30_000, 1_500, 128_000));
+        ArtifactCaptureService capture = new ArtifactCaptureService(scanner, artifactService, deliveryTarget);
+
+        Path ws = root.resolve("7");
+        Files.createDirectories(ws);
+        Map<String, Long> before = capture.beginRun("7");
+        // 这一轮既生成了报告，也生成了脚本（过程文件）
+        Files.writeString(ws.resolve("report.html"), "<html>");
+        Files.writeString(ws.resolve("make_report.py"), "print(1)");
+        // Agent 主动交付了报告 → 意图明确
+        org.mockito.Mockito.when(deliveryTarget.deliveredOf("run-x", "thread-3"))
+                .thenReturn(java.util.Set.of("report.html"));
+
+        int registered = capture.endRun(7L, 42L, "thread-3", before, "run-x");
+
+        org.assertj.core.api.Assertions.assertThat(registered).isZero();
+        verify(artifactService, org.mockito.Mockito.never())
+                .store(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    }
 
     @Test
     void 扫描登记的产物带上本轮runId(@TempDir Path root) throws Exception {
         WorkspaceArtifactScanner scanner = new WorkspaceArtifactScanner(
                 new AguiProperties(root.toString(), 120_000, 0.9, 32_000, 30_000, 1_500, 128_000));
-        ArtifactCaptureService capture = new ArtifactCaptureService(scanner, artifactService);
+        ArtifactCaptureService capture = new ArtifactCaptureService(scanner, artifactService, deliveryTarget);
 
         Path ws = root.resolve("7");
         Files.createDirectories(ws);

@@ -145,29 +145,47 @@
 }
 
 /* ------------------------------------------------------------------
- * 输入框「Agent 正在执行」的流动渐变描边
+ * 输入框「Agent 正在执行」的跑马灯描边
  *
- * 做法：伪元素铺满整圈、再用 mask 把内容区挖空 → 只剩 1px 的环形描边，
- * 不依赖具体背景色（深色模式也正确），也不影响内部元素的层级/点击。
+ * 做成 conic-gradient 整体绕圈旋转（@property 让角度可动画）＋外发光呼吸，
+ * 比之前"渐变位移"感知强很多（1.5px 环上做位移几乎看不出来 —— 用户反馈"没有动效"）。
+ * 用 mask 把内容区挖空，只保留 2px 环，不影响内部布局/点击。
  * ------------------------------------------------------------------ */
-@keyframes composer-flow {
-  from {
-    background-position: 0% 50%;
-  }
+@property --composer-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes composer-spin {
   to {
-    background-position: 200% 50%;
+    --composer-angle: 360deg;
   }
+}
+
+@keyframes composer-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+  }
+  50% {
+    box-shadow: 0 0 16px 2px rgba(99, 102, 241, 0.35);
+  }
+}
+
+.composer-running {
+  animation: composer-glow 2.4s ease-in-out infinite;
 }
 
 .composer-running::before {
   content: "";
   position: absolute;
-  inset: -1px;
+  inset: -2px;
   border-radius: inherit;
-  padding: 1.5px;
+  padding: 2px;
   pointer-events: none;
-  background: linear-gradient(
-    90deg,
+  background: conic-gradient(
+    from var(--composer-angle),
     #f43f5e,
     #f59e0b,
     #22c55e,
@@ -176,8 +194,7 @@
     #a855f7,
     #f43f5e
   );
-  background-size: 200% 100%;
-  animation: composer-flow 3s linear infinite;
+  animation: composer-spin 1.8s linear infinite;
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -189,6 +206,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .composer-running,
   .composer-running::before {
     animation: none;
   }

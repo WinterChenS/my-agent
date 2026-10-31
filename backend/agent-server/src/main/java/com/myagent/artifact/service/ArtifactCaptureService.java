@@ -24,10 +24,15 @@ public class ArtifactCaptureService {
 
     private final WorkspaceArtifactScanner scanner;
     private final ArtifactService artifactService;
+    private final com.myagent.artifact.PlatformArtifactDeliveryTarget deliveryTarget;
 
-    public ArtifactCaptureService(WorkspaceArtifactScanner scanner, ArtifactService artifactService) {
+    public ArtifactCaptureService(
+            WorkspaceArtifactScanner scanner,
+            ArtifactService artifactService,
+            com.myagent.artifact.PlatformArtifactDeliveryTarget deliveryTarget) {
         this.scanner = scanner;
         this.artifactService = artifactService;
+        this.deliveryTarget = deliveryTarget;
     }
 
     /** run 开始：返回属主工作区快照（供结束时对比）。owner 用 userId。 */
@@ -44,6 +49,15 @@ public class ArtifactCaptureService {
     public int endRun(
             Long userId, Long sessionId, String threadId, Map<String, Long> before, String runId) {
         if (threadId == null || sessionId == null || userId == null) {
+            return 0;
+        }
+        // 这一轮 Agent 已经主动交付过成果 → 意图明确，不再把工作区里所有新文件都登记成产物
+        // （脚本、中间数据、日志都是"生成过程"，用户要的只是最终那几个文件）。
+        java.util.Set<String> delivered = deliveryTarget.deliveredOf(runId, threadId);
+        if (!delivered.isEmpty()) {
+            deliveryTarget.clearDelivered(runId, threadId);
+            log.info("本轮已主动交付 {} 个文件（{}），跳过自动登记以免把过程文件当产物",
+                    delivered.size(), String.join(", ", delivered));
             return 0;
         }
         Map<String, Long> baseline = before == null ? new HashMap<>() : before;
