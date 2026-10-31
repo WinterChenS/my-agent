@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Download, FileText, Globe, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { downloadArtifact, formatSize, type ArtifactInfo } from "@/api/artifacts";
@@ -30,6 +30,7 @@ export function ArtifactPreviewPanel({
   onModeChange,
   browserActive = false,
   browserContent,
+  open = true,
 }: {
   tabs: ArtifactInfo[];
   activeId: number | null;
@@ -48,12 +49,32 @@ export function ArtifactPreviewPanel({
   browserActive?: boolean;
   /** 浏览器视图的内容（由 ChatPage 传进来，避免面板耦合浏览器逻辑） */
   browserContent?: ReactNode;
+  /**
+   * 是否展开。**组件常驻渲染**（不随开关卸载），这样收起/展开时宽度能做过渡动画，
+   * 视觉上就是「面板滑进滑出、聊天区自动让位」；收起时宽度 0 + overflow hidden。
+   */
+  open?: boolean;
 }) {
+  const [resizing, setResizing] = useState(false);
   const active = tabs.find((item) => item.id === activeId) ?? tabs[0] ?? null;
   const showBrowser = mode === "browser";
-  // 只有在"看文件"时才需要产物；看浏览器时没有产物也应该能打开面板
-  if (!showBrowser && !active) {
-    return null;
+  // 只有在"看文件"时才需要产物；看浏览器时没有产物也应该能打开面板。
+  // 注意：这里不再 return null —— 常驻一个 0 宽容器，收起动画才有落点。
+  const hasContent = showBrowser || Boolean(active);
+  const visible = open && hasContent;
+  const effectiveWidth = visible ? width : 0;
+  const widthClass = resizing ? "" : "transition-[width] duration-200 ease-out";
+
+  // 没有内容时只留一个 0 宽占位（不能 return null，否则收起动画无处可去）
+  if (!hasContent) {
+    return (
+      <aside
+        data-testid="preview-panel"
+        aria-hidden
+        className={`shrink-0 overflow-hidden ${widthClass}`}
+        style={{ width: 0 }}
+      />
+    );
   }
 
   /**
@@ -68,11 +89,17 @@ export function ArtifactPreviewPanel({
     const startX = event.clientX;
     const startWidth = width;
     handle.setPointerCapture(event.pointerId);
+    setResizing(true);
 
     const onMove = (moveEvent: PointerEvent) => {
-      onWidthChange(clampPreviewWidth(startWidth + (startX - moveEvent.clientX), window.innerWidth));
+      // 上限 = 聊天区域的可用宽度（铺满），不是 window.innerWidth：
+      // 左边还有导航栏，用窗口宽度会把面板推到屏幕外面。
+      const container = handle.closest("[data-chat-root]") as HTMLElement | null;
+      const containerWidth = container ? container.clientWidth : window.innerWidth;
+      onWidthChange(clampPreviewWidth(startWidth + (startX - moveEvent.clientX), containerWidth));
     };
     const onEnd = () => {
+      setResizing(false);
       handle.removeEventListener("pointermove", onMove);
       handle.removeEventListener("pointerup", onEnd);
       handle.removeEventListener("pointercancel", onEnd);
@@ -85,8 +112,11 @@ export function ArtifactPreviewPanel({
   return (
     <aside
       data-testid="preview-panel"
-      className="relative flex shrink-0 flex-col border-l"
-      style={{ width: `${width}px` }}
+      aria-hidden={!visible}
+      className={`relative flex shrink-0 flex-col overflow-hidden ${widthClass} ${
+        visible ? "border-l" : "border-l-0"
+      }`}
+      style={{ width: `${effectiveWidth}px` }}
     >
       {/* 分隔线：可左右拖拽调整宽度（双击回到默认宽度） */}
       <div

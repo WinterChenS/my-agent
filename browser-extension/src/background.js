@@ -6,7 +6,7 @@ import { checkUrl, sameOrigin } from './policy.js';
 import { attach, clickAt, detach, navigate, pressKey, screenshot, scroll, snippet, typeText, BridgeError } from './debugger.js';
 import { enqueue, recall, remember } from './scheduler.js';
 import { connect, sendEvent, sendResult, sendTabState, setHandlers, status } from './connection.js';
-import { startPairing, unpair } from './pairing.js';
+import { createPairing, startPairing, unpair, waitForPairing } from './pairing.js';
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
@@ -89,6 +89,18 @@ async function handleCommand(command) {
     }
 
     if (command.action === 'request_tab_grant') {
+      // 一次性全局授权：不再打扰用户，直接接管当前活动标签页
+      if (await get('myagent.autoGrant', false)) {
+        const granted = await autoGrantTab(command);
+        if (granted) {
+          await finish({
+            ok: true,
+            controlState: 'AGENT_CONTROL',
+            data: { text: '已自动接管『' + granted.title + '』（' + granted.origin + '），可以继续操作' },
+          });
+          return;
+        }
+      }
       await set(KEYS.pending, {
         controlSessionId: command.controlSessionId,
         url: (command.args || {}).url || null,
@@ -102,9 +114,13 @@ async function handleCommand(command) {
     }
 
     const state = await control();
-    const g = await grant();
+    let g = await grant();
     if (!g) {
-      throw new BridgeError(ERR.TAB_NOT_AUTHORIZED, '还没有授权的标签页，请先在本页点击扩展并授权');
+      g = await autoGrantTab(command);
+    }
+    if (!g) {
+      throw new BridgeError(ERR.TAB_NOT_AUTHORIZED,
+        '还没有授权的标签页。请在本页点击扩展并授权，或在侧边面板里打开「自动接管」');
     }
     if (state && state.controlSessionId === command.controlSessionId) {
       if (state.state !== 'AGENT_CONTROL') {
@@ -285,6 +301,133 @@ async function runAction(command, g) {
   throw new BridgeError(ERR.POLICY_BLOCKED, '不支持的动作：' + action);
 }
 
+/**
+ * 自动接管：一次性全局授权之后，Agent 请求时自动 attach「当前活动标签页」。
+ *
+ * <p>为什么需要它：`activeTab` 要求用户在每个标签页上点一次扩展图标，实际用起来很烦。
+ * `chrome.debugger` 权限本身允许 attach 任意标签页（不需要 activeTab），所以技术上可以自动；
+ * 代价是 Chrome 会显示「正在调试」横幅 —— 这是用户可见的安全提示，我们只在用户显式开启后才这样。
+ */
+async function autoGrantTab(command) {
+  if (!(await get('myagent.autoGrant', false))) {
+    return null;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab || !tab.url) {
+    return null;
+  }
+  const policy = checkUrl(tab.url);
+  if (!policy.ok) {
+    throw new BridgeError(ERR.POLICY_BLOCKED, policy.reason);
+  }
+  const grant = {
+    tabId: tab.id,
+    url: tab.url,
+    origin: new URL(tab.url).origin,
+    title: tab.title || '',
+    controlSessionId: command.controlSessionId,
+    pageRevision: 1,
+  };
+  await set(KEYS.grant, grant);
+  const current = (await control()) || {};
+  await set(KEYS.control, {
+    controlSessionId: command.controlSessionId,
+    state: 'AGENT_CONTROL',
+    // 必须跟服务端保持一致，否则 checkLease 会认为命令过期
+    leaseVersion: Number(command.leaseVersion) || current.leaseVersion || 1,
+    pageRevision: grant.pageRevision,
+  });
+  sendTabState(command.controlSessionId, { ...grant, controlState: 'AGENT_CONTROL' });
+  chrome.runtime.sendMessage({ type: 'bridge-status', payload: { autoGranted: true, tab: grant } }).catch(() => {});
+  return grant;
+}
+
+// ---------------- 侧边栏实时画面（CDP screencast） ----------------
+
+const SCREENCAST_FPS = 10;
+let screencast = null; // {tabId, lastSentAt}
+
+async function startScreencast() {
+  const g = await grant();
+  if (!g) {
+    return { ok: false, message: '还没有授权标签页' };
+  }
+  await attach(g.tabId);
+  await send(g.tabId, 'Page.enable');
+  screencast = { tabId: g.tabId, lastSentAt: 0 };
+  await send(g.tabId, 'Page.startScreencast', {
+    format: 'jpeg',
+    quality: 55,
+    maxWidth: 900,
+    maxHeight: 1500,
+    everyNthFrame: 1,
+  });
+  return { ok: true, tabId: g.tabId };
+}
+
+async function stopScreencast() {
+  if (!screencast) {
+    return { ok: true };
+  }
+  const tabId = screencast.tabId;
+  screencast = null;
+  try {
+    await send(tabId, 'Page.stopScreencast');
+  } catch {
+    /* 页面可能已经关了 */
+  }
+  return { ok: true };
+}
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (method !== 'Page.screencastFrame' || !screencast || source.tabId !== screencast.tabId) {
+    return;
+  }
+  // ack 必须立刻发，否则 Chrome 推完第一帧就不推了（服务端实现时踩过同样的坑）
+  chrome.debugger.sendCommand({ tabId: source.tabId }, 'Page.screencastFrameAck', {
+    sessionId: params.sessionId,
+  }).catch(() => {});
+  const now = Date.now();
+  if (now - screencast.lastSentAt < 1000 / SCREENCAST_FPS) {
+    return;
+  }
+  screencast.lastSentAt = now;
+  const meta = params.metadata || {};
+  chrome.runtime.sendMessage({
+    type: 'screencast-frame',
+    data: params.data,
+    width: meta.deviceWidth || 0,
+    height: meta.deviceHeight || 0,
+  }).catch(() => {});
+});
+
+/** 侧边栏画面上的点击/滚动/按键 → 注入到真实标签页。 */
+async function handleScreencastInput(message) {
+  const g = await grant();
+  if (!g) {
+    return { ok: false, message: '还没有授权标签页' };
+  }
+  await attach(g.tabId);
+  const input = message.input || {};
+  if (input.type === 'click') {
+    await clickAt(g.tabId, Number(input.x), Number(input.y));
+  } else if (input.type === 'scroll') {
+    await scroll(g.tabId, Number(input.deltaY) || 400);
+  } else if (input.type === 'key') {
+    await pressKey(g.tabId, String(input.key || 'Enter'));
+  } else if (input.type === 'text') {
+    await typeText(g.tabId, String(input.text || ''));
+  } else {
+    return { ok: false, message: '未知输入类型' };
+  }
+  const current = (await control()) || {};
+  current.pageRevision = (Number(current.pageRevision) || 0) + 1;
+  await set(KEYS.control, current);
+  g.pageRevision = current.pageRevision;
+  await set(KEYS.grant, g);
+  return { ok: true };
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -317,6 +460,57 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
 });
 
 // ---------------- 与侧边栏 / 引导页通信 ----------------
+
+/**
+ * 网页 ↔ 扩展（externally_connectable）。
+ *
+ * <p>只暴露"连接/状态"这类能力，**不执行任何命令** —— 执行通道只有一条（后端 WSS），
+ * 否则任何能打开平台的页面都能驱动用户的浏览器。
+ */
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  const origin = sender && sender.origin ? sender.origin : '';
+  const allowed = /^https?:\/\/([^/]+)$/.test(origin);
+  if (!allowed) {
+    sendResponse({ ok: false, message: '来源不受信任' });
+    return true;
+  }
+  (async () => {
+    switch (message && message.type) {
+      case 'bridge.ping':
+        sendResponse({
+          ok: true,
+          version: chrome.runtime.getManifest().version,
+          extensionId: chrome.runtime.id,
+          installId: await chrome.storage.local.get('myagent.installId').then((o) => o['myagent.installId']),
+          paired: !!(await auth()).accessToken,
+          connected: status().connected,
+          autoGrant: !!(await get('myagent.autoGrant', false)),
+        });
+        break;
+      case 'bridge.state':
+        sendResponse({ ok: true, state: await buildState() });
+        break;
+      case 'bridge.pair': {
+        try {
+          const created = await createPairing();
+          // 网页负责调 approve（它已登录），这里后台等凭证
+          waitForPairing(created.deviceCode, created.expiresIn).catch(() => {});
+          sendResponse({ ok: true, userCode: created.userCode, expiresIn: created.expiresIn });
+        } catch (e) {
+          sendResponse({ ok: false, message: e.message });
+        }
+        break;
+      }
+      case 'bridge.setAutoGrant':
+        await set('myagent.autoGrant', !!message.enabled);
+        sendResponse({ ok: true, autoGrant: !!message.enabled });
+        break;
+      default:
+        sendResponse({ ok: false, message: 'unsupported' });
+    }
+  })();
+  return true;
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
@@ -357,6 +551,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await remove(KEYS.grant);
         sendResponse(await buildState());
         break;
+      case 'screencast-start':
+        sendResponse(await startScreencast());
+        break;
+      case 'screencast-stop':
+        sendResponse(await stopScreencast());
+        break;
+      case 'screencast-input':
+        sendResponse(await handleScreencastInput(message));
+        break;
+      case 'set-auto-grant': {
+        await set('myagent.autoGrant', !!message.enabled);
+        sendResponse(await buildState());
+        break;
+      }
       case 'locate-tab': {
         const g = await grant();
         if (g) {
@@ -462,5 +670,7 @@ async function buildState() {
     control: c,
     pending,
     version: chrome.runtime.getManifest().version,
+    extensionId: chrome.runtime.id,
+    autoGrant: !!(await get('myagent.autoGrant', false)),
   };
 }

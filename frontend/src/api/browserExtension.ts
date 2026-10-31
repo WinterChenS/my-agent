@@ -8,6 +8,7 @@ import { apiFetch } from "./client";
 
 export interface BrowserExtensionConfig {
   mode: string;
+  extensionId?: string;
   protocolVersion: number;
   minimumVersion: string;
   chromeStoreUrl?: string | null;

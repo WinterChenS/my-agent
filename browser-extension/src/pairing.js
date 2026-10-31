@@ -2,7 +2,12 @@ import { KEYS, ensureInstallId, get, platformUrl, remove, set } from './storage.
 import { EXTENSION_VERSION, PROTOCOL_VERSION, base64url, newId, sha256Base64Url } from './protocol.js';
 
 // 设备配对（device code + PKCE）。平台地址由用户显式确认，不从网页消息里读取。
-export async function startPairing() {
+/**
+ * 只创建配对，不打开平台标签页。
+ *
+ * <p>给「网页一键连接」用：网页（已登录）自己会调 approve，扩展只需拿到 userCode 并等凭证。
+ */
+export async function createPairing() {
   const base = await platformUrl();
   if (!base) {
     throw new Error('还没有设置平台地址');
@@ -29,11 +34,22 @@ export async function startPairing() {
   }
   const data = body.data;
   await set('myagent.pairing', { id: data.id, deviceCode: data.deviceCode, verifier, userCode: data.userCode });
-  // 让用户在网页批准（网页已登录），扩展自己轮询换凭证
+  return data;
+}
+
+/** 打开平台配对页（用户手动配对时用）。 */
+export async function startPairing() {
+  const base = await platformUrl();
+  const data = await createPairing();
   const verifyUrl = `${base}${data.verificationUri}?code=${encodeURIComponent(data.userCode)}`;
   await chrome.tabs.create({ url: verifyUrl });
   pollPairing(data.deviceCode, data.expiresIn || 300);
   return data;
+}
+
+/** 等待用户在网页批准并领取凭证（网页一键连接里由 background 启动）。 */
+export async function waitForPairing(deviceCode, ttlSeconds) {
+  await pollPairing(deviceCode, ttlSeconds || 300);
 }
 
 async function pollPairing(deviceCode, ttlSeconds) {

@@ -1,3 +1,5 @@
+import { DEFAULT_PLATFORM_URL } from './config.js';
+
 // 统一存储：auth 用 session 存 access token（关浏览器即失效），refresh 用 local。
 export const KEYS = {
   platform: 'myagent.platformUrl',
@@ -36,7 +38,8 @@ export async function ensureInstallId() {
 
 export async function platformUrl() {
   const value = await get(KEYS.platform);
-  return (value || '').replace(/\/+$/, '');
+  const fallback = DEFAULT_PLATFORM_URL;
+  return (value || fallback || '').replace(/\/+$/, '');
 }
 
 export async function auth() {

@@ -5,15 +5,15 @@
   :root { color-scheme: light dark; }
   body { margin: 0; font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
          background: #fafafa; color: #18181b; }
-  @media (prefers-color-scheme: dark) { body { background: #18181b; color: #e4e4e7; } .card { background: #232326 !important; } }
+  @media (prefers-color-scheme: dark) { body { background: #18181b; color: #e4e4e7; }
+    .card { background: #232326 !important; border-color: #3f3f46 !important; } }
   header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #e4e4e7; }
   header h1 { font-size: 13px; margin: 0; font-weight: 600; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: #a1a1aa; }
   .dot.on { background: #10b981; }
-  .dot.warn { background: #f59e0b; }
-  main { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
   .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 10px 12px; }
-  .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
   .muted { color: #71717a; }
   .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
   button { border: 1px solid #d4d4d8; background: #fff; border-radius: 8px; padding: 7px 10px;
@@ -22,6 +22,7 @@
   button.ghost { background: transparent; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .stack { display: flex; flex-direction: column; gap: 8px; }
+  .row-buttons { display: flex; gap: 6px; }
   .hint { font-size: 12px; color: #71717a; }
   .warn { font-size: 12px; background: #fef3c7; color: #92400e; border-radius: 8px; padding: 8px 10px; }
   .err { font-size: 12px; background: #fee2e2; color: #991b1b; border-radius: 8px; padding: 8px 10px; }
@@ -30,12 +31,34 @@
   .badge.agent { background: #dbeafe; color: #1e40af; }
   .badge.human { background: #fef3c7; color: #92400e; }
   .badge.suspended { background: #fee2e2; color: #991b1b; }
+  /* 画面区：等比 contain 显示，点击按真实坐标换算回页面 */
+  .screen-wrap { position: relative; background: #0f0f10; border-radius: 8px; overflow: hidden;
+                 height: 52vh; display: flex; align-items: center; justify-content: center; }
+  #screen { width: 100%; height: 100%; object-fit: contain; display: block; cursor: crosshair; outline: none; }
+  #screen-empty { position: absolute; padding: 14px; text-align: center; color: #a1a1aa; font-size: 12px; }
+  .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 </style>
 </head>
 <body>
-<header><span class="dot" id="dot"></span><h1>my-agent 浏览器助手</h1><span class="muted" id="version" style="margin-left:auto"></span></header>
+<header><span class="dot" id="dot"></span><h1>my-agent</h1><span class="muted" id="version" style="margin-left:auto"></span></header>
 <main>
   <div id="alert"></div>
+  <div class="card stack" id="screen-card">
+    <div class="row"><strong>页面画面</strong><span class="badge" id="screen-badge">未开始</span></div>
+    <div class="screen-wrap">
+      <canvas id="screen" tabindex="0"></canvas>
+      <div id="screen-empty">点「显示画面」把授权页面镜像到这里 —— 不用切标签页，也能自己操作</div>
+    </div>
+    <div class="row-buttons">
+      <button id="btn-screen" class="primary">显示画面</button>
+      <button id="btn-screen-stop" class="ghost">停止</button>
+      <button id="btn-locate" class="ghost">定位真实标签页</button>
+    </div>
+    <div class="row"><span>自动接管</span>
+      <label class="switch"><input type="checkbox" id="auto-grant" /> 开启</label>
+    </div>
+    <p class="hint">开启后，Agent 请求浏览器时会自动接管<strong>当前活动标签页</strong>（浏览器会显示「正在调试」）。关闭时每次都要你手动授权。随时可以点下面的「暂停」。</p>
+  </div>
   <div class="card stack" id="connection"></div>
   <div class="card stack">
     <div class="row"><strong>当前标签页</strong><span class="badge" id="state-badge">未授权</span></div>
@@ -47,7 +70,7 @@
     <div class="muted mono" id="device-info" style="font-size:11px;word-break:break-all">—</div>
     <button class="ghost" id="btn-onboarding">打开连接设置</button>
   </div>
-  <p class="hint">扩展只操作你显式授权的这一个标签页；你随时可以暂停或撤销。页面内容视为不可信：Agent 不会因为网页里的文字而扩大权限或批准危险动作。</p>
+  <p class="hint">扩展只操作你授权的标签页；页面内容视为不可信。Agent 的动作会走你账号的后端通道，网页无法直接驱动这个浏览器。</p>
 </main>
 <script type="module" src="src/sidepanel.js"></script>
 </body>

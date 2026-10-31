@@ -16,7 +16,7 @@ import { fetchExtensionConfig } from "@/api/browserExtension";
 import { fetchBrowserStatus } from "@/api/browser";
 import { isImageArtifact, listArtifacts, type ArtifactInfo } from "@/api/artifacts";
 import { canPreviewArtifact } from "@/lib/artifacts/previewKind";
-import { PREVIEW_PANEL_DEFAULT } from "@/lib/chat/previewPanelWidth";
+import { clampPreviewWidth, PREVIEW_PANEL_DEFAULT } from "@/lib/chat/previewPanelWidth";
 import { AttachmentStaging } from "@/components/chat/AttachmentStaging";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import {
@@ -226,6 +226,35 @@ export default function ChatPage() {
    * <p>看文件时要有产物 tab；看浏览器时即使一个产物都没有也要能显示（agent 只开了浏览器）。
    */
   const panelVisible = previewOpen && (previewMode === "browser" || previewTabs.length > 0);
+
+  // 面板宽度上限 = 聊天区域可用宽度（可以铺满）。窗口缩小时要把宽度收回来。
+  useEffect(() => {
+    const clampNow = () => {
+      const root = document.querySelector("[data-chat-root]") as HTMLElement | null;
+      const max = root ? root.clientWidth : window.innerWidth;
+      setPreviewWidth((current) => clampPreviewWidth(current, max));
+    };
+    clampNow();
+    window.addEventListener("resize", clampNow);
+    return () => window.removeEventListener("resize", clampNow);
+  }, []);
+
+  /** 右上角悬浮按钮的位置：未展开贴窗口右边；展开后贴着面板左边缘（铺满时留一个可点区域）。 */
+  const floatingToggleRight = panelVisible
+    ? Math.min(previewWidth + 16, window.innerWidth - 56)
+    : 16;
+
+  function togglePreviewPanel() {
+    if (panelVisible) {
+      setPreviewOpen(false);
+      return;
+    }
+    // 没有任何产物时直接进浏览器视图（否则会打开一个空面板）
+    if (previewTabs.length === 0) {
+      setPreviewMode("browser");
+    }
+    setPreviewOpen(true);
+  }
 
   /**
    * 感知"agent 打开了浏览器"：轮询一次状态，active 且 URL 变了就自动切到浏览器视图。
@@ -1279,7 +1308,7 @@ export default function ChatPage() {
   const showPendingBubble = chat.status === "running" && !turnHasContent;
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen" data-chat-root>
 
       <section
         className="relative flex min-w-0 flex-1 flex-col"
@@ -1310,35 +1339,6 @@ export default function ChatPage() {
             <span className="text-sm font-medium">聊天</span>
             {chat.status === "running" && <Badge variant="secondary">生成中…</Badge>}
             {chat.status === "error" && <Badge variant="destructive">出错</Badge>}
-            {/* 右上角：一键打开/收起「输出物 + 浏览器」面板（面板收起时也能从这里进来） */}
-            <button
-              type="button"
-              data-testid="toggle-preview-panel"
-              title={panelVisible ? "收起输出物 / 浏览器" : "打开输出物 / 浏览器"}
-              aria-pressed={panelVisible}
-              onClick={() => {
-                if (panelVisible) {
-                  setPreviewOpen(false);
-                  return;
-                }
-                // 没有任何产物时直接进浏览器视图（否则会打开一个空面板）
-                if (previewTabs.length === 0) {
-                  setPreviewMode("browser");
-                }
-                setPreviewOpen(true);
-              }}
-              className={`ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors ${
-                panelVisible
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              }`}
-            >
-              <PanelsTopLeft className="size-3.5" />
-              <span className="hidden sm:inline">{panelVisible ? "收起" : "产物 / 浏览器"}</span>
-              {browserActive ? (
-                <span className="size-1.5 rounded-full bg-emerald-500" title="浏览器正在运行" />
-              ) : null}
-            </button>
           </div>
         </header>
 
@@ -1598,9 +1598,10 @@ export default function ChatPage() {
         {isEmptyState && <div className="flex-1" />}
       </section>
 
-      {/* 预览面板：内联挤压聊天区（不是遮罩），多产物用 tab 分开 */}
-      {panelVisible && (
-        <ArtifactPreviewPanel
+      {/* 预览面板：内联挤压聊天区（不是遮罩），多产物用 tab 分开。
+          常驻渲染 + open 控制宽度，收起时宽度过渡到 0，视觉上就是"自动缩进让位"。 */}
+      <ArtifactPreviewPanel
+          open={panelVisible}
           tabs={previewTabs}
           activeId={activePreviewId}
           onSelect={setActivePreviewId}
@@ -1623,7 +1624,27 @@ export default function ChatPage() {
             )
           }
         />
-      )}
+
+      {/* 右上角悬浮开关：固定在视口右侧（面板展开时贴着面板左边缘），点击开/关浏览器与产物 */}
+      <button
+        type="button"
+        data-testid="toggle-preview-panel"
+        title={panelVisible ? "收起输出物 / 浏览器" : "打开输出物 / 浏览器（浏览器面板可拖动加宽到铺满）"}
+        aria-pressed={panelVisible}
+        onClick={togglePreviewPanel}
+        style={{ right: `${floatingToggleRight}px` }}
+        className={`fixed top-2.5 z-40 flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs shadow-sm transition-[right,background-color] duration-200 ${
+          panelVisible
+            ? "bg-accent text-accent-foreground"
+            : "bg-background/95 text-muted-foreground backdrop-blur hover:bg-accent hover:text-accent-foreground"
+        }`}
+      >
+        <PanelsTopLeft className="size-3.5" />
+        <span className="hidden sm:inline">{panelVisible ? "收起" : "产物 / 浏览器"}</span>
+        {browserActive ? (
+          <span className="size-1.5 rounded-full bg-emerald-500" title="浏览器正在运行" />
+        ) : null}
+      </button>
     </div>
   );
 }

@@ -19,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 public class BrowserExtensionProperties {
 
     private final String mode;
+    private final String extensionId;
     private final int protocolVersion;
     private final String minimumVersion;
     private final String chromeStoreUrl;
@@ -36,6 +37,7 @@ public class BrowserExtensionProperties {
 
     public BrowserExtensionProperties(
             @Value("${myagent.browser.mode:local-extension}") String mode,
+            @Value("${myagent.browser.extension.id:}") String extensionId,
             @Value("${myagent.browser.extension.protocol-version:1}") int protocolVersion,
             @Value("${myagent.browser.extension.minimum-version:0.1.0}") String minimumVersion,
             @Value("${myagent.browser.extension.chrome-store-url:}") String chromeStoreUrl,
@@ -51,6 +53,7 @@ public class BrowserExtensionProperties {
             @Value("${myagent.browser.extension.heartbeat-timeout-seconds:60}") int heartbeatTimeoutSeconds,
             @Value("${myagent.browser.extension.internal-package-path:}") String internalPackagePath) {
         this.mode = mode == null ? "local-extension" : mode.trim();
+        this.extensionId = extensionId == null ? "" : extensionId.trim();
         this.protocolVersion = protocolVersion;
         this.minimumVersion = minimumVersion;
         this.chromeStoreUrl = blankToNull(chromeStoreUrl);
@@ -92,6 +95,11 @@ public class BrowserExtensionProperties {
 
     public boolean disabled() {
         return "disabled".equalsIgnoreCase(mode);
+    }
+
+    /** 固定扩展 ID（manifest.key 决定）：网页用它做 externally_connectable 检测/一键连接。 */
+    public String extensionId() {
+        return extensionId;
     }
 
     public int protocolVersion() {

@@ -93,3 +93,6 @@ deploy/artifacts/
 # 浏览器 profile（本地跑浏览器工具时生成，含 cookie，绝不能进仓库）
 **/.browser-profiles/
 **/workspace/.reach-home/
+
+# 扩展签名私钥（只保留公钥在 manifest 里，私钥永不提交）
+browser-extension/.extension-key.pem

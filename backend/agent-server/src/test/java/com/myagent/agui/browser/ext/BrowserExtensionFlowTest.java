@@ -41,7 +41,7 @@ class BrowserExtensionFlowTest {
 
     @BeforeEach
     void setUp() {
-        props = new BrowserExtensionProperties("local-extension", 1, "0.1.0", null, null, "",
+        props = new BrowserExtensionProperties("local-extension", "test-extension-id", 1, "0.1.0", null, null, "",
                 300, 600, 2592000, 1800, 65536, 25, "test-secret", 60, null);
         store = mock(BrowserExtensionStore.class);
         hub = mock(BrowserBridgeHub.class);

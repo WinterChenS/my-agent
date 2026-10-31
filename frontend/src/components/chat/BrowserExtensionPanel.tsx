@@ -29,6 +29,14 @@ import {
 } from "@/api/browserExtension";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  detectBrowser,
+  pingExtension,
+  requestPairing,
+  setAutoGrant as setExtensionAutoGrant,
+  SIDE_PANEL_HINT,
+  type ExtensionPing,
+} from "@/lib/extensionBridge";
 
 /**
  * 本机浏览器连接面板（方案 5.2 的引导状态机）。
@@ -63,6 +71,10 @@ export function BrowserExtensionPanel({
   const [showInstall, setShowInstall] = useState(false);
   const [pairCode, setPairCode] = useState("");
   const [pairMessage, setPairMessage] = useState<string | null>(null);
+  /** 直接问浏览器有没有装扩展（externally_connectable）。null = 检测不到，不代表一定没装。 */
+  const [ping, setPing] = useState<ExtensionPing | null>(null);
+  const [autoGrantBusy, setAutoGrantBusy] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const timer = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
@@ -83,6 +95,24 @@ export function BrowserExtensionPanel({
       if (timer.current) window.clearInterval(timer.current);
     };
   }, [refresh]);
+
+  // 每 5 秒问一次扩展（比状态轮询慢，避免超时堆积）
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      if (!config?.extensionId) {
+        return;
+      }
+      const next = await pingExtension(config.extensionId);
+      if (alive) setPing(next);
+    };
+    tick();
+    const timer = window.setInterval(tick, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [config?.extensionId]);
 
   const devices: BrowserDevice[] = status?.devices ?? [];
   const online = devices.filter((d) => d.online && d.status === "ACTIVE");
@@ -118,6 +148,45 @@ export function BrowserExtensionPanel({
   };
 
   const packageUrl = extensionPackageUrl(config);
+  const browserKind = detectBrowser();
+
+  /** 一键连接：扩展创建配对 → 网页（已登录）批准 → 扩展自己领凭证。用户只点一次。 */
+  const connectBrowser = async () => {
+    if (!config?.extensionId) {
+      return;
+    }
+    setConnecting(true);
+    setError(null);
+    setPairMessage(null);
+    try {
+      const pairing = await requestPairing(config.extensionId);
+      if (!pairing.ok || !pairing.userCode) {
+        setError(pairing.message || "扩展没有返回配对码");
+        return;
+      }
+      await approvePairing(pairing.userCode);
+      setPairMessage("已批准，扩展正在完成连接（几秒内会自动变「已配对」）…");
+      // 等扩展领到凭证后刷一次状态
+      window.setTimeout(() => refresh(), 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "连接失败");
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const toggleAutoGrant = async (enabled: boolean) => {
+    if (!config?.extensionId) {
+      return;
+    }
+    setAutoGrantBusy(true);
+    try {
+      const next = await setExtensionAutoGrant(config.extensionId, enabled);
+      setPing((current) => (current ? { ...current, autoGrant: next } : current));
+    } finally {
+      setAutoGrantBusy(false);
+    }
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -148,6 +217,43 @@ export function BrowserExtensionPanel({
 
         <StatusCard guide={guide} status={status} online={online} />
 
+        {/* 检测到扩展：一键连接 / 自动接管 */}
+        {ping ? (
+          !ping.paired ? (
+            <div className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3">
+              <div className="text-sm font-medium">已检测到浏览器扩展 v{ping.version}</div>
+              <p className="text-xs text-muted-foreground">
+                点一下就完成连接：网页会替你批准配对，扩展直接用设备令牌连上来，不用再去扩展页面里操作。
+              </p>
+              <Button size="sm" disabled={connecting} onClick={connectBrowser}>
+                {connecting ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : null}
+                一键连接这个浏览器
+              </Button>
+              {pairMessage ? <p className="text-[11px] text-emerald-600">{pairMessage}</p> : null}
+            </div>
+          ) : (
+            <div className="space-y-2 rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">自动接管</span>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={ping.autoGrant}
+                    disabled={autoGrantBusy}
+                    onChange={(event) => toggleAutoGrant(event.target.checked)}
+                  />
+                  一次授权，之后自动
+                </label>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                开启后 Agent 请求浏览器时会自动接管<strong>当前活动标签页</strong>，不再逐页点授权；
+                浏览器会显示「正在调试」横幅，你随时可以在侧边栏暂停。
+              </p>
+              <p className="text-[11px] text-muted-foreground">{SIDE_PANEL_HINT}</p>
+            </div>
+          )
+        ) : null}
+
         {guide === "NOT_DETECTED" ? (
           <div className="space-y-2 rounded-lg border p-3">
             <div className="text-sm font-medium">第一步：安装扩展</div>
@@ -156,6 +262,10 @@ export function BrowserExtensionPanel({
               安装器会把设备绑定到你的账号，令牌与网页登录完全分开。
             </p>
             <div className="flex flex-wrap gap-2">
+              <span className="w-full text-[11px] text-muted-foreground">
+                检测到你正在使用 {browserKind === "edge" ? "Edge" : browserKind === "chrome" ? "Chrome" : "未知浏览器"}
+                {browserKind === "other" ? "（扩展只支持 Chrome / Edge 桌面版）" : ""}
+              </span>
               {config?.chromeStoreUrl ? (
                 <Button size="sm" onClick={() => window.open(config.chromeStoreUrl!, "_blank")}>
                   <Download className="mr-1.5 size-3.5" />

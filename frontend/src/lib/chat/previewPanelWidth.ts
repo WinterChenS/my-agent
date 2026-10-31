@@ -1,28 +1,23 @@
 /**
- * 预览面板宽度的约束（用户要求：可以左右拖拽调整它和聊天区的比例）。
+ * 预览面板宽度的约束。
  *
- * <p>三条边界：
- * <ul>
- *   <li>不小于 {@link PREVIEW_PANEL_MIN}（再窄内容就挤成一团了）；</li>
- *   <li>不大于窗口宽度的 {@link PREVIEW_PANEL_MAX_RATIO}（也别把聊天区挤没）；</li>
- *   <li>不大于 {@link PREVIEW_PANEL_MAX}（超大屏上也没必要更宽）。</li>
- * </ul>
+ * <p>用户要求「面板可以铺满」（像 IDE 那样把聊天区挤到 0），所以**不再设上限**；
+ * 只保留一个最小宽度，避免拖成一条缝之后内容不可读、也不知道往哪拖回来。
+ *
+ * <p>上限由调用方用**容器宽度**夹住（`clampPreviewWidth(w, containerWidth)`）——
+ * 不能直接用 `window.innerWidth`，因为左侧还有导航栏，用窗口宽度会把面板推到屏幕外面。
  */
 export const PREVIEW_PANEL_DEFAULT = 448;
 export const PREVIEW_PANEL_MIN = 320;
-export const PREVIEW_PANEL_MAX = 896;
-const PREVIEW_PANEL_MAX_RATIO = 0.7;
-
-/** 这个窗口宽度下允许的最大面板宽度。 */
-export function previewPanelMaxWidth(viewportWidth: number): number {
-  return Math.max(
-    PREVIEW_PANEL_MIN,
-    Math.min(PREVIEW_PANEL_MAX, Math.round(viewportWidth * PREVIEW_PANEL_MAX_RATIO)),
-  );
-}
 
 /** 把想要的宽度夹到合法区间（拖拽时每帧都会调用）。 */
-export function clampPreviewWidth(width: number, viewportWidth: number): number {
-  const max = previewPanelMaxWidth(viewportWidth);
+export function clampPreviewWidth(width: number, containerWidth: number): number {
+  const max = Math.max(PREVIEW_PANEL_MIN, Math.round(containerWidth));
   return Math.min(Math.max(Math.round(width), PREVIEW_PANEL_MIN), max);
+}
+
+/** 面板占据的比例（0~1），铺满时是 1，用于判断"聊天区是否已经不可见"。 */
+export function previewPanelRatio(width: number, containerWidth: number): number {
+  if (containerWidth <= 0) return 0;
+  return Math.min(1, Math.max(0, width / containerWidth));
 }

@@ -108,7 +108,7 @@ describe("ArtifactPreviewPanel", () => {
     expect(onWidthChange).toHaveBeenCalledWith(PREVIEW_PANEL_DEFAULT);
   });
 
-  it("没有 tab 时不渲染面板（避免留一个空壳）", () => {
+  it("没有内容时面板收成 0 宽（常驻占位，保证收起动画有落点）", () => {
     render(
       <ArtifactPreviewPanel
         tabs={[]}
@@ -121,7 +121,9 @@ describe("ArtifactPreviewPanel", () => {
         browserTrigger={null}
       />,
     );
-    expect(screen.queryByTestId("preview-panel")).toBeNull();
+    const panel = screen.getByTestId("preview-panel");
+    expect(panel).toHaveStyle({ width: "0px" });
+    expect(panel).toHaveAttribute("aria-hidden", "true");
   });
 
   it("顶部有「文件 / 浏览器」两个按钮，点击切换视图（互不覆盖）", () => {

@@ -55,6 +55,9 @@ myagent:
     profile-root: ${MYAGENT_BROWSER_PROFILE_ROOT:}
     # 本机浏览器扩展（方案：docs/superpowers/specs/2026-10-31-local-browser-extension-design.md）
     extension:
+      # 固定扩展 ID（manifest.key 的指纹）：网页靠它做 externally_connectable 检测与一键连接。
+      # 换 key 就要同步改这里，否则网页检测不到扩展。
+      id: ${MYAGENT_BROWSER_EXT_ID:ijklemfakolbnlbgephimnjlaejjkmpp}
       protocol-version: ${MYAGENT_BROWSER_EXT_PROTOCOL:1}
       minimum-version: ${MYAGENT_BROWSER_EXT_MIN_VERSION:0.1.0}
       # 商店链接：未上架时留空，前端显示"内测中"而不是失效按钮

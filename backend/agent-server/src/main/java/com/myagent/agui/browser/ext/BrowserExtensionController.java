@@ -64,6 +64,7 @@ public class BrowserExtensionController {
     public Result<Map<String, Object>> config() {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("mode", properties.mode());
+        body.put("extensionId", properties.extensionId());
         body.put("protocolVersion", properties.protocolVersion());
         body.put("minimumVersion", properties.minimumVersion());
         body.put("chromeStoreUrl", properties.chromeStoreUrl());

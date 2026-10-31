@@ -1,8 +1,10 @@
+import { DEFAULT_PLATFORM_URL } from './config.js';
+
 const $ = (id) => document.getElementById(id);
 
 async function load() {
   const state = await chrome.runtime.sendMessage({ type: 'get-state' });
-  $('platform').value = state.platform || 'http://192.168.3.10:18080';
+  $('platform').value = state.platform || DEFAULT_PLATFORM_URL;
   $('pair-result').textContent = state.paired
     ? '已配对，设备 ' + ((state.device && state.device.id) || '') + (state.connection && state.connection.connected
         ? '（已连接）' : '（未连接）')

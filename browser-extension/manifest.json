@@ -4,13 +4,37 @@
   "version": "0.1.0",
   "description": "让 my-agent 在你授权的标签页里操作网页，继续使用该浏览器已有的登录状态。",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "activeTab", "scripting", "sidePanel", "debugger", "alarms", "tabs"],
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "debugger",
+    "scripting",
+    "sidePanel",
+    "storage",
+    "tabs"
+  ],
   "host_permissions": [],
-  "background": { "service_worker": "src/background.js", "type": "module" },
-  "action": { "default_title": "my-agent 浏览器助手" },
-  "side_panel": { "default_path": "sidepanel.html" },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "my-agent 浏览器助手"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "options_page": "onboarding.html",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5MK8ZqtJQZb+F25wippdfZX9WLlbMs2EfwQUHcz6lBms/Stqwojkgro60tM9BUou2LfST3Th1l6o/w70eo1/+W/0OjMS1xwiRfig4QgRdwQsv4ukZr3wrOYJsuBS8BkR4Od0ESBMv77/GE9+oVkiNxWwLV4lYszeVeazJ6neqY2DjuSx3r5B6+7/PPV3LP6CfHZZBkVGxFqAPd+Jul95wlA1roXkUt8ruHWq7+wkjk1nSKvjP2NHZbd6Y8WRtAXxh3at0mS9chkwYwhMydsd9U9OFm1U9uKf450qzQuCpp4/UxmY46CdDbZFTIeEavKaMNMvEF8v+w6mZpNoPQ+T+QIDAQAB",
+  "externally_connectable": {
+    "matches": [
+      "http://192.168.3.10:18080/*",
+      "http://localhost:5173/*",
+      "http://localhost:18080/*",
+      "http://127.0.0.1:5173/*"
+    ]
   }
 }
