@@ -159,7 +159,7 @@ export default function SchedulesPage() {
       const [tasks, agentPage, sessionList, channelList] = await Promise.all([
         listScheduledTasks(),
         listAgentDetails(1, 200),
-        listSessions().catch(() => [] as SessionOption[]),
+        listSessions(1, 100).then((page) => page.records).catch(() => [] as SessionOption[]),
         listChannels().catch(() => [] as ChannelAppInfo[]),
       ]);
       setItems(tasks);

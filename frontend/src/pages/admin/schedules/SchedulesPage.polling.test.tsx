@@ -23,7 +23,7 @@ vi.mock("@/api/scheduledTasks", () => ({
 }));
 vi.mock("@/api/agents", () => ({ listAgentDetails: vi.fn().mockResolvedValue({ records: [] }) }));
 vi.mock("@/api/channels", () => ({ listChannels: vi.fn().mockResolvedValue([]) }));
-vi.mock("@/api/sessions", () => ({ listSessions: vi.fn().mockResolvedValue([]) }));
+vi.mock("@/api/sessions", () => ({ listSessions: vi.fn().mockResolvedValue({ records: [], total: 0, current: 1, size: 20 }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
 const TASK = {

@@ -33,9 +33,17 @@ public class ChatSessionController {
         this.titleService = titleService;
     }
 
+    /**
+     * 会话列表（分页）。
+     *
+     * <p>侧栏是滚动加载：默认每页 20 条，{@code current} 从 1 开始。
+     */
     @GetMapping
-    public Result<List<SessionResponse>> list(@AuthenticationPrincipal JwtPrincipal principal) {
-        return Result.ok(service.list(requireUserId(principal)));
+    public Result<com.myagent.common.PageResult<SessionResponse>> list(
+            @AuthenticationPrincipal JwtPrincipal principal,
+            @RequestParam(defaultValue = "1") long current,
+            @RequestParam(defaultValue = "20") long size) {
+        return Result.ok(service.page(requireUserId(principal), current, size));
     }
 
     @PostMapping

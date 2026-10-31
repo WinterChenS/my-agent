@@ -1,8 +1,14 @@
 import { apiFetch } from "./client";
 import type { AgentSummary, ChatMessage, ChatSession, PageResult } from "./types";
 
-export function listSessions() {
-  return apiFetch<ChatSession[]>("/api/sessions");
+/**
+ * 会话列表（后端分页）。
+ *
+ * <p>侧栏滚动加载：默认每页 20 条，`current` 从 1 开始。
+ * 需要"一次性拿很多"的地方（比如定时任务里的会话下拉）显式传大 size（后端上限 100）。
+ */
+export function listSessions(current = 1, size = 20) {
+  return apiFetch<PageResult<ChatSession>>(`/api/sessions?current=${current}&size=${size}`);
 }
 
 export function createSession(agentId: number, threadId?: string) {

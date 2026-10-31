@@ -29,6 +29,24 @@ public class ChatSessionService {
         this.messageMapper = messageMapper;
     }
 
+    /**
+     * 分页取会话（侧栏滚动加载）。
+     *
+     * <p>按 id 倒序 = 最近的在前；每页上限 100，避免一次把历史全拖出来。
+     */
+    public com.myagent.common.PageResult<SessionResponse> page(Long userId, long current, long size) {
+        long page = Math.max(1, current);
+        long pageSize = Math.min(Math.max(1, size), 100);
+        var result = sessionMapper.selectPage(
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, pageSize),
+                Wrappers.<ChatSession>lambdaQuery()
+                        .eq(ChatSession::getUserId, userId)
+                        .orderByDesc(ChatSession::getId));
+        return com.myagent.common.PageResult.of(
+                result.getRecords().stream().map(ChatSessionService::toResponse).toList(),
+                result.getTotal(), page, pageSize);
+    }
+
     public List<SessionResponse> list(Long userId) {
         return sessionMapper
                 .selectList(Wrappers.<ChatSession>lambdaQuery()

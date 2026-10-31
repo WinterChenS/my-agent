@@ -17,9 +17,12 @@ export function SessionList() {
   const navigate = useNavigate();
   const sessions = useSessionStore((s) => s.sessions);
   const loading = useSessionStore((s) => s.loading);
+  const loadingMore = useSessionStore((s) => s.loadingMore);
+  const hasMore = useSessionStore((s) => s.hasMore);
   const error = useSessionStore((s) => s.error);
   const runningThreads = useSessionStore((s) => s.runningThreads);
   const refresh = useSessionStore((s) => s.refresh);
+  const loadMore = useSessionStore((s) => s.loadMore);
   const setRunningThreads = useSessionStore((s) => s.setRunningThreads);
   /*
    * 当前打开的是哪条，从 URL 路径推导（URL 是唯一来源）。
@@ -54,6 +57,19 @@ export function SessionList() {
       window.clearInterval(timer);
     };
   }, [setRunningThreads]);
+
+  /**
+   * 滚动到接近底部时加载下一页（后端分页，每页 20 条）。
+   *
+   * <p>留 120px 提前量：滚到底再请求会让用户看到一瞬空白；
+   * `loadMore` 自己做了 in-flight/hasMore 去重，所以滚动事件多触发几次也不会有并发请求。
+   */
+  function onScroll(event: React.UIEvent<HTMLDivElement>) {
+    const node = event.currentTarget;
+    if (node.scrollHeight - node.scrollTop - node.clientHeight < 120) {
+      void loadMore();
+    }
+  }
 
   /** 点历史会话：把 id 带进 URL 并跳转 —— 链接即可复制粘贴分享/刷新还原 */
   function openSession(item: ChatSession) {
@@ -101,7 +117,11 @@ export function SessionList() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-2 pt-0">
+      <div
+        className="min-h-0 flex-1 overflow-auto p-2 pt-0"
+        onScroll={onScroll}
+        data-testid="session-scroll"
+      >
         {error && <p className="text-destructive p-2 text-xs">{error}</p>}
         {!error && sessions.length === 0 && (
           <p className="text-muted-foreground p-2 text-xs">
@@ -155,6 +175,18 @@ export function SessionList() {
             ))}
           </div>
         ))}
+        {/* 分页：滚到底部自动加载下一页 */}
+        {hasMore && (
+          <p
+            data-testid="session-load-more"
+            className="text-muted-foreground px-2 py-2 text-center text-[11px]"
+          >
+            {loadingMore ? "正在加载更多…" : "滚动加载更多"}
+          </p>
+        )}
+        {!hasMore && sessions.length > 0 && (
+          <p className="text-muted-foreground/60 px-2 py-2 text-center text-[11px]">没有更多了</p>
+        )}
       </div>
     </div>
   );
