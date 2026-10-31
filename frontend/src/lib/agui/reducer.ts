@@ -9,7 +9,14 @@
  *   <li>非展示型 CUSTOM（如 token_usage）直接忽略
  * </ul>
  */
-import type { AguiEventLike, CardKind, ChatItem, ChatState, SubagentItem } from "./types";
+import type {
+  AguiEventLike,
+  CardKind,
+  ChatItem,
+  ChatState,
+  SubagentItem,
+  SubagentStep,
+} from "./types";
 
 export const initialChatState: ChatState = { items: [], status: "idle", runId: null };
 
@@ -307,6 +314,7 @@ function applySubagent(state: ChatState, name: string, value: unknown): ChatStat
           text: "",
           thinking: "",
           toolCalls: [],
+          steps: [],
           confirm: null,
         };
 
@@ -323,25 +331,37 @@ function applySubagent(state: ChatState, name: string, value: unknown): ChatStat
       }
       break;
     }
-    case "subagent.text":
-      current.text += asString(payload.delta) ?? "";
+    case "subagent.text": {
+      const delta = asString(payload.delta) ?? "";
+      current.text += delta;
+      current.steps = appendSubagentText(current.steps, "text", delta);
       break;
-    case "subagent.thinking":
-      current.thinking += asString(payload.delta) ?? "";
+    }
+    case "subagent.thinking": {
+      const delta = asString(payload.delta) ?? "";
+      current.thinking += delta;
+      current.steps = appendSubagentText(current.steps, "thinking", delta);
       break;
+    }
     case "subagent.tool_call": {
       if (type === "TOOL_CALL_END") {
         current.toolCalls = markLastToolDone(current.toolCalls);
+        current.steps = markLastToolStepDone(current.steps);
       } else {
         current.toolCalls = [
           ...current.toolCalls,
           { name: asString(payload.toolName) ?? "tool", done: false },
+        ];
+        current.steps = [
+          ...current.steps,
+          { kind: "tool", name: asString(payload.toolName) ?? "tool", done: false },
         ];
       }
       break;
     }
     case "subagent.tool_result":
       current.toolCalls = markLastToolDone(current.toolCalls);
+      current.steps = markLastToolStepDone(current.steps);
       break;
     case "subagent.require_confirm":
       current.confirm = asString(payload.message) ?? "子 Agent 请求确认";
@@ -355,6 +375,35 @@ function applySubagent(state: ChatState, name: string, value: unknown): ChatStat
       ? state.items.map((item, i) => (i === index ? current : item))
       : [...state.items, current];
   return { ...state, items };
+}
+
+/** 追加一段正文/思考：连续同类型的 delta 合并到同一个步骤里（否则每个字符一个节点）。 */
+function appendSubagentText(
+  steps: SubagentStep[],
+  kind: "text" | "thinking",
+  delta: string,
+): SubagentStep[] {
+  if (!delta) {
+    return steps;
+  }
+  const last = steps[steps.length - 1];
+  if (last && last.kind === kind) {
+    return [...steps.slice(0, -1), { kind, text: last.text + delta }];
+  }
+  return [...steps, { kind, text: delta }];
+}
+
+/** 把最后一个还没结束的**工具步骤**标记为已结束。 */
+function markLastToolStepDone(steps: SubagentStep[]): SubagentStep[] {
+  const next = [...steps];
+  for (let i = next.length - 1; i >= 0; i -= 1) {
+    const step = next[i];
+    if (step.kind === "tool" && !step.done) {
+      next[i] = { ...step, done: true };
+      break;
+    }
+  }
+  return next;
 }
 
 /** 把最后一个还没结束的工具调用标记为已结束。 */

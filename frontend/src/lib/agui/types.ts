@@ -47,6 +47,18 @@ export interface SubagentToolCall {
   done: boolean;
 }
 
+/**
+ * 子 Agent 的一个步骤，**按事件到达的先后顺序**排列。
+ *
+ * <p>为什么需要它：子 Agent 的思考/正文/工具调用是**交错**发生的
+ * （思考 → 调工具 → 输出 → 再思考 → 再调工具），以前把三类分别累加进三个字段，
+ * 渲染时只能固定成"所有思考、所有正文、所有工具"，顺序就乱了。
+ */
+export type SubagentStep =
+  | { kind: "thinking"; text: string }
+  | { kind: "text"; text: string }
+  | { kind: "tool"; name: string; done: boolean };
+
 /** 子 Agent 事件聚合出来的条目（Phase 12 / D26）。 */
 export interface SubagentItem {
   kind: "subagent";
@@ -56,9 +68,14 @@ export interface SubagentItem {
   /** 子 Agent 名称（lifecycle 里给的名字，取不到时用 source 末段） */
   name: string;
   status: "running" | "done";
+  /** 所有正文拼接（兼容旧用法；渲染请用 steps） */
   text: string;
+  /** 所有思考拼接（兼容旧用法；渲染请用 steps） */
   thinking: string;
+  /** 工具调用列表（计数/兼容用；渲染请用 steps） */
   toolCalls: SubagentToolCall[];
+  /** 按时间顺序的步骤序列（渲染用这个） */
+  steps: SubagentStep[];
   /** 需要用户确认的提示（subagent.require_confirm） */
   confirm: string | null;
 }

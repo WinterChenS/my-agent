@@ -267,6 +267,35 @@ describe("reduceEvent：子 Agent 事件（Phase 12 / D26）", () => {
     expect(item.kind === "subagent" && item.status).toBe("done");
   });
 
+  it("思考/正文/工具调用按**到达顺序**排列（不再按类型分组）", () => {
+    const state = applyAll([
+      sub("subagent.lifecycle", { source: "t1/gp", type: "AGENT_START", name: "gp" }),
+      sub("subagent.thinking", { source: "t1/gp", type: "THINKING_DELTA", delta: "先想" }),
+      sub("subagent.tool_call", { source: "t1/gp", type: "TOOL_CALL_START", toolName: "read_file" }),
+      sub("subagent.tool_call", { source: "t1/gp", type: "TOOL_CALL_END" }),
+      sub("subagent.text", { source: "t1/gp", type: "TEXT_BLOCK_DELTA", delta: "读到了" }),
+      sub("subagent.thinking", { source: "t1/gp", type: "THINKING_DELTA", delta: "再想" }),
+      sub("subagent.tool_call", { source: "t1/gp", type: "TOOL_CALL_START", toolName: "grep" }),
+    ]);
+
+    const item = state.items[0];
+    if (item.kind !== "subagent") {
+      throw new Error("应为子 Agent 条目");
+    }
+    expect(item.steps.map((step) => step.kind)).toEqual([
+      "thinking",
+      "tool",
+      "text",
+      "thinking",
+      "tool",
+    ]);
+    // 连续同类型 delta 合并成一步，避免每个字符一个节点
+    expect(item.steps[0]).toEqual({ kind: "thinking", text: "先想" });
+    expect(item.steps[2]).toEqual({ kind: "text", text: "读到了" });
+    expect(item.steps[1]).toEqual({ kind: "tool", name: "read_file", done: true });
+    expect(item.steps[4]).toEqual({ kind: "tool", name: "grep", done: false });
+  });
+
   it("工具调用按开始/结束计数并标记完成", () => {
     const state = applyAll([
       sub("subagent.tool_call", { source: "t1/gp", type: "TOOL_CALL_START", toolName: "read_file" }),
