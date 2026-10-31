@@ -44,8 +44,8 @@ function render() {
   if (view.pending && view.pending.url && !view.autoGrant) {
     const div = document.createElement('div');
     div.className = 'warn';
-    div.textContent = '任务请求操作：' + view.pending.url + '。点下面「授权这个标签页」后 Agent 会直接开始；'
-      + '不想每次点就打开上面的「自动接管」。';
+    div.textContent = '任务请求操作：' + view.pending.url
+      + '。Agent 会把它开在一个独立的小窗口里（不占用你的标签页）；点下面「授权这个标签页」后它就直接开始。';
     alert.appendChild(div);
   }
 

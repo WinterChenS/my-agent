@@ -347,41 +347,81 @@ async function autoGrantTab(command) {
 }
 
 /** Agent 要打开的网页：已授权且同站就就地导航，否则新建标签页并等它加载完。 */
+/**
+ * 在「Agent 专用窗口」里打开网址。
+ *
+ * <p>为什么用 popup 窗口而不是 iframe：站点普遍设 X-Frame-Options/CSP 拒绝被嵌，
+ * 而且 iframe 里属于第三方上下文、SameSite Cookie 不发送 → 登录态直接失效。
+ * popup 是**顶级浏览上下文**，跟普通标签页一样真实渲染、登录态完整、也能被 CDP 操作。
+ */
 async function openUrlForCommand(url) {
-  const existing = await grant();
-  if (existing) {
-    const tab = await chrome.tabs.get(existing.tabId).catch(() => null);
-    if (tab) {
-      let sameSite = false;
-      try {
-        sameSite = new URL(tab.url).origin === new URL(url).origin;
-      } catch {
-        sameSite = false;
-      }
-      // 同站：直接就地导航。跨站只有在「自动接管」开启时才沿用这个标签页，
-      // 否则按方案要求重新授权（内容是另一个站点了）。
-      if (sameSite || (await get('myagent.autoGrant', false))) {
+  const saved = await get(AGENT_WINDOW_KEY);
+  if (saved && saved.windowId) {
+    const win = await chrome.windows.get(saved.windowId).catch(() => null);
+    if (win) {
+      const [tab] = await chrome.tabs.query({ windowId: saved.windowId });
+      if (tab) {
+        // 复用同一个 Agent 窗口（用户的"工作窗口"语义），不再开新标签页
         await attach(tab.id);
         const state = await navigate(tab.id, url);
-        existing.url = state.url;
-        existing.origin = new URL(state.url).origin;
-        existing.title = state.title;
-        existing.pageRevision = (existing.pageRevision || 0) + 1;
-        await set(KEYS.grant, existing);
-        const current = (await control()) || {};
-        if (current.controlSessionId) {
-          sendTabState(current.controlSessionId, {
-            ...existing,
-            controlState: current.state || 'AGENT_CONTROL',
-          });
-        }
+        await updateGrantAfterNavigate(tab.id, state);
         return await chrome.tabs.get(tab.id).catch(() => tab);
       }
     }
+    await remove(AGENT_WINDOW_KEY);
   }
-  const created = await chrome.tabs.create({ url, active: true });
-  await waitForTabReady(created.id);
-  return await chrome.tabs.get(created.id).catch(() => created);
+
+  const bounds = await popupBounds();
+  const created = await chrome.windows.create({ url, type: 'popup', focused: true, ...bounds });
+  const tabs = created.tabs && created.tabs.length ? created.tabs : await chrome.tabs.query({ windowId: created.id });
+  const tab = tabs[0];
+  if (!tab) {
+    throw new BridgeError(ERR.OUTCOME_UNKNOWN, '无法创建浏览器窗口');
+  }
+  await set(AGENT_WINDOW_KEY, { windowId: created.id, tabId: tab.id });
+  await waitForTabReady(tab.id);
+  const ready = await chrome.tabs.get(tab.id).catch(() => tab);
+  await updateGrantAfterNavigate(tab.id, { url: ready.url, title: ready.title, text: '' });
+  return ready;
+}
+
+/** 导航之后同步 grant（origin/title/版本），并告知服务端当前页面。 */
+async function updateGrantAfterNavigate(tabId, state) {
+  const existing = await grant();
+  if (!existing) {
+    return;
+  }
+  try {
+    existing.url = state && state.url ? state.url : existing.url;
+    existing.origin = existing.url ? new URL(existing.url).origin : existing.origin;
+    existing.title = state && state.title ? state.title : existing.title;
+    existing.pageRevision = (existing.pageRevision || 0) + 1;
+    await set(KEYS.grant, existing);
+    const current = (await control()) || {};
+    if (current.controlSessionId) {
+      sendTabState(current.controlSessionId, {
+        ...existing,
+        controlState: current.state || 'AGENT_CONTROL',
+      });
+    }
+  } catch {
+    /* 页面还在跳转，下次上报会补上 */
+  }
+}
+
+/** 贴在当前窗口右侧：不需要 system.display 权限，用聚焦窗口的位置推算。 */
+async function popupBounds() {
+  const width = 560;
+  try {
+    const win = await chrome.windows.getLastFocused();
+    const height = Math.max(600, Math.min(1100, Math.round((win.height || 900) * 0.92)));
+    const left =
+      win.left != null && win.width != null ? Math.max(0, win.left + win.width - width - 24) : undefined;
+    const top = win.top != null ? win.top + 24 : undefined;
+    return { width, height, left, top };
+  } catch {
+    return { width, height: 900 };
+  }
 }
 
 async function waitForTabReady(tabId, timeoutMs = 12000) {
@@ -427,6 +467,8 @@ async function grantTab(command, tab) {
 // ---------------- 侧边栏实时画面（CDP screencast） ----------------
 
 const SCREENCAST_FPS = 10;
+/** Agent 专用的浏览器窗口（popup）：不占用用户的标签页，也不切走用户正在看的页面。 */
+const AGENT_WINDOW_KEY = 'myagent.agentWindow';
 let screencast = null; // {tabId, lastSentAt}
 
 async function startScreencast() {
@@ -528,6 +570,23 @@ chrome.debugger.onDetach.addListener(async (source, reason) => {
     sendEvent(c.controlSessionId, 'debugger_detached', '调试会话已结束（' + reason + '）', g.pageRevision || 0);
     chrome.runtime.sendMessage({ type: 'bridge-status', payload: { error: '调试会话已结束：' + reason } }).catch(() => {});
   }
+});
+
+chrome.windows.onRemoved.addListener(async (windowId) => {
+  const saved = await get(AGENT_WINDOW_KEY);
+  if (!saved || saved.windowId !== windowId) {
+    return;
+  }
+  await remove(AGENT_WINDOW_KEY);
+  const current = await control();
+  const g = await grant();
+  if (current && current.controlSessionId) {
+    current.state = 'SUSPENDED';
+    await set(KEYS.control, current);
+    sendEvent(current.controlSessionId, 'tab_closed', 'Agent 浏览器窗口已关闭', g ? g.pageRevision || 0 : 0);
+  }
+  await remove(KEYS.grant);
+  chrome.runtime.sendMessage({ type: 'bridge-status', payload: { windowClosed: true } }).catch(() => {});
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
@@ -650,8 +709,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'locate-tab': {
         const g = await grant();
         if (g) {
-          await chrome.tabs.update(g.tabId, { active: true }).catch(() => {});
-          await chrome.windows.update((await chrome.tabs.get(g.tabId)).windowId, { focused: true }).catch(() => {});
+          const tab = await chrome.tabs.get(g.tabId).catch(() => null);
+          if (tab) {
+            await chrome.tabs.update(g.tabId, { active: true }).catch(() => {});
+            await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+          }
         }
         sendResponse(await buildState());
         break;
