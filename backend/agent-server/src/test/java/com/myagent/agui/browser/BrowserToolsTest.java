@@ -34,7 +34,11 @@ class BrowserToolsTest {
         props = new BrowserProperties(true, "chrome-headless-shell", 1280, 800, 60, 15, 600, 1, 30000, true);
         registry = mock(BrowserSessionRegistry.class);
         when(registry.properties()).thenReturn(props);
-        tools = new BrowserTools(registry);
+        com.myagent.agui.browser.ext.BrowserToolService service =
+                mock(com.myagent.agui.browser.ext.BrowserToolService.class);
+        when(service.localMode()).thenReturn(false);
+        when(service.enabled()).thenReturn(true);
+        tools = new BrowserTools(registry, service);
     }
 
     private static ToolCallParam param(Map<String, Object> input) {
@@ -55,7 +59,7 @@ class BrowserToolsTest {
         List<String> names = tools.register(toolkit);
 
         assertThat(names).containsExactlyInAnyOrder("browser_open", "browser_read", "browser_click",
-                "browser_type", "browser_scroll", "browser_screenshot", "browser_close");
+                "browser_type", "browser_scroll", "browser_screenshot", "browser_close", "browser_status");
         assertThat(toolkit.getToolNames()).contains("browser_open", "browser_click");
         assertThat(tools.tools()).allMatch(AgentTool::isReadOnly);
     }
@@ -66,7 +70,11 @@ class BrowserToolsTest {
         BrowserProperties off = new BrowserProperties(false, "chrome-headless-shell", 1280, 800, 60, 15, 600, 1, 30000, true);
         BrowserSessionRegistry offRegistry = mock(BrowserSessionRegistry.class);
         when(offRegistry.properties()).thenReturn(off);
-        assertThat(new BrowserTools(offRegistry).register(new Toolkit())).isEmpty();
+        com.myagent.agui.browser.ext.BrowserToolService offService =
+                mock(com.myagent.agui.browser.ext.BrowserToolService.class);
+        when(offService.enabled()).thenReturn(false);
+        when(offService.localMode()).thenReturn(false);
+        assertThat(new BrowserTools(offRegistry, offService).register(new Toolkit())).isEmpty();
     }
 
     @Test

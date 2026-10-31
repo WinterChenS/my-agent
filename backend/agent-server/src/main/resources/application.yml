@@ -29,8 +29,12 @@ mybatis-plus:
       id-type: auto
 
 myagent:
-  # 浏览器：服务端真实 Chromium（Agent 操作，用户在预览区看画面并可接管）
+  # 浏览器：
+  #   mode=local-extension（默认）→ 操作用户本机已登录的真实标签页（浏览器扩展 + WSS 命令通道）
+  #   mode=remote           → 旧的"服务端无头 Chromium + 实时画面"（保留可回退）
+  #   mode=disabled         → 都不启用
   browser:
+    mode: ${MYAGENT_BROWSER_MODE:local-extension}
     enabled: ${MYAGENT_BROWSER_ENABLED:true}
     # 二进制路径（镜像里由 build-artifacts 下载 chrome-headless-shell 并设 MYAGENT_BROWSER_BIN）
     chrome-binary: ${MYAGENT_BROWSER_BIN:chrome-headless-shell}
@@ -49,6 +53,27 @@ myagent:
     allow-user-input: ${MYAGENT_BROWSER_ALLOW_USER_INPUT:true}
     # 每用户 profile 目录（登录态隔离）；留空 = <workspace>/.browser-profiles
     profile-root: ${MYAGENT_BROWSER_PROFILE_ROOT:}
+    # 本机浏览器扩展（方案：docs/superpowers/specs/2026-10-31-local-browser-extension-design.md）
+    extension:
+      protocol-version: ${MYAGENT_BROWSER_EXT_PROTOCOL:1}
+      minimum-version: ${MYAGENT_BROWSER_EXT_MIN_VERSION:0.1.0}
+      # 商店链接：未上架时留空，前端显示"内测中"而不是失效按钮
+      chrome-store-url: ${MYAGENT_BROWSER_EXT_CHROME_STORE:}
+      edge-store-url: ${MYAGENT_BROWSER_EXT_EDGE_STORE:}
+      # 允许的扩展来源（chrome-extension://<id>）；留空 = 不校验来源，仅依赖设备令牌（内测方便）
+      allowed-extension-origins: ${MYAGENT_BROWSER_EXT_ORIGINS:}
+      pairing-ttl-seconds: ${MYAGENT_BROWSER_EXT_PAIRING_TTL:300}
+      device-token-ttl-seconds: ${MYAGENT_BROWSER_EXT_TOKEN_TTL:600}
+      refresh-token-ttl-seconds: ${MYAGENT_BROWSER_EXT_REFRESH_TTL:2592000}
+      control-session-ttl-seconds: ${MYAGENT_BROWSER_EXT_SESSION_TTL:1800}
+      max-command-bytes: ${MYAGENT_BROWSER_EXT_MAX_CMD:65536}
+      command-timeout-seconds: ${MYAGENT_BROWSER_EXT_CMD_TIMEOUT:25}
+      # 设备令牌 HMAC 密钥：生产必须配置，否则重启后旧令牌失效（扩展会自动重连/重配对）
+      token-secret: ${MYAGENT_BROWSER_EXT_TOKEN_SECRET:}
+      heartbeat-timeout-seconds: ${MYAGENT_BROWSER_EXT_HEARTBEAT:60}
+      cleanup-millis: ${MYAGENT_BROWSER_EXT_CLEANUP:60000}
+      # 内测包路径（未上架时给用户下载 zip）；留空 = 不显示下载
+      internal-package-path: ${MYAGENT_BROWSER_EXT_PACKAGE:}
   # 联网出口：Agent Reach（只读：搜索 / 读网页 / GitHub / V2EX / B站 / YouTube 字幕）
   # 它是 Agent 访问互联网的**唯一途径**：其它工具不该直接出网。
   reach:

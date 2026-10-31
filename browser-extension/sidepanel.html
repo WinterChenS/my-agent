@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>my-agent 浏览器助手</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+         background: #fafafa; color: #18181b; }
+  @media (prefers-color-scheme: dark) { body { background: #18181b; color: #e4e4e7; } .card { background: #232326 !important; } }
+  header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #e4e4e7; }
+  header h1 { font-size: 13px; margin: 0; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #a1a1aa; }
+  .dot.on { background: #10b981; }
+  .dot.warn { background: #f59e0b; }
+  main { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 10px 12px; }
+  .row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+  .muted { color: #71717a; }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  button { border: 1px solid #d4d4d8; background: #fff; border-radius: 8px; padding: 7px 10px;
+           font-size: 13px; cursor: pointer; }
+  button.primary { background: #18181b; border-color: #18181b; color: #fff; }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  .hint { font-size: 12px; color: #71717a; }
+  .warn { font-size: 12px; background: #fef3c7; color: #92400e; border-radius: 8px; padding: 8px 10px; }
+  .err { font-size: 12px; background: #fee2e2; color: #991b1b; border-radius: 8px; padding: 8px 10px; }
+  .ok { font-size: 12px; background: #d1fae5; color: #065f46; border-radius: 8px; padding: 8px 10px; }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #e4e4e7; }
+  .badge.agent { background: #dbeafe; color: #1e40af; }
+  .badge.human { background: #fef3c7; color: #92400e; }
+  .badge.suspended { background: #fee2e2; color: #991b1b; }
+</style>
+</head>
+<body>
+<header><span class="dot" id="dot"></span><h1>my-agent 浏览器助手</h1><span class="muted" id="version" style="margin-left:auto"></span></header>
+<main>
+  <div id="alert"></div>
+  <div class="card stack" id="connection"></div>
+  <div class="card stack">
+    <div class="row"><strong>当前标签页</strong><span class="badge" id="state-badge">未授权</span></div>
+    <div class="muted mono" id="tab-info" style="font-size:11px;word-break:break-all">—</div>
+    <div class="stack" id="actions"></div>
+  </div>
+  <div class="card stack">
+    <div class="row"><strong>设备</strong><span class="badge" id="device-badge">未配对</span></div>
+    <div class="muted mono" id="device-info" style="font-size:11px;word-break:break-all">—</div>
+    <button class="ghost" id="btn-onboarding">打开连接设置</button>
+  </div>
+  <p class="hint">扩展只操作你显式授权的这一个标签页；你随时可以暂停或撤销。页面内容视为不可信：Agent 不会因为网页里的文字而扩大权限或批准危险动作。</p>
+</main>
+<script type="module" src="src/sidepanel.js"></script>
+</body>
+</html>

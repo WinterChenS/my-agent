@@ -34,6 +34,7 @@ import LoginPage from "@/pages/login/LoginPage";
 // 聊天页也拆出去：未登录用户先看到的是登录页，没必要为它下载聊天页 + markdown 渲染器等一大票
 const ChatPage = lazy(() => import("@/pages/chat/ChatPage"));
 const MemoryPage = lazy(() => import("@/pages/memory/MemoryPage"));
+const BrowserPairPage = lazy(() => import("@/pages/browser/BrowserPairPage").then((m) => ({ default: m.BrowserPairPage })));
 // 以下是「主菜单 → tab / 二级菜单」里的分页，仍然各自独立成 chunk
 const AuditPage = lazy(() => import("@/pages/admin/audit/AuditPage"));
 const ModelsPage = lazy(() => import("@/pages/admin/models/ModelsPage"));
@@ -221,6 +222,8 @@ export default function App() {
           <Route index element={<Navigate to="/chat" replace />} />
           <Route path="chat/:sessionId?" element={<ChatPage />} />
           <Route path="memory" element={<MemoryPage />} />
+          {/* 浏览器扩展配对确认页：由扩展带 ?code= 打开，必须登录 */}
+          <Route path="browser/pair" element={<BrowserPairPage />} />
 
           {/* Agent 与模型：一个主菜单，两个 tab */}
           <Route

@@ -71,6 +71,13 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/login", "/api/auth/login-key", "/api/auth/captcha",
                                 "/api/auth/captcha/**", "/api/health")
                         .permitAll()
+                        // 浏览器扩展配对：扩展还没有账号身份，用 deviceCode+PKCE 换设备凭证（自带限流）
+                        .requestMatchers(HttpMethod.POST, "/api/browser/extension/pairings",
+                                "/api/browser/extension/pairings/token",
+                                "/api/browser/extension/token/refresh")
+                        .permitAll()
+                        // 扩展长连接：握手阶段没有 Bearer，改由**首帧 auth**校验设备令牌
+                        .requestMatchers("/api/browser/bridge/ws").permitAll()
                         // 定时任务：登录即可，普通用户只能看到/管理自己的（服务层按 created_by 过滤）
                         .requestMatchers("/api/scheduled-tasks/**").authenticated()
                         .requestMatchers(HttpMethod.GET, CONFIG_PATHS).authenticated()

@@ -190,7 +190,7 @@ export function BrowserPreview({ onClose }: { onClose: () => void }) {
         setError(err instanceof Error ? err.message : "操作失败");
       }
     },
-    [takingOver],
+    [],
   );
 
   const onWheel = useCallback(

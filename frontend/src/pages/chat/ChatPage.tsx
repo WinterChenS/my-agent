@@ -11,6 +11,8 @@ import { ArtifactBrowserPopover } from "@/components/chat/ArtifactBrowserPopover
 import { ArtifactBox } from "@/components/chat/ArtifactBox";
 import { ArtifactPreviewPanel } from "@/components/chat/ArtifactPreviewPanel";
 import { BrowserPreview } from "@/components/chat/BrowserPreview";
+import { BrowserExtensionPanel } from "@/components/chat/BrowserExtensionPanel";
+import { fetchExtensionConfig } from "@/api/browserExtension";
 import { fetchBrowserStatus } from "@/api/browser";
 import { isImageArtifact, listArtifacts, type ArtifactInfo } from "@/api/artifacts";
 import { canPreviewArtifact } from "@/lib/artifacts/previewKind";
@@ -165,6 +167,17 @@ export default function ChatPage() {
   const [previewMode, setPreviewMode] = useState<"files" | "browser">("files");
   /** 当前用户是否有一个活跃的浏览器会话（用于按钮上的小绿点 + 面板可见性） */
   const [browserActive, setBrowserActive] = useState(false);
+  /**
+   * 浏览器实现方式：默认「本机扩展」（真实标签页 + 复用登录态）。
+   * 只有后端显式配成 remote 时才用旧的服务端 Chromium 实时画面。
+   */
+  const [browserMode, setBrowserMode] = useState<"local-extension" | "remote">("local-extension");
+  // 后端配置决定用哪种实现：本机扩展（默认）或旧的服务端 Chromium
+  useEffect(() => {
+    fetchExtensionConfig()
+      .then((cfg) => setBrowserMode(cfg.mode === "remote" ? "remote" : "local-extension"))
+      .catch(() => undefined);
+  }, []);
   /** 已经自动切过去的那次浏览器会话（URL）——避免每 3 秒把用户强行拽回浏览器视图 */
   const lastBrowserAutoKey = useRef<string | null>(null);
   /**
@@ -1599,7 +1612,16 @@ export default function ChatPage() {
           mode={previewMode}
           onModeChange={setPreviewMode}
           browserActive={browserActive}
-          browserContent={<BrowserPreview onClose={() => setPreviewOpen(false)} />}
+          browserContent={
+            browserMode === "remote" ? (
+              <BrowserPreview onClose={() => setPreviewOpen(false)} />
+            ) : (
+              <BrowserExtensionPanel
+                conversationId={session?.threadId ?? undefined}
+                onClose={() => setPreviewOpen(false)}
+              />
+            )
+          }
         />
       )}
     </div>

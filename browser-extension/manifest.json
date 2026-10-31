@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "my-agent 浏览器助手",
+  "version": "0.1.0",
+  "description": "让 my-agent 在你授权的标签页里操作网页，继续使用该浏览器已有的登录状态。",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "activeTab", "scripting", "sidePanel", "debugger", "alarms", "tabs"],
+  "host_permissions": [],
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "action": { "default_title": "my-agent 浏览器助手" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "options_page": "onboarding.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
