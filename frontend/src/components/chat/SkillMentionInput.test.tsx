@@ -18,7 +18,13 @@ function skills(count: number): SkillOption[] {
 
 function setup(count = 5) {
   const { container } = render(
-    <SkillMentionInput parts={[]} onPartsChange={vi.fn()} skills={skills(count)} />,
+    <SkillMentionInput
+      parts={[]}
+      onPartsChange={vi.fn()}
+      skills={skills(count)}
+      onSubmit={vi.fn()}
+      onPasteFiles={vi.fn()}
+    />,
   );
   const dom = container.querySelector('[contenteditable="true"]') as HTMLElement;
   dom.textContent = "/";
