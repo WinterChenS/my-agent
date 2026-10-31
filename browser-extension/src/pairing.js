@@ -41,7 +41,7 @@ async function pollPairing(deviceCode, ttlSeconds) {
   const pairing = await get('myagent.pairing');
   const deadline = Date.now() + ttlSeconds * 1000;
   while (Date.now() < deadline) {
-    await sleep(3000);
+    await sleep(5000);
     const res = await fetch(`${base}/api/browser/extension/pairings/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

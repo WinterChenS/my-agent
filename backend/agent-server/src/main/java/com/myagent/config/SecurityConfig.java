@@ -60,6 +60,9 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
+                // 浏览器扩展的 Origin 是 chrome-extension://<id>，必须走 CORS 才能 fetch。
+                // 规则只在 BrowserExtensionCorsConfig 里注册给 /api/browser/extension/**。
+                .cors(org.springframework.security.config.Customizer.withDefaults())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(e -> e.authenticationEntryPoint(authEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
@@ -68,6 +71,8 @@ public class SecurityConfig {
                         // Spring Security 会在已提交的响应上抛异常（Task 4.2 实测发现）。
                         .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR)
                         .permitAll()
+                        // CORS 预检：不带 Authorization，必须放行，否则扩展连配对都发不出去
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/login", "/api/auth/login-key", "/api/auth/captcha",
                                 "/api/auth/captcha/**", "/api/health")
                         .permitAll()

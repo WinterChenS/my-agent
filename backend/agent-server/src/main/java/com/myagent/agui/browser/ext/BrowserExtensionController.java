@@ -121,7 +121,7 @@ public class BrowserExtensionController {
 
     @PostMapping("/pairings/token")
     public Result<Map<String, Object>> claimPairing(@RequestBody ClaimRequest request, HttpServletRequest http) {
-        rateLimiter.check("pair-claim:" + clientIp(http), 20);
+        rateLimiter.check("pair-claim:" + clientIp(http), 40);
         var tokens = pairing.claim(
                 request.deviceCode(), request.verifier(), request.extensionVersion(),
                 request.protocolVersion() == null ? properties.protocolVersion() : request.protocolVersion());
