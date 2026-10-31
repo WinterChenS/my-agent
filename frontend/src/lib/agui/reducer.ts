@@ -614,7 +614,8 @@ export function itemsFromReplaySteps(
         kind: "tool",
         id: key,
         name: String(step["name"] ?? "tool"),
-        args: "",
+        // 参数是逐 delta 拼出的 JSON（后端 ReplayRecorder 记下来了）；不填就显示"参数（无）"
+        args: String(step["args"] ?? ""),
         result: null,
         state: step["done"] === false ? "ready" : "done",
       });

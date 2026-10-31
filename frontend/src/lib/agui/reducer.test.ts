@@ -445,6 +445,28 @@ describe("replayMessages：按 agui_meta.replay 还原思考/工具/子 Agent", 
     expect(textItem.kind === "text" && textItem.content).toBe("最终回答");
   });
 
+  it("replay 里的工具步骤带参数时还原 args（刷新后不再显示「参数（无）」）", () => {
+    const state = replayMessages([
+      {
+        role: "ASSISTANT",
+        content: "跑完了",
+        aguiMeta: {
+          replay: [
+            { kind: "tool", name: "execute", args: '{"command":"ls -la"}', done: true },
+            { kind: "text", text: "跑完了" },
+          ],
+        },
+      },
+    ]);
+    const tool = state.items[0];
+    if (tool.kind !== "tool") {
+      throw new Error("应为工具条目");
+    }
+    expect(tool.name).toBe("execute");
+    expect(tool.args).toBe('{"command":"ls -la"}');
+    expect(tool.state).toBe("done");
+  });
+
   it("replay 带卡片时还原成可交互卡片（刷新后卡片不再消失）", () => {
     const state = replayMessages([
       {

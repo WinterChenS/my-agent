@@ -36,6 +36,11 @@ final class ReplayRecorder {
             appendText("thinking", chunk.delta());
         } else if (event instanceof AguiEvent.ToolCallStart start) {
             addTool(start.toolCallName());
+        } else if (event instanceof AguiEvent.ToolCallArgs args) {
+            // 参数是逐 delta 拼出来的 JSON：不记下来，刷新后工具卡就变成"参数（无）"
+            appendToolArgs(args.delta());
+        } else if (event instanceof AguiEvent.ToolCallChunk chunk) {
+            appendToolArgs(chunk.delta());
         } else if (event instanceof AguiEvent.ToolCallEnd) {
             markLastToolDone(steps);
         } else if (event instanceof AguiEvent.ToolCallResult) {
@@ -104,8 +109,23 @@ final class ReplayRecorder {
         Map<String, Object> step = new LinkedHashMap<>();
         step.put("kind", "tool");
         step.put("name", name == null || name.isBlank() ? "tool" : name);
+        step.put("args", "");
         step.put("done", false);
         steps.add(step);
+    }
+
+    /** 把参数 delta 拼到「最后一个还没结束的工具步骤」上（AG-UI 的 TOOL_CALL_ARGS）。 */
+    private void appendToolArgs(String delta) {
+        if (delta == null || delta.isEmpty()) {
+            return;
+        }
+        for (int i = steps.size() - 1; i >= 0; i -= 1) {
+            Map<String, Object> step = steps.get(i);
+            if ("tool".equals(step.get("kind")) && Boolean.FALSE.equals(step.get("done"))) {
+                step.put("args", String.valueOf(step.getOrDefault("args", "")) + delta);
+                return;
+            }
+        }
     }
 
     private static void markLastToolDone(List<Map<String, Object>> list) {

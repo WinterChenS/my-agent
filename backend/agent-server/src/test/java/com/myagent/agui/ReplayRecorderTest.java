@@ -56,6 +56,21 @@ class ReplayRecorderTest {
     }
 
     @Test
+    @DisplayName("工具参数逐 delta 拼接后落库（否则刷新后显示「参数（无）」）")
+    void keepsToolArguments() {
+        ReplayRecorder recorder = new ReplayRecorder();
+        recorder.accept(toolStart("c1", "execute"));
+        recorder.accept(new AguiEvent.ToolCallArgs("t1", "r1", "c1", "{\"command\":"));
+        recorder.accept(new AguiEvent.ToolCallArgs("t1", "r1", "c1", "\"ls -la\"}"));
+        recorder.accept(toolEnd("c1"));
+
+        List<Map<String, Object>> steps = recorder.steps();
+        assertThat(steps).hasSize(1);
+        assertThat(steps.get(0)).containsEntry("kind", "tool").containsEntry("name", "execute")
+                .containsEntry("args", "{\"command\":\"ls -la\"}").containsEntry("done", true);
+    }
+
+    @Test
     @DisplayName("交互卡片也进 replay（否则刷新/接续后卡片直接消失）")
     void keepsInteractiveCards() {
         ReplayRecorder recorder = new ReplayRecorder();
