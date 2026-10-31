@@ -234,7 +234,7 @@ export function BrowserExtensionPanel({
           ) : (
             <div className="space-y-2 rounded-lg border p-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">自动接管</span>
+                <span className="text-sm font-medium">自动接管（默认开启）</span>
                 <label className="flex items-center gap-2 text-xs">
                   <input
                     type="checkbox"
@@ -246,8 +246,8 @@ export function BrowserExtensionPanel({
                 </label>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                开启后 Agent 请求浏览器时会自动接管<strong>当前活动标签页</strong>，不再逐页点授权；
-                浏览器会显示「正在调试」横幅，你随时可以在侧边栏暂停。
+                默认开启：Agent 在<strong>自己的小窗口</strong>里操作，不会碰你正在看的页面；不再逐页点授权。
+                浏览器会显示「正在调试」横幅，你随时可以在侧边栏暂停或关掉这个开关。
               </p>
               <p className="text-[11px] text-muted-foreground">{SIDE_PANEL_HINT}</p>
             </div>

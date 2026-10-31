@@ -102,7 +102,7 @@ async function handleCommand(command) {
       }
 
       // 一次性全局授权：打开即接管，直接进 AGENT_CONTROL（用户已同意 agent 控制）
-      if (await get('myagent.autoGrant', false)) {
+      if (await get(KEYS.autoGrant, true)) {
         const picked = tab || (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
         if (picked) {
           const granted = await grantTab(command, picked);
@@ -336,10 +336,23 @@ async function runAction(command, g) {
  * 代价是 Chrome 会显示「正在调试」横幅 —— 这是用户可见的安全提示，我们只在用户显式开启后才这样。
  */
 async function autoGrantTab(command) {
-  if (!(await get('myagent.autoGrant', false))) {
+  if (!(await get(KEYS.autoGrant, true))) {
     return null;
   }
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  // 优先用「Agent 专用窗口」里的标签页 —— 自动接管默认开启，
+  // 绝不能把用户当前正在看的页面（可能是网银/邮箱）当成操作目标。
+  let tab = null;
+  const saved = await get(AGENT_WINDOW_KEY);
+  if (saved && saved.windowId) {
+    const win = await chrome.windows.get(saved.windowId).catch(() => null);
+    if (win) {
+      [tab] = await chrome.tabs.query({ windowId: saved.windowId });
+    }
+  }
+  if (!tab || !tab.url) {
+    const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    tab = active;
+  }
   if (!tab || !tab.url) {
     return null;
   }
@@ -625,7 +638,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
           installId: await chrome.storage.local.get('myagent.installId').then((o) => o['myagent.installId']),
           paired: !!(await auth()).accessToken,
           connected: status().connected,
-          autoGrant: !!(await get('myagent.autoGrant', false)),
+          autoGrant: !!(await get(KEYS.autoGrant, true)),
         });
         break;
       case 'bridge.state':
@@ -643,7 +656,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         break;
       }
       case 'bridge.setAutoGrant':
-        await set('myagent.autoGrant', !!message.enabled);
+        await set(KEYS.autoGrant, !!message.enabled);
         sendResponse({ ok: true, autoGrant: !!message.enabled });
         break;
       default:
@@ -702,7 +715,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(await handleScreencastInput(message));
         break;
       case 'set-auto-grant': {
-        await set('myagent.autoGrant', !!message.enabled);
+        await set(KEYS.autoGrant, !!message.enabled);
         sendResponse(await buildState());
         break;
       }
@@ -790,11 +803,7 @@ async function grantCurrentTab() {
     pageRevision: g.pageRevision,
   });
   sendTabState(controlSessionId, { ...g, controlState: 'AGENT_CONTROL' });
-  // 第一次授权顺手打开「自动接管」：用户要的就是"授权一次、之后自动"。
-  // 只有用户显式关过（false）才保持关闭（null = 从没设置过）。
-  if ((await get('myagent.autoGrant', null)) === null) {
-    await set('myagent.autoGrant', true);
-  }
+  // 自动接管默认开启（见 KEYS.autoGrant），用户可在侧边栏关掉
   await remove(KEYS.pending);
 
   // 只有「复用用户当前标签页」的情况才需要导航到目标网址（Agent 自己开过页的话已经是目标页了）
@@ -831,6 +840,6 @@ async function buildState() {
     pending,
     version: chrome.runtime.getManifest().version,
     extensionId: chrome.runtime.id,
-    autoGrant: !!(await get('myagent.autoGrant', false)),
+    autoGrant: !!(await get(KEYS.autoGrant, true)),
   };
 }

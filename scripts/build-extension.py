@@ -57,8 +57,7 @@ def main():
     if not platform:
         raise SystemExit(
             '缺少平台地址：请在 .env 里设置 MYAGENT_PUBLIC_BASE_URL（例如 https://agent.example.com），'
-            '或传 --platform-url。
-'
+            '或传 --platform-url。' + chr(10) +
             '（故意不提供默认值：避免把内网地址烘进要发布的扩展包里）'
         )
 

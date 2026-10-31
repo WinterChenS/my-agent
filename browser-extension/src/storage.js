@@ -10,6 +10,8 @@ export const KEYS = {
   grant: 'myagent.tabGrant',
   control: 'myagent.controlState',
   pending: 'myagent.pendingGrant',
+  // v2：默认开启自动接管（旧键名保留不动，等于给老用户重置一次默认值）
+  autoGrant: 'myagent.autoGrant.v2',
 };
 
 export async function get(key, fallback = null) {
