@@ -108,7 +108,26 @@ describe("ArtifactPreviewPanel", () => {
     expect(onWidthChange).toHaveBeenCalledWith(PREVIEW_PANEL_DEFAULT);
   });
 
-  it("没有内容时面板收成 0 宽（常驻占位，保证收起动画有落点）", () => {
+  it("收起（open=false）且没有内容时收成 0 宽（保证收起动画有落点）", () => {
+    render(
+      <ArtifactPreviewPanel
+        tabs={[]}
+        activeId={null}
+        onSelect={vi.fn()}
+        onCloseTab={vi.fn()}
+        onClose={vi.fn()}
+        width={PREVIEW_PANEL_DEFAULT}
+        onWidthChange={vi.fn()}
+        browserTrigger={null}
+        open={false}
+      />,
+    );
+    const panel = screen.getByTestId("preview-panel");
+    expect(panel).toHaveStyle({ width: "0px" });
+    expect(panel).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("展开但没有产物时显示空状态（不再把面板关掉）", () => {
     render(
       <ArtifactPreviewPanel
         tabs={[]}
@@ -122,8 +141,11 @@ describe("ArtifactPreviewPanel", () => {
       />,
     );
     const panel = screen.getByTestId("preview-panel");
-    expect(panel).toHaveStyle({ width: "0px" });
-    expect(panel).toHaveAttribute("aria-hidden", "true");
+    expect(panel).toHaveStyle({ width: `${PREVIEW_PANEL_DEFAULT}px` });
+    expect(screen.getByTestId("preview-empty")).toHaveTextContent("还没有产物");
+    // 空状态下仍然可以在「文件 / 浏览器」之间切换
+    expect(screen.getByTestId("preview-mode-files")).toBeInTheDocument();
+    expect(screen.getByTestId("preview-mode-browser")).toBeInTheDocument();
   });
 
   it("顶部有「文件 / 浏览器」两个按钮，点击切换视图（互不覆盖）", () => {

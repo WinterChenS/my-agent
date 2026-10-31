@@ -65,15 +65,72 @@ export function ArtifactPreviewPanel({
   const effectiveWidth = visible ? width : 0;
   const widthClass = resizing ? "" : "transition-[width] duration-200 ease-out";
 
-  // 没有内容时只留一个 0 宽占位（不能 return null，否则收起动画无处可去）
+  // 没有内容：收起时留 0 宽占位（收起动画要落点）；**展开时显示空状态**
+  // （用户反馈：没有产物时点「文件」会把侧栏关掉，应该打开并提示"还没有产物"）
   if (!hasContent) {
+    if (!open) {
+      return (
+        <aside
+          data-testid="preview-panel"
+          aria-hidden
+          className={`shrink-0 overflow-hidden ${widthClass}`}
+          style={{ width: 0 }}
+        />
+      );
+    }
     return (
       <aside
         data-testid="preview-panel"
-        aria-hidden
-        className={`shrink-0 overflow-hidden ${widthClass}`}
-        style={{ width: 0 }}
-      />
+        className={`relative flex shrink-0 flex-col overflow-hidden border-l ${widthClass}`}
+        style={{ width: `${width}px` }}
+      >
+        <div className="flex items-center gap-1 border-b px-2 py-1.5">
+          <div className="bg-muted flex shrink-0 items-center gap-0.5 rounded-md p-0.5">
+            <button
+              type="button"
+              data-testid="preview-mode-files"
+              aria-pressed
+              className="bg-background flex items-center gap-1 rounded px-1.5 py-1 text-xs shadow-sm"
+            >
+              <FileText className="size-3.5" />
+              <span className="hidden sm:inline">文件</span>
+            </button>
+            <button
+              type="button"
+              data-testid="preview-mode-browser"
+              title="浏览器（agent 正在操作的页面）"
+              aria-pressed={false}
+              onClick={() => onModeChange?.("browser")}
+              className="text-muted-foreground hover:text-foreground flex items-center gap-1 rounded px-1.5 py-1 text-xs transition-colors"
+            >
+              <Globe className="size-3.5" />
+              <span className="hidden sm:inline">浏览器</span>
+            </button>
+          </div>
+          <button
+            type="button"
+            aria-label="关闭面板"
+            title="关闭面板"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground ml-auto rounded p-1 transition-colors"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+        <div
+          data-testid="preview-empty"
+          className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center"
+        >
+          <FileText className="text-muted-foreground/40 size-8" />
+          <p className="text-sm font-medium">还没有产物</p>
+          <p className="text-muted-foreground max-w-[16rem] text-xs leading-relaxed">
+            Agent 交付的文件、图片、表格会出现在这里。也可以先切到「浏览器」，看它正在操作哪个网页。
+          </p>
+          <Button variant="outline" size="sm" onClick={() => onModeChange?.("browser")}>
+            切换到浏览器
+          </Button>
+        </div>
+      </aside>
     );
   }
 

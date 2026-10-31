@@ -244,7 +244,11 @@ export default function ChatPage() {
    *
    * <p>看文件时要有产物 tab；看浏览器时即使一个产物都没有也要能显示（agent 只开了浏览器）。
    */
-  const panelVisible = previewOpen && (previewMode === "browser" || previewTabs.length > 0);
+  /**
+   * 面板是否展开。**不再要求"有产物/在浏览器视图"** —— 用户点开就应该看到面板，
+   * 没内容时里面显示"还没有产物"（原来点「文件」会把侧栏直接关掉）。
+   */
+  const panelVisible = previewOpen;
 
   // 面板宽度上限 = 聊天区域可用宽度（可以铺满）。窗口缩小时要把宽度收回来。
   useEffect(() => {
