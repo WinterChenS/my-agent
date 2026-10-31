@@ -37,6 +37,16 @@ describe("ThinkingBlock：思考中展开、结束折叠", () => {
     expect(screen.getByTestId("thinking-content").textContent).toContain("先看需求");
   });
 
+  it("历史回放（初始就是已结束）默认折叠，点一下能展开", () => {
+    render(<ThinkingBlock item={item("当时的思考", false)} />);
+
+    expect(screen.getByText("已思考（5 字）")).toBeTruthy();
+    expect(screen.queryByTestId("thinking-content")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("thinking-toggle"));
+    expect(screen.getByTestId("thinking-content").textContent).toContain("当时的思考");
+  });
+
   it("内容随增量增长（同一个 streaming 状态下重渲染）", () => {
     const { rerender } = render(<ThinkingBlock item={item("第一步", true)} />);
     rerender(<ThinkingBlock item={item("第一步，第二步", true)} />);

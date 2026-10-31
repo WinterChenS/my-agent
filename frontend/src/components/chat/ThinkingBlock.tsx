@@ -19,7 +19,10 @@ type ThinkingItem = Extract<ChatItem, { kind: "thinking" }>;
  * 放进全局状态会让每次 delta 都触发一次全树重渲染，长思考（几千 token）时明显卡。
  */
 export function ThinkingBlock({ item }: { item: ThinkingItem }) {
-  const [open, setOpen] = useState(true);
+  // 思考中默认展开（看得见增量）；**已结束的默认折叠** ——
+  // 历史会话回放时 thinking 一上来就是 streaming=false，若还用 true，
+  // 刷新后一堆思考块全摊开，会把对话正文顶下去。
+  const [open, setOpen] = useState(item.streaming);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const wasStreaming = useRef(item.streaming);
 
