@@ -122,7 +122,19 @@ export default function ChatPage() {
    * 每项都能「撤回」（内容回到输入框）。
    */
   const [queued, setQueued] = useState<
-    { id: string; parts: MentionPart[]; text: string; label: string }[]
+    {
+      id: string;
+      parts: MentionPart[];
+      text: string;
+      label: string;
+      /**
+       * 这条在**入队之前**就已经回显成用户气泡了（卡片选项走的就是这条路）。
+       *
+       * <p>不标记的话，队列 flush 时会再补一条一样的本地气泡 —— 用户实测就是
+       * "确认卡片之后出现两个一样的气泡"。
+       */
+      echoed?: boolean;
+    }[]
   >([]);
   /**
    * 队列的 ref 镜像。
@@ -860,8 +872,9 @@ export default function ChatPage() {
       if (queuedRef.current.length > 0) {
         const next = queuedRef.current[0];
         setQueued((prev) => prev.slice(1));
-        // 与手动发送一致：先补一条**本地回显气泡**，否则消息发到后端了、界面上却看不到
-        if (stillOnScreen()) {
+        // 与手动发送一致：先补一条**本地回显气泡**，否则消息发到后端了、界面上却看不到。
+        // 但卡片选项入队时已经回显过（echoed=true），再补就会出现两个一样的气泡。
+        if (stillOnScreen() && !next.echoed) {
           setChat((prev) => ({
             items: [
               ...prev.items,
@@ -1108,6 +1121,8 @@ export default function ChatPage() {
           parts: [{ type: "text", text: value }],
           text: value,
           label: value.length > 40 ? `${value.slice(0, 40)}…` : value,
+          // 上面已经插过本地气泡了（为了让卡片立刻消失），flush 时不要再插一次
+          echoed: true,
         },
       ]);
       return;
