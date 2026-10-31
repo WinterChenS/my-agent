@@ -351,6 +351,11 @@ export default function ChatPage() {
   const activeSessionIdRef = useRef<number | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  /** 消息区滚动容器（流式输出时要一直贴底，否则只能看着思考块被挤出去） */
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  /** 用户在往上翻历史时先不要抢滚动；滚回底部附近再恢复自动贴底 */
+  const autoScrollRef = useRef(true);
+  const scrollRafRef = useRef(0);
 
   useEffect(() => {
     listAgents()
@@ -390,9 +395,59 @@ export default function ChatPage() {
     activeSessionIdRef.current = session?.id ?? null;
   }, [session?.id]);
 
+  /**
+   * 流式输出时贴底。
+   *
+   * <p>为什么必须用 `scrollTop = scrollHeight`（即时）而不是 `scrollIntoView({behavior:"smooth"})`：
+   * 思考/正文是**逐 delta** 更新的，几次更新之间只有几十毫秒，smooth 动画会被下一次调用不断重置，
+   * 表现就是"滚不到底、内容一直在下面"（用户反馈）。
+   *
+   * <p>用 requestAnimationFrame 合并同一帧内的多次触发，避免每个 delta 都强制布局。
+   */
   useEffect(() => {
-    bottomRef.current?.scrollIntoView?.({ behavior: "smooth" });
+    if (!autoScrollRef.current) {
+      return;
+    }
+    window.cancelAnimationFrame(scrollRafRef.current);
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
   }, [chat.items]);
+
+  /** 用户手动上翻（离底部超过 80px）时暂停自动贴底；滚回底部自动恢复。 */
+  function onChatScroll() {
+    const el = scrollRef.current;
+    if (!el) {
+      return;
+    }
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    autoScrollRef.current = distance < 80;
+  }
+
+  /** 强制回到底部（发消息、切会话、本轮结束时用）。 */
+  function stickToBottom(immediate = true) {
+    autoScrollRef.current = true;
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+      if (!immediate) {
+        window.requestAnimationFrame(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        });
+      }
+    }
+  }
+
+  // 切会话：回到底部（否则新会话停在上一轮的滚动位置）
+  useEffect(() => {
+    stickToBottom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
 
   // 换会话：预览面板整个清空（tab 是「这条会话的产物」，跨会话留着只会指错东西）
   useEffect(() => {
@@ -939,6 +994,7 @@ export default function ChatPage() {
     if (stillOnScreen()) {
       setChat((prev) => ({ ...prev, status: "running" }));
       setBusy(true);
+      stickToBottom();
     }
     // tier1-upgrades ③：登记为「后台盯梢」，用户切走后跑完会收到站内提示
     watchingRuns.current.set(active.id, active.title ?? `会话 ${active.id}`);
@@ -1479,7 +1535,12 @@ export default function ChatPage() {
           </div>
         )}
 
-        <div className={isEmptyState ? "hidden" : "flex-1 overflow-auto"}>
+        <div
+          ref={scrollRef}
+          onScroll={onChatScroll}
+          className={isEmptyState ? "hidden" : "flex-1 overflow-auto"}
+          data-testid="chat-scroller"
+        >
           <div data-testid="chat-column" className="mx-auto w-full max-w-3xl space-y-4 p-4">
             {renderItemNodes()}
             {showPendingBubble && <PendingIndicator />}
