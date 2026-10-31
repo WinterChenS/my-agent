@@ -29,6 +29,11 @@ mybatis-plus:
       id-type: auto
 
 myagent:
+  # 平台对外地址（含端口，例如 https://agent.example.com）。
+  # **上线真实环境只改这个变量**：扩展打包的平台地址、内测包下载链接、
+  # 以及给扩展的 externally_connectable 都用它派生，不在代码里写死任何 IP。
+  platform:
+    public-base-url: ${MYAGENT_PUBLIC_BASE_URL:}
   # 浏览器：
   #   mode=local-extension（默认）→ 操作用户本机已登录的真实标签页（浏览器扩展 + WSS 命令通道）
   #   mode=remote           → 旧的"服务端无头 Chromium + 实时画面"（保留可回退）

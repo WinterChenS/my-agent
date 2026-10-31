@@ -9,6 +9,10 @@ import { apiFetch } from "./client";
 export interface BrowserExtensionConfig {
   mode: string;
   extensionId?: string;
+  /** 平台对外地址（后端配置 myagent.platform.public-base-url）；空 = 用当前来源 */
+  platformUrl?: string | null;
+  /** 内测包绝对下载地址（由后端按配置派生，前端不再拼 IP） */
+  extensionPackageUrl?: string | null;
   protocolVersion: number;
   minimumVersion: string;
   chromeStoreUrl?: string | null;
@@ -126,8 +130,13 @@ export function approvePairing(userCode: string) {
   });
 }
 
-/** 扩展内测包下载地址（后端静态资源；没配置时返回 null）。 */
+/**
+ * 扩展内测包下载地址。
+ *
+ * <p>优先用后端按 `myagent.platform.public-base-url` 生成的**绝对地址**；
+ * 没配时退回相对路径（浏览器会用当前来源）。**前端不拼任何 IP/域名。**
+ */
 export function extensionPackageUrl(config: BrowserExtensionConfig | null): string | null {
-  if (!config?.internalPackagePath) return null;
-  return config.internalPackagePath;
+  if (!config) return null;
+  return config.extensionPackageUrl || config.internalPackagePath || null;
 }

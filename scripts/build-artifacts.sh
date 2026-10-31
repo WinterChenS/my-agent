@@ -23,6 +23,21 @@ fi
 cp target/agent-server-*.jar "$ARTIFACTS/app.jar"
 echo "    -> $ARTIFACTS/app.jar ($(du -h "$ARTIFACTS/app.jar" | cut -f1))"
 
+echo "==> 打包浏览器扩展（地址取自 MYAGENT_PUBLIC_BASE_URL）"
+if [ -f "$ROOT/.env" ]; then
+  set +u
+  # shellcheck disable=SC1091
+  . "$ROOT/.env"
+  set -u
+fi
+if [ -n "${MYAGENT_PUBLIC_BASE_URL:-}" ]; then
+  python "$ROOT/scripts/build-extension.py" --platform-url "$MYAGENT_PUBLIC_BASE_URL"
+  mkdir -p "$ROOT/frontend/public/downloads"
+  cp "$ARTIFACTS/my-agent-extension.zip" "$ROOT/frontend/public/downloads/"
+else
+  echo "    跳过：.env 里没有 MYAGENT_PUBLIC_BASE_URL（上线前务必配置）"
+fi
+
 echo "==> 构建前端 dist"
 cd "$ROOT/frontend"
 # 已经有 node_modules 就直接 build（本机 dev server 正在用它们，npm ci 会锁文件失败）

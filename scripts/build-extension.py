@@ -5,8 +5,8 @@
 用户可以直接「加载已解压的扩展程序」，打包只为分发方便。
 
 关键点是**把平台地址烘焙进扩展**：
-  python scripts/build-extension.py --platform-url http://192.168.3.10:18080
-这样用户装完不用手填地址；换了部署域名重新打一次包即可。
+  MYAGENT_PUBLIC_BASE_URL=https://agent.example.com python scripts/build-extension.py
+这样用户装完不用手填地址；换了部署域名只改这个环境变量、重新打一次包即可（代码里没有写死的地址）。
 """
 import argparse
 import base64
@@ -21,7 +21,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'browser-extension')
 OUT_DIR = os.path.join(ROOT, 'deploy', 'artifacts')
 OUT = os.path.join(OUT_DIR, 'my-agent-extension.zip')
-DEFAULT_PLATFORM = 'http://192.168.3.10:18080'
+# 平台地址**只从配置来**（.env 的 MYAGENT_PUBLIC_BASE_URL，或 --platform-url）。
+# 故意不设默认值：避免上线真实环境还烘进内网 IP。
+CONFIGURED_PLATFORM = os.environ.get('MYAGENT_PUBLIC_BASE_URL', '').strip()
 
 
 def extension_id() -> str:
@@ -46,9 +48,19 @@ def extern_matches(platform_url: str) -> list:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--platform-url', default=os.environ.get('MYAGENT_BROWSER_EXT_PLATFORM', DEFAULT_PLATFORM))
+    parser.add_argument(
+        '--platform-url',
+        default=os.environ.get('MYAGENT_BROWSER_EXT_PLATFORM', CONFIGURED_PLATFORM),
+    )
     args = parser.parse_args()
-    platform = args.platform_url.rstrip('/')
+    platform = (args.platform_url or '').strip().rstrip('/')
+    if not platform:
+        raise SystemExit(
+            '缺少平台地址：请在 .env 里设置 MYAGENT_PUBLIC_BASE_URL（例如 https://agent.example.com），'
+            '或传 --platform-url。
+'
+            '（故意不提供默认值：避免把内网地址烘进要发布的扩展包里）'
+        )
 
     # 1) 把地址写进 src/config.js（保留固定扩展 ID）
     config_path = os.path.join(SRC, 'src/config.js')

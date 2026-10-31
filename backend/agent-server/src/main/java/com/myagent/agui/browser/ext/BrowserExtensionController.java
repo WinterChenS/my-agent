@@ -69,7 +69,12 @@ public class BrowserExtensionController {
         body.put("minimumVersion", properties.minimumVersion());
         body.put("chromeStoreUrl", properties.chromeStoreUrl());
         body.put("edgeStoreUrl", properties.edgeStoreUrl());
-        body.put("internalPackagePath", properties.internalPackagePath());
+        String packagePath = properties.internalPackagePath();
+        body.put("internalPackagePath", packagePath);
+        // 绝对地址由配置推导：配了 public-base-url 就给绝对链接，没配就用相对路径
+        // （浏览器会用当前来源，内网/多域名部署也不用改代码）
+        body.put("extensionPackageUrl", absolute(properties.platformBaseUrl(), packagePath));
+        body.put("platformUrl", properties.platformBaseUrl());
         body.put("commandTimeoutSeconds", properties.commandTimeoutSeconds());
         body.put("controlSessionTtlSeconds", properties.controlSessionTtlSeconds());
         return Result.ok(body);
@@ -240,6 +245,19 @@ public class BrowserExtensionController {
         body.put("lastError", row.lastError());
         body.put("expiresAt", row.expiresAt().toString());
         return body;
+    }
+
+    private static String absolute(String baseUrl, String path) {
+        if (path == null || path.isBlank()) {
+            return null;
+        }
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            return path;
+        }
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return path;
+        }
+        return baseUrl + (path.startsWith("/") ? path : "/" + path);
     }
 
     private static String clientIp(HttpServletRequest request) {

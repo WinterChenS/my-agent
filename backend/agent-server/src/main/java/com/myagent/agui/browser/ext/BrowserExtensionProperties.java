@@ -19,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 public class BrowserExtensionProperties {
 
     private final String mode;
+    private final String platformBaseUrl;
     private final String extensionId;
     private final int protocolVersion;
     private final String minimumVersion;
@@ -37,6 +38,7 @@ public class BrowserExtensionProperties {
 
     public BrowserExtensionProperties(
             @Value("${myagent.browser.mode:local-extension}") String mode,
+            @Value("${myagent.platform.public-base-url:}") String platformBaseUrl,
             @Value("${myagent.browser.extension.id:}") String extensionId,
             @Value("${myagent.browser.extension.protocol-version:1}") int protocolVersion,
             @Value("${myagent.browser.extension.minimum-version:0.1.0}") String minimumVersion,
@@ -53,6 +55,8 @@ public class BrowserExtensionProperties {
             @Value("${myagent.browser.extension.heartbeat-timeout-seconds:60}") int heartbeatTimeoutSeconds,
             @Value("${myagent.browser.extension.internal-package-path:}") String internalPackagePath) {
         this.mode = mode == null ? "local-extension" : mode.trim();
+        String base = platformBaseUrl == null ? "" : platformBaseUrl.trim();
+        this.platformBaseUrl = base.isEmpty() ? "" : stripTrailingSlash(base);
         this.extensionId = extensionId == null ? "" : extensionId.trim();
         this.protocolVersion = protocolVersion;
         this.minimumVersion = minimumVersion;
@@ -77,6 +81,14 @@ public class BrowserExtensionProperties {
         return Arrays.stream(raw.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
+    private static String stripTrailingSlash(String value) {
+        String result = value;
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
+    }
+
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
     }
@@ -95,6 +107,11 @@ public class BrowserExtensionProperties {
 
     public boolean disabled() {
         return "disabled".equalsIgnoreCase(mode);
+    }
+
+    /** 平台对外地址；空 = 用浏览器当前来源（相对路径），便于内网/多域名部署。 */
+    public String platformBaseUrl() {
+        return platformBaseUrl;
     }
 
     /** 固定扩展 ID（manifest.key 决定）：网页用它做 externally_connectable 检测/一键连接。 */

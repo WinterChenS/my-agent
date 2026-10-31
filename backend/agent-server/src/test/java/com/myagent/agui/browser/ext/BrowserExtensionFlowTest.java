@@ -41,7 +41,7 @@ class BrowserExtensionFlowTest {
 
     @BeforeEach
     void setUp() {
-        props = new BrowserExtensionProperties("local-extension", "test-extension-id", 1, "0.1.0", null, null, "",
+        props = new BrowserExtensionProperties("local-extension", "http://localhost:18080", "test-extension-id", 1, "0.1.0", null, null, "",
                 300, 600, 2592000, 1800, 65536, 25, "test-secret", 60, null);
         store = mock(BrowserExtensionStore.class);
         hub = mock(BrowserBridgeHub.class);
@@ -349,6 +349,15 @@ class BrowserExtensionFlowTest {
         org.mockito.Mockito.verify(store).attachConversation("cs-reuse", "thread-new");
         // 不应该新建会话
         org.mockito.Mockito.verify(store, org.mockito.Mockito.never()).insertSession(any());
+    }
+
+    @Test
+    @DisplayName("平台地址从配置来（去掉尾部斜杠），代码里不写死任何 IP")
+    void platformBaseUrlComesFromConfig() {
+        assertThat(props.platformBaseUrl()).isEqualTo("http://localhost:18080");
+        var empty = new BrowserExtensionProperties("local-extension", "  ", "id", 1, "0.1.0", null, null, "",
+                300, 600, 2592000, 1800, 65536, 25, "s", 60, null);
+        assertThat(empty.platformBaseUrl()).isEmpty();
     }
 
     // ---------------- fixtures ----------------
