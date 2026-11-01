@@ -91,7 +91,7 @@
 - 默认 **agent 独占**：用户看到画面但不能点（画布 `pointer-events:none`）。
 - 用户点「我接管」→ 服务端给该会话加锁：**agent 的下一步工具调用立即返回
   「用户正在操作，请等待」**（不是静默失败，模型能理解并停下）；用户点「交还」后恢复。
-- 高危动作（提交表单、付款、发消息、下载）无论谁在操作都走**审批卡**（已有 `demo_confirm_card`）。
+- 高危动作（提交表单、付款、发消息、下载）无论谁在操作都走**审批卡**（已有 `ask_user_choice`）。
 - 不做"两边同时乱点"——那是 bug 温床，不是功能。
 
 **"点击/输入看得见"怎么实现**：
@@ -116,7 +116,7 @@
 | **产物预览区 tab 机制** | 新增一种 tab 类型 `browser`，和 image/csv 并列，不用改布局 |
 | **artifact 管道** | L1/L2 的每一步截图都作为 artifact 存档 → "回放 agent 做过什么" |
 | **ReachUrlPolicy（SSRF 护栏）** | 浏览器的 `open` 必须过同一套：禁内网/云元数据/非 http/敏感端口 |
-| **审批卡（demo_confirm_card）** | 高危动作人工确认 |
+| **审批卡（ask_user_choice）** | 高危动作人工确认 |
 | **agent-reach 的 HOME 隔离思路** | 每用户一个 browser profile 目录，登录态互不可见 |
 | **scheduled_task** | 后台跑（无人值守）时浏览器无画面，只出截图/PDF 产物 |
 | **agent-reach 登录类渠道** | 装了 Chromium 后，小红书/Twitter 扫码登录正好用这个实时画面完成 |

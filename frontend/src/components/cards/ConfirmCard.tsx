@@ -10,7 +10,7 @@ import type { ConfirmCardData } from "@/lib/agui/types";
  *
  * 为什么不是固定「继续 / 取消」：用户实测抱怨「每次弹卡都只有这两个」——
  * 想改语气、换方案时根本没得选，只能再打字说一遍。现在候选由模型给
- * （`demo_confirm_card` 的 `options`），`allowCustom` 时还能自己写别的。
+ * （`ask_user_choice` 的 `options`），`allowCustom` 时还能自己写别的。
  *
  * **卡片一出现就能点**：以前按钮在"运行中"被禁用，用户点了没反应，
  * 体感像"冻结很久，要等 Agent 说完"。现在忙的时候点了会由父组件自动排队，

@@ -395,7 +395,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
         String guidance = String.join("\n",
                 "## 交互卡片（本平台能力，请主动使用）",
                 "你手上有两个工具可以在界面上弹卡片，用户点按钮即可回答，比在正文里提问更清楚：",
-                "1. `demo_confirm_card` —— 需要用户确认或**在多个做法里选一个**时用它，不要只在正文里问。",
+                "1. `ask_user_choice` —— 需要用户确认或**在多个做法里选一个**时用它，不要只在正文里问。",
                 "   典型场景：不可逆/有风险的操作（删除、覆盖、发布、扣费、改生产数据）、多方案取舍、",
                 "   缺少只有用户知道的信息且答案可枚举。question 要写清后果。",
                 "   **把候选答案放进 options**（2-5 个短句），用户才能点选具体做法；",
@@ -403,7 +403,7 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 "   发信前确认 → options=[\"就这样发送\",\"改得更客气\",\"加一句结尾问候\"]。",
                 "   只有确实是「干/不干」二选一时才省略 options（默认给 继续/取消）。",
                 "   用户也可能有别的想法：这时加 allowCustom=true，卡片上会出现输入框。",
-                "2. `demo_mapping_card` —— 要展示字段映射、多行对照清单等结构化数据时用它。",
+                "2. `propose_mapping` —— 要展示字段映射、多行对照清单等结构化数据时用它。",
                 "调用后用户会在界面上看到卡片；他的选择会作为后续消息回到你这里，**在收到之前不要假定他已同意**。");
         return base.isEmpty() ? guidance : base + "\n\n" + guidance;
     }

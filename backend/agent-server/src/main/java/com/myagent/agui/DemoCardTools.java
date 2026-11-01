@@ -25,7 +25,11 @@ public final class DemoCardTools {
 
     private DemoCardTools() {}
 
-    /** 两个演示工具：发确认卡、发映射卡。 */
+    /**
+     * 两个交互工具：让用户做选择（{@code ask_user_choice}）、展示字段映射（{@code propose_mapping}）。
+     *
+     * <p>名字不带 demo 前缀 —— 它们是正式能力（不是演示），模型看到的工具名要和"能干什么"一致。
+     */
     public static List<AgentTool> tools() {
         return List.of(new ConfirmCardTool(), new MappingCardTool());
     }
@@ -35,7 +39,7 @@ public final class DemoCardTools {
 
         @Override
         public String getName() {
-            return "demo_confirm_card";
+            return "ask_user_choice";
         }
 
         @Override
@@ -155,7 +159,7 @@ public final class DemoCardTools {
 
         @Override
         public String getName() {
-            return "demo_mapping_card";
+            return "propose_mapping";
         }
 
         @Override
