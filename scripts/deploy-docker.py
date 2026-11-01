@@ -181,6 +181,16 @@ def main():
         run(client, f"cd {REMOTE_DIR} && docker compose logs --tail=80 backend", timeout=120)
 
     run(client, f"cd {REMOTE_DIR} && docker compose ps", timeout=120)
+
+    # 构建缓存收口：每次 build 都会留下几 GB 层缓存，不管会一路涨到十几 GB
+    # （实测服务器根分区 57G/72G、84%，其中 11GB 就是 build cache）。
+    # 保留最近 2GB 给下次小改动复用，其余清掉。
+    try:
+        run(client, "docker builder prune --keep-storage 2GB -f >/dev/null 2>&1 || true", timeout=900)
+        log("已清理多余构建缓存（保留最近 2GB）")
+    except Exception as exc:  # 清理失败不影响部署结果
+        log(f"清理构建缓存失败（忽略）：{exc}")
+
     client.close()
     log(f"完成：http://{HOST}:18080")
 
