@@ -35,6 +35,8 @@ INCLUDE = [
     "deploy/artifacts/dist",
     # 浏览器二进制（chrome-headless-shell）：后端镜像 COPY 进 /opt/chrome
     "deploy/artifacts/chrome",
+    # Node.js 运行时：后端镜像 COPY 进 /opt/node（技能脚本要用）
+    "deploy/artifacts/node",
     "deploy/Dockerfile.backend",
     "deploy/Dockerfile.backend.from-source",
     "deploy/Dockerfile.frontend",
@@ -65,7 +67,10 @@ def build_tarball(path):
                 tar.add(absolute, arcname=relative)
                 continue
             for root, dirs, files in os.walk(absolute):
-                dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+                # 只对源码目录过滤依赖/构建产物；deploy/artifacts 下是**运行期二进制**
+                # （Node 运行时自带 lib/node_modules/npm —— 过滤掉 npm 就没法用了）
+                if not relative.startswith("deploy/artifacts"):
+                    dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
                 for name in files:
                     full = os.path.join(root, name)
                     tar.add(full, arcname=os.path.relpath(full, LOCAL_ROOT))

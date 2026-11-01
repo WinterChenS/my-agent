@@ -13,7 +13,11 @@ scripts
 .env
 *.log
 
-**/node_modules
+# 依赖目录只按路径排除，**不要用 **/node_modules**：
+# deploy/artifacts/node 是 Node 运行时，它自带的 lib/node_modules/npm 是 npm 本体，
+# 全局排除会让镜像里的 npm 直接消失（实测 npm -v 报 MODULE_NOT_FOUND）。
+frontend/node_modules
+backend/**/node_modules
 # 注意：不要排除 deploy/artifacts/dist —— 那是前端镜像要 COPY 的产物
 frontend/dist
 frontend/e2e

@@ -57,6 +57,13 @@ RUN chmod +x /opt/chrome/chrome-headless-shell \
     && /opt/chrome/chrome-headless-shell --version
 ENV MYAGENT_BROWSER_BIN=/opt/chrome/chrome-headless-shell
 
+# Node.js 运行时（技能脚本要用：dashi-ppt / officecli 等都是 node 工具）。
+# 由 scripts/build-artifacts.sh 下载官方 linux-x64 二进制；
+# 固化进镜像而不是运行时 pip 装 —— 否则每次容器重建都会丢（用户实测过）。
+COPY deploy/artifacts/node/ /opt/node/
+RUN chmod +x /opt/node/bin/node /opt/node/bin/npm /opt/node/bin/npx     && ln -sf /opt/node/bin/node /usr/local/bin/node     && ln -sf /opt/node/bin/npm /usr/local/bin/npm     && ln -sf /opt/node/bin/npx /usr/local/bin/npx     && node -v && npm -v
+ENV NODE_PATH=/opt/node/lib/node_modules
+
 # 预热 matplotlib 字体缓存（中文字体首次扫描很慢，别让用户的第一张图等它）
 RUN python3 -c "import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt; print('mpl ok')"
 

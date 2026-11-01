@@ -279,8 +279,10 @@ myagent:
     max-total-mb: ${SKILL_IMPORT_MAX_TOTAL_MB:128}
     # 归档条目上限
     max-entries: ${SKILL_IMPORT_MAX_ENTRIES:4000}
-    # 单个技能的资源文件数量上限
-    max-resources-per-skill: ${SKILL_IMPORT_MAX_RESOURCES:300}
+    # 单个技能的资源文件数量上限。
+    # 300 -> 600：dashi-ppt 自带 359 个文件（1020 个版式里的可复用部分），
+    # 300 会直接拒绝安装（用户实测："该技能有 359 个文件，超过平台 300 个的资源上限"）。
+    max-resources-per-skill: ${SKILL_IMPORT_MAX_RESOURCES:600}
     # 下载超时（秒）
     timeout-seconds: ${SKILL_IMPORT_TIMEOUT_SECONDS:60}
     # 私有仓库 / 私有制品库的 token（可选，不配按匿名访问）

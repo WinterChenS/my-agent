@@ -67,4 +67,46 @@ else
   echo "==> chrome-headless-shell 已存在，跳过下载"
 fi
 
+# Node.js 运行时（Agent 技能脚本要用：dashi-ppt / officecli 之类都是 node 工具）。
+# 为什么固化进镜像：容器每次重建都会丢掉 `pip install` 进来的 node，
+# 用户实测"上次装好、这次又没了"。这里下载官方 linux-x64 二进制，构建期写进镜像。
+NODE_VERSION="${NODE_VERSION:-24.19.0}"
+NODE_TGZ="$ARTIFACTS/node-v${NODE_VERSION}-linux-x64.tar.gz"
+if [ ! -x "$ARTIFACTS/node/bin/node" ]; then
+  echo "==> 下载 Node.js $NODE_VERSION (linux-x64)"
+  if [ ! -f "$NODE_TGZ" ]; then
+    python - "$NODE_TGZ" "$NODE_VERSION" <<'PY'
+import sys, urllib.request
+target, version = sys.argv[1], sys.argv[2]
+url = f"https://nodejs.org/dist/v{version}/node-v{version}-linux-x64.tar.gz"
+print("    downloading", url)
+urllib.request.urlretrieve(url, target)
+PY
+  fi
+  rm -rf "$ARTIFACTS/node" "$ARTIFACTS/node.tmp"
+  mkdir -p "$ARTIFACTS/node.tmp"
+  tar -xzf "$NODE_TGZ" -C "$ARTIFACTS/node.tmp"
+  mv "$ARTIFACTS/node.tmp/node-v${NODE_VERSION}-linux-x64" "$ARTIFACTS/node"
+  rm -rf "$ARTIFACTS/node.tmp"
+  echo "    -> $ARTIFACTS/node ($(du -sh "$ARTIFACTS/node" | cut -f1))"
+else
+  echo "==> Node.js 已存在，跳过下载"
+fi
+
+# npm / npx 包装脚本修正（必须做，且是幂等的）
+# 官方 tarball 里 bin/npm 是符号链接；在 Windows 上解压成普通文件后，它的
+#   require('../lib/cli.js')  会解析到 /opt/node/lib/cli.js —— 那个文件不存在，
+#   于是 `npm -v` 直接 MODULE_NOT_FOUND 崩掉（用户实测的正是这个启动脚本 bug）。
+# 这里统一重写成指向真实入口的 sh 包装，跨平台一致。
+if [ -d "$ARTIFACTS/node/lib/node_modules/npm" ]; then
+  printf '#!/bin/sh
+exec /opt/node/bin/node /opt/node/lib/node_modules/npm/bin/npm-cli.js "$@"
+' > "$ARTIFACTS/node/bin/npm"
+  printf '#!/bin/sh
+exec /opt/node/bin/node /opt/node/lib/node_modules/npm/bin/npx-cli.js "$@"
+' > "$ARTIFACTS/node/bin/npx"
+  chmod +x "$ARTIFACTS/node/bin/npm" "$ARTIFACTS/node/bin/npx"
+  echo "    -> 已重写 npm/npx 包装脚本（指向 lib/node_modules/npm/bin/*-cli.js）"
+fi
+
 echo "==> 完成。接下来： docker compose up -d --build"
