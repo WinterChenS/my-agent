@@ -65,15 +65,25 @@ export function ThinkingBlock({ item }: { item: ThinkingItem }) {
           <span className="ml-auto tabular-nums">{chars}</span>
         )}
       </button>
-      {open && (
-        <div
-          ref={bodyRef}
-          className="text-muted-foreground max-h-[260px] overflow-auto border-t border-dashed px-2.5 py-2 text-xs leading-relaxed whitespace-pre-wrap"
-          data-testid="thinking-content"
-        >
-          {item.content || "…"}
+      {/* 丝滑折叠：Grid 0fr → 1fr，不用 JS 算高度 */}
+      <div
+        data-testid="thinking-collapse"
+        data-open={open ? "true" : "false"}
+        className={cn(
+          "grid transition-[grid-template-rows] duration-300 ease-out",
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div
+            ref={bodyRef}
+            className="text-muted-foreground max-h-[260px] overflow-auto border-t border-dashed px-2.5 py-2 text-xs leading-relaxed whitespace-pre-wrap"
+            data-testid="thinking-content"
+          >
+            {item.content || "…"}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

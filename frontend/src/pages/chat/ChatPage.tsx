@@ -1639,8 +1639,10 @@ export default function ChatPage() {
                 底部控制行也放在**框内**（附件 / Agent / 上下文圆环 / 停止 / 发送）。 */}
             <div
               className={cn(
-                "focus-within:border-ring focus-within:ring-ring/30 relative rounded-2xl border bg-background shadow-sm transition focus-within:ring-[3px]",
-                // Agent 执行中：边框变成流动的彩色渐变（纯 CSS，不影响内部布局）
+                // 去边框：靠 bg-card 与 bg-background 的微明度差分层；
+                // 聚焦时不加 outline，用 composer-shell 的双环 box-shadow 造咬合感
+                "composer-shell relative rounded-2xl bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)]",
+                // Agent 执行中：跑马灯描边（纯 CSS，不影响内部布局）
                 busy && "composer-running",
               )}
               data-testid="composer-box"

@@ -113,6 +113,8 @@ export function MessageBubble({
             data-testid="assistant-text"
             className={cn(
               "prose prose-sm prose-neutral dark:prose-invert max-w-none break-words",
+              // 流式时新出现的块做 90ms blur→清晰渐入（相邻块错开 30ms，见 index.css）
+              streaming && "stream-prose",
               "prose-p:my-1.5 prose-p:leading-relaxed",
               "prose-headings:mt-3 prose-headings:mb-1.5 prose-headings:font-semibold",
               "prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5",
@@ -206,7 +208,8 @@ function CopyButton({
     const ok = await copyText(text);
     if (!ok) return;
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
+    // 反馈自熄：2.5s 后自动淡出恢复（过渡在按钮 class 上）
+    window.setTimeout(() => setCopied(false), 2500);
   }, [text]);
 
   // 流式生成中内容还在变，复制了也没意义

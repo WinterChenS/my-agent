@@ -6,61 +6,67 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+
+  /* ---- 中性色阶：靠 1%~3% 明度分层，不用边框，也不用纯黑 ---- */
+  --background: oklch(0.992 0.002 95);          /* #fcfcfb */
+  --foreground: oklch(0.235 0.004 95);          /* 比纯黑柔和，长文更耐看 */
+  --card: oklch(0.966 0.003 95);                /* #f5f5f3 */
+  --card-foreground: oklch(0.235 0.004 95);
+  --popover: oklch(0.985 0.002 95);
+  --popover-foreground: oklch(0.235 0.004 95);
+  --primary: oklch(0.30 0.006 260);
+  --primary-foreground: oklch(0.985 0.002 95);
+  --secondary: oklch(0.955 0.003 95);
+  --secondary-foreground: oklch(0.28 0.004 95);
+  --muted: oklch(0.955 0.003 95);
+  --muted-foreground: oklch(0.52 0.006 95);
+  --accent: oklch(0.948 0.004 95);
+  --accent-foreground: oklch(0.26 0.004 95);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* 边框退到几乎不可见：层次交给背景明度差 */
+  --border: oklch(0.935 0.003 95);
+  --input: oklch(0.935 0.003 95);
+  --ring: oklch(0.72 0.01 260);
+
+  --sidebar: oklch(0.974 0.003 95);             /* 比正文背景略深一档 */
+  --sidebar-foreground: oklch(0.235 0.004 95);
+  --sidebar-primary: oklch(0.30 0.006 260);
+  --sidebar-primary-foreground: oklch(0.985 0.002 95);
+  --sidebar-accent: oklch(0.95 0.004 95);
+  --sidebar-accent-foreground: oklch(0.26 0.004 95);
+  --sidebar-border: oklch(0.93 0.003 95);
+  --sidebar-ring: oklch(0.72 0.01 260);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* ---- 暗色四档：#0b0b0a / #151515 / #1a1a19 / #20201e ---- */
+  --background: oklch(0.155 0.002 95);          /* #0b0b0a */
+  --foreground: oklch(0.945 0.003 95);          /* 不用纯白：避免刺眼与文字发胖 */
+  --card: oklch(0.205 0.002 95);                /* #151515 */
+  --card-foreground: oklch(0.945 0.003 95);
+  --popover: oklch(0.235 0.002 95);             /* #1a1a19 */
+  --popover-foreground: oklch(0.945 0.003 95);
+  --primary: oklch(0.90 0.004 95);
+  --primary-foreground: oklch(0.20 0.002 95);
+  --secondary: oklch(0.265 0.003 80);           /* #20201e */
+  --secondary-foreground: oklch(0.93 0.003 95);
+  --muted: oklch(0.265 0.003 80);
+  --muted-foreground: oklch(0.70 0.006 95);
+  --accent: oklch(0.285 0.003 80);
+  --accent-foreground: oklch(0.945 0.003 95);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --border: oklch(1 0 0 / 6%);
+  --input: oklch(1 0 0 / 9%);
+  --ring: oklch(0.62 0.01 260);
+
+  --sidebar: oklch(0.185 0.002 95);
+  --sidebar-foreground: oklch(0.93 0.003 95);
+  --sidebar-primary: oklch(0.62 0.16 264);
+  --sidebar-primary-foreground: oklch(0.98 0.002 95);
+  --sidebar-accent: oklch(0.265 0.003 80);
+  --sidebar-accent-foreground: oklch(0.945 0.003 95);
+  --sidebar-border: oklch(1 0 0 / 6%);
+  --sidebar-ring: oklch(0.62 0.01 260);
 }
 
 @theme inline {
@@ -209,5 +215,118 @@
   .composer-running,
   .composer-running::before {
     animation: none;
+  }
+}
+
+/* ==================================================================
+ * 「大厂质感」基础层：去边框 / 微明度分层 / 咬合聚焦 / 动效性格
+ * ================================================================== */
+
+@layer base {
+  /* 数字等宽：金额、计数、时间、token 数在流式更新时不抖动 */
+  body {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 暗色补偿：白字在深底上视觉偏胖，字重整体降 40 */
+  .dark body {
+    font-weight: 360;
+  }
+  .dark strong,
+  .dark b,
+  .dark h1,
+  .dark h2,
+  .dark h3,
+  .dark h4 {
+    font-weight: 560;
+  }
+
+  /* 正文断行更均衡，避免孤字/孤行 */
+  .prose p,
+  .prose li,
+  .prose blockquote,
+  [data-testid="chat-column"] p {
+    text-wrap: pretty;
+  }
+
+  /* 行内图标与文字垂直居中对齐（lucide 默认基线对齐会偏高） */
+  svg.lucide,
+  .lucide {
+    vertical-align: -0.125em;
+  }
+}
+
+/* 输入框聚焦：不加 outline，用「内环 + 外环」造咬合感 */
+.composer-shell {
+  transition:
+    box-shadow 180ms cubic-bezier(0.215, 0.61, 0.355, 1),
+    background-color 180ms cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+.composer-shell:focus-within,
+.composer-shell[data-focused="true"] {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px oklch(0.72 0.01 260 / 45%),
+    0 0 0 3px oklch(0.72 0.01 260 / 18%),
+    0 1px 2px oklch(0.235 0.004 95 / 6%);
+}
+.dark .composer-shell:focus-within,
+.dark .composer-shell[data-focused="true"] {
+  box-shadow:
+    inset 0 0 0 1px oklch(0.62 0.01 260 / 55%),
+    0 0 0 3px oklch(0.62 0.01 260 / 22%),
+    0 1px 2px oklch(0 0 0 / 40%);
+}
+
+/* 弹簧缓动：拖拽后吸附用过阻尼（不回弹、咬死）；点赞/对勾用欠阻尼（微弹） */
+.spring-drag {
+  transition-timing-function: linear(
+    0,
+    0.32 12%,
+    0.58 24%,
+    0.79 38%,
+    0.93 52%,
+    1 100%
+  );
+}
+.spring-pop {
+  transition-timing-function: linear(
+    0,
+    0.62 30%,
+    1.07 55%,
+    0.995 72%,
+    1 100%
+  );
+}
+
+/* 流式打字：新出现的块 90ms 从 blur 到清晰，相邻块错开 30ms 晕开 */
+@keyframes stream-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateY(1.5px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+.stream-prose > * {
+  animation: stream-in 180ms cubic-bezier(0.215, 0.61, 0.355, 1) both;
+}
+.stream-prose > *:nth-last-child(2) {
+  animation-delay: 30ms;
+}
+.stream-prose > *:nth-last-child(3) {
+  animation-delay: 60ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-prose > * {
+    animation: none;
+  }
+  .composer-shell {
+    transition: none;
   }
 }

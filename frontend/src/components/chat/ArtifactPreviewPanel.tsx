@@ -63,7 +63,8 @@ export function ArtifactPreviewPanel({
   const hasContent = showBrowser || Boolean(active);
   const visible = open && hasContent;
   const effectiveWidth = visible ? width : 0;
-  const widthClass = resizing ? "" : "transition-[width] duration-200 ease-out";
+  // 松手后的宽度变化用过阻尼弹簧（不回弹、咬死），拖拽过程中不做过渡（跟手）
+  const widthClass = resizing ? "" : "transition-[width] duration-300 spring-drag";
 
   // 没有内容：收起时留 0 宽占位（收起动画要落点）；**展开时显示空状态**
   // （用户反馈：没有产物时点「文件」会把侧栏关掉，应该打开并提示"还没有产物"）

@@ -31,7 +31,8 @@ describe("ThinkingBlock：思考中展开、结束折叠", () => {
     rerender(<ThinkingBlock item={item("先看需求", false)} />);
 
     expect(screen.getByText("已思考（4 字）")).toBeTruthy();
-    expect(screen.queryByTestId("thinking-content")).toBeNull();
+    // 折叠改成 Grid 0fr（DOM 保留以便丝滑过渡），用 data-open 断言状态
+    expect(screen.getByTestId("thinking-collapse")).toHaveAttribute("data-open", "false");
 
     fireEvent.click(screen.getByTestId("thinking-toggle"));
     expect(screen.getByTestId("thinking-content").textContent).toContain("先看需求");
@@ -41,7 +42,7 @@ describe("ThinkingBlock：思考中展开、结束折叠", () => {
     render(<ThinkingBlock item={item("当时的思考", false)} />);
 
     expect(screen.getByText("已思考（5 字）")).toBeTruthy();
-    expect(screen.queryByTestId("thinking-content")).toBeNull();
+    expect(screen.getByTestId("thinking-collapse")).toHaveAttribute("data-open", "false");
 
     fireEvent.click(screen.getByTestId("thinking-toggle"));
     expect(screen.getByTestId("thinking-content").textContent).toContain("当时的思考");
