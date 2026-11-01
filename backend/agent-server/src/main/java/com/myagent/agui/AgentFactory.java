@@ -475,7 +475,11 @@ public class AgentFactory implements AgentCacheInvalidator, AutoCloseable {
                 "4. 交付前确认是可打开的最终版本（大小不为 0、内容完整），别交付半成品。",
                 "   **用户说「再发一份 / 同样的再来一份」时，直接对已有文件再调一次 `deliverArtifact`**，",
                 "   不要只说「文件是 xxx.html」——只有交付动作才会把它挂到本轮，否则用户在气泡下看不到。",
-                "5. 如果用户没说清要什么格式，按你能给出的最有用格式交付一份，并在回复里说明；不要同时给多种格式。");
+                "5. 如果用户没说清要什么格式，按你能给出的最有用格式交付一份，并在回复里说明；不要同时给多种格式。",
+                "6. **HTML 尽量做成单文件自包含**（CSS/JS/字体内联，或引用公网 CDN）。",
+                "   平台预览只加载这一个 HTML 文件：`assets/vendor/x.js`、`url(assets/fonts/x.woff2)` 这类相对引用",
+                "   会 404（预览侧会尝试按文件名内联同会话产物，但目录结构与外部字体仍可能丢）。",
+                "   多文件 deck 导出时优先选「单文件 / 自包含」模式，否则用户看到的是「该页渲染失败」。");
         return base.isEmpty() ? guidance : base + "\n\n" + guidance;
     }
 

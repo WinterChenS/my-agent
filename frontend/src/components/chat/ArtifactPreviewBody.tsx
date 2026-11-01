@@ -5,6 +5,17 @@ import { INLINE_IMAGE_MAX_BYTES, formatSize, type ArtifactInfo } from "@/api/art
 import { CSV_MAX_ROWS, delimiterLabel, parseCsv } from "@/lib/artifacts/csv";
 import { extractDocxText } from "@/lib/artifacts/docxText";
 import { previewKind } from "@/lib/artifacts/previewKind";
+import { listArtifacts } from "@/api/artifacts";
+import {
+  MAX_INLINE_BYTES,
+  MAX_INLINE_FILES,
+  basenameOf,
+  collectRelativeRefs,
+  guessMime,
+  replaceRefs,
+  toDataUri,
+} from "@/lib/artifacts/inlineAssets";
+import { useAuthStore } from "@/stores/auth";
 import { useArtifactBlobUrl } from "./useArtifactBlobUrl";
 import { useArtifactBytes } from "./useArtifactBytes";
 
@@ -54,17 +65,77 @@ export function ArtifactPreviewBody({ item }: { item: ArtifactInfo }) {
   }
 }
 
-/** HTML：沙箱 iframe + `srcDoc`（见组件注释里的安全策略）。 */
+/**
+ * HTML：沙箱 iframe + `srcDoc`（见组件注释里的安全策略）。
+ *
+ * <p>多文件 deck（dashi-ppt 这类）的 `assets/xxx.js`、`url(assets/fonts/x.woff2)` 在 `srcdoc`
+ * 里全部 404，整页会渲染失败。这里按**文件名**匹配同会话的其它产物，把资源读出来内联成
+ * data URI 再喂给 iframe —— 产物表只存文件名（没有目录），所以匹配只能按 basename。
+ */
 function HtmlPreview({ item }: { item: ArtifactInfo }) {
+  const [html, setHtml] = useState(item.content ?? "");
+  const [inlining, setInlining] = useState(false);
+
+  useEffect(() => {
+    const source = item.content ?? "";
+    setHtml(source);
+    const refs = collectRelativeRefs(source);
+    if (refs.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setInlining(true);
+      try {
+        const artifacts = await listArtifacts(item.sessionId);
+        const byName = new Map(artifacts.map((a) => [a.fileName, a]));
+        const token = useAuthStore.getState().token;
+        const replacements = new Map<string, string>();
+        let total = 0;
+        for (const ref of refs) {
+          if (replacements.size >= MAX_INLINE_FILES || total >= MAX_INLINE_BYTES) break;
+          const name = basenameOf(ref);
+          const target = name ? byName.get(name) : undefined;
+          if (!target || target.id === item.id) continue;
+          const response = await fetch(`/api/artifacts/${target.id}/download`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+          if (!response.ok) continue;
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          total += bytes.length;
+          if (total > MAX_INLINE_BYTES) break;
+          replacements.set(ref, toDataUri(bytes, guessMime(name)));
+        }
+        if (!cancelled && replacements.size > 0) {
+          setHtml(replaceRefs(source, replacements));
+        }
+      } catch {
+        // 内联失败就保持原样（至少 HTML 本身的文字还能看）
+      } finally {
+        if (!cancelled) setInlining(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id, item.sessionId, item.content]);
+
   return (
-    <iframe
-      data-testid="preview-html"
-      title={item.fileName}
-      // 允许脚本（能跑图表）但不给 allow-same-origin → 拿不到本站 token/存储
-      sandbox="allow-scripts"
-      srcDoc={item.content ?? ""}
-      className="h-full min-h-[20rem] w-full rounded-md border bg-white"
-    />
+    <div className="relative h-full">
+      <iframe
+        data-testid="preview-html"
+        title={item.fileName}
+        // 允许脚本（能跑图表）但不给 allow-same-origin → 拿不到本站 token/存储
+        sandbox="allow-scripts"
+        srcDoc={html}
+        className="h-full min-h-[20rem] w-full rounded-md border bg-white"
+      />
+      {inlining ? (
+        <span className="bg-background/90 text-muted-foreground absolute top-2 right-2 rounded px-2 py-0.5 text-[11px] shadow-sm">
+          正在内联本地资源…
+        </span>
+      ) : null}
+    </div>
   );
 }
 
