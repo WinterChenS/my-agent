@@ -178,7 +178,7 @@
 ### 8.1 OAuth 流程（已实测 + 文档确认）
 
 1. 跳转：`https://api.notion.com/v1/oauth/authorize?owner=user&client_id=…&redirect_uri=…&response_type=code&state=…`
-   - 实测返回 **302 → `app.notion.com/install-integration?...`**，`redirect_uri` 原样透传（我用 `http://192.168.3.10:18080/cb` 测过）；
+   - 实测返回 **302 → `app.notion.com/install-integration?...`**，`redirect_uri` 原样透传（我用 `http://localhost:18080/cb` 测过）；
    - 用户可点 **Cancel** → 回跳 `redirect_uri?error=access_denied&state=…`；
    - 用户点「选择页面」会打开**页面选择器**（只列该用户有完整权限的页面/数据库）。
 2. 换取 token：`POST https://api.notion.com/v1/oauth/token`
@@ -190,7 +190,7 @@
 
 ### 8.2 一个必须先确认的前置条件：redirect URI 是否允许 http
 
-- 官方文档所有示例都是 `https://…/callback`，**没有明说必须 https**，但 Developer portal 注册时是否接受 `http://192.168.3.10:18080/...` **未验证**（需要真的去 portal 填一次才知道）。
+- 官方文档所有示例都是 `https://…/callback`，**没有明说必须 https**，但 Developer portal 注册时是否接受 `http://localhost:18080/...` **未验证**（需要真的去 portal 填一次才知道）。
 - 我们的现状是**内网 http** 部署。三条应对：
   1. 给平台加一层 https（Caddy/nginx + 内网自签或内部 CA 证书）——最正规，OAuth 也最稳；
   2. 若 portal 接受 http，直接可用（我实测 authorize 端点不拦 http）；

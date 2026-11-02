@@ -224,7 +224,7 @@ scripts/verify-browser-ui.py（Playwright 真截图）
 scripts/verify-browser-takeover.py
   点「我要操作」→ 点页面上的 Learn more → URL 变成 https://www.iana.org/help/example-domains ✅
 ```
-线上（192.168.3.10:18080）同样脚本复跑：面板铺满、agent 不再自动关浏览器、接管 UI 正常。
+线上（localhost:18080）同样脚本复跑：面板铺满、agent 不再自动关浏览器、接管 UI 正常。
 
 ### 10.6 还没做的（下一步）
 
