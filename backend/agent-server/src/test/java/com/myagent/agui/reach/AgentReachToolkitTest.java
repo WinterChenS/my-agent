@@ -119,7 +119,7 @@ class AgentReachToolkitTest {
         AgentTool read = toolkit.tools().stream()
                 .filter(t -> t.getName().equals("internet_read")).findFirst().orElseThrow();
 
-        String output = call(read, Map.of("url", "http://192.168.3.10:18080/api/health"));
+        String output = call(read, Map.of("url", "http://192.168.1.10:18080/api/health"));
 
         assertThat(output).contains("出于安全考虑");
         assertThat(client.calls).isEmpty();

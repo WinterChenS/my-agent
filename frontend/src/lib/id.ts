@@ -2,7 +2,7 @@
  * 生成一个唯一 id。
  *
  * 为什么不能直接用 `crypto.randomUUID()`（真实故障）：它只在**安全上下文**里可用——
- * HTTPS 或 localhost。部署到内网用 `http://192.168.3.10:18080` 打开时，这个函数
+ * HTTPS 或 localhost。部署到内网用 `http://localhost:18080` 打开时，这个函数
  * **根本不存在**，一点发送就抛 `TypeError: crypto.randomUUID is not a function`，
  * 表现为"点了发送毫无反应、停止按钮也不出现"（请求压根没发出去）。
  *

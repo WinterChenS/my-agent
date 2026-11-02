@@ -41,7 +41,7 @@ class ReachUrlPolicyTest {
         assertThat(policy.reject("http://localhost:8080/api/x")).contains("出于安全考虑");
         assertThat(policy.reject("http://127.0.0.1/")).contains("出于安全考虑");
         assertThat(policy.reject("http://0.0.0.0/")).contains("出于安全考虑");
-        assertThat(policy.reject("http://192.168.3.10:5432/")).contains("出于安全考虑");
+        assertThat(policy.reject("http://192.168.1.10:5432/")).contains("出于安全考虑");
         assertThat(policy.reject("http://10.1.2.3/")).contains("出于安全考虑");
         assertThat(policy.reject("http://172.20.1.1/")).contains("出于安全考虑");
         assertThat(policy.reject("http://169.254.169.254/latest/meta-data/")).contains("出于安全考虑");
@@ -77,7 +77,7 @@ class ReachUrlPolicyTest {
     @Test
     @DisplayName("显式允许内网时（仅限可信场景）放行内网地址")
     void allowPrivateNetworkOptOut() {
-        assertThat(lenient.reject("http://192.168.3.10:8080/")).isNull();
+        assertThat(lenient.reject("http://192.168.1.10:8080/")).isNull();
         assertThat(lenient.reject("http://localhost:8080/")).isNull();
     }
 }

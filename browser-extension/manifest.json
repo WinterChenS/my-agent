@@ -31,7 +31,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5MK8ZqtJQZb+F25wippdfZX9WLlbMs2EfwQUHcz6lBms/Stqwojkgro60tM9BUou2LfST3Th1l6o/w70eo1/+W/0OjMS1xwiRfig4QgRdwQsv4ukZr3wrOYJsuBS8BkR4Od0ESBMv77/GE9+oVkiNxWwLV4lYszeVeazJ6neqY2DjuSx3r5B6+7/PPV3LP6CfHZZBkVGxFqAPd+Jul95wlA1roXkUt8ruHWq7+wkjk1nSKvjP2NHZbd6Y8WRtAXxh3at0mS9chkwYwhMydsd9U9OFm1U9uKf450qzQuCpp4/UxmY46CdDbZFTIeEavKaMNMvEF8v+w6mZpNoPQ+T+QIDAQAB",
   "externally_connectable": {
     "matches": [
-      "http://192.168.3.10:18080/*",
+      "http://localhost:18080/*",
       "http://localhost:5173/*",
       "http://localhost:18080/*",
       "http://127.0.0.1:5173/*"

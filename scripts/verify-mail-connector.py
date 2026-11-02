@@ -2,7 +2,7 @@
 """邮件连接器端到端验证（对着真实邮箱跑一遍）。
 
 用法：
-    python scripts/verify-mail-connector.py --base http://192.168.3.10:18080 \
+    python scripts/verify-mail-connector.py --base http://localhost:18080 \
         --email me@qq.com --code <授权码> [--provider qq|163|gmail|custom] \
         [--agent 小梅] [--keep]
 
@@ -58,7 +58,7 @@ def main() -> int:
     except Exception:
         pass
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base", default="http://192.168.3.10:18080")
+    parser.add_argument("--base", default="http://localhost:18080")
     parser.add_argument("--email", required=True)
     parser.add_argument("--code", required=True, help="邮箱授权码（不是登录密码）")
     parser.add_argument("--provider", default="qq", choices=[*PROVIDERS, "custom"])

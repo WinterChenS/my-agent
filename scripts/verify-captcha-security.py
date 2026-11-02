@@ -10,7 +10,7 @@ B = os.environ.get("CAPTCHA_BASE", "http://localhost:8080")
 SESSION = "it-session-" + str(int(time.time()))
 OTHER = "it-session-other-" + str(int(time.time()))
 
-conn = psycopg2.connect(host="192.168.3.10", port=5432, dbname="agent_platform",
+conn = psycopg2.connect(host="localhost", port=5432, dbname="agent_platform",
                         user="app_user", password=os.environ["DB_PASSWORD"])
 
 
@@ -50,7 +50,11 @@ def encrypt_password(password, session):
     return key["keyId"], base64.b64encode(ciphertext).decode()
 
 
-def login(password="Admin@123", ticket=None, session=SESSION):
+def login(password=None, ticket=None, session=SESSION):
+    # 不要把管理员密码写进仓库：从环境变量读（MYAGENT_ADMIN_PASSWORD）
+    password = password or os.environ.get("MYAGENT_ADMIN_PASSWORD", "")
+    if not password:
+        raise SystemExit("请先设置 MYAGENT_ADMIN_PASSWORD 环境变量")
     key_id, encrypted = encrypt_password(password, session)
     return call("/api/auth/login", "POST", {
         "username": "admin",

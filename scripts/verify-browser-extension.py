@@ -78,7 +78,7 @@ def pkce():
 
 async def main():
     password = os.environ.get('DB_PASSWORD')
-    conn = psycopg2.connect(host=os.environ.get('DB_HOST', '192.168.3.10'), port=5432,
+    conn = psycopg2.connect(host=os.environ.get('DB_HOST', 'localhost'), port=5432,
                             dbname=os.environ.get('DB_NAME', 'agent_platform'),
                             user=os.environ.get('DB_USER', 'app_user'), password=password)
     jwt = admin_token(conn)

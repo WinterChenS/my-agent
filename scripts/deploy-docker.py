@@ -2,7 +2,7 @@
 """把当前仓库打包上传到服务器并用 docker compose 部署。
 
 用法（密码从环境变量读，不落盘、不进版本库）：
-    MA_SSH_HOST=192.168.3.10 MA_SSH_USER=winterchen MA_SSH_PASSWORD=... \
+    MA_SSH_HOST=localhost MA_SSH_USER=winterchen MA_SSH_PASSWORD=... \
     python scripts/deploy-docker.py [--rebuild-frontend] [--skip-build]
 
 流程：
@@ -22,7 +22,7 @@ import time
 
 import paramiko
 
-HOST = os.environ.get("MA_SSH_HOST", "192.168.3.10")
+HOST = os.environ.get("MA_SSH_HOST", "localhost")
 USER = os.environ.get("MA_SSH_USER", "winterchen")
 PASSWORD = os.environ.get("MA_SSH_PASSWORD", "")
 REMOTE_DIR = os.environ.get("MA_REMOTE_DIR", "/home/winterchen/docker/my-agent")

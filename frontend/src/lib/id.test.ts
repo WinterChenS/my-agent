@@ -5,7 +5,7 @@ import { newId } from "@/lib/id";
  * id 生成必须在内网 http 部署下也能用。
  *
  * <p>真实故障：`crypto.randomUUID` 只在安全上下文（HTTPS / localhost）存在，
- * 部署到 `http://192.168.3.10:18080` 后一点发送就抛 TypeError，请求压根没发出去。
+ * 部署到 `http://localhost:18080` 后一点发送就抛 TypeError，请求压根没发出去。
  */
 describe("newId：非安全上下文也要能生成 id", () => {
   const original = globalThis.crypto;

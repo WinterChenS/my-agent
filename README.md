@@ -1,207 +1,295 @@
 # my-agent
 
-前后端分离的 Agent 平台。
+**一个可私有部署的 Agent 平台**：把大模型、Agent、Skill、MCP、连接器、IM 渠道、定时任务和长期记忆收在一处，用 Web 界面配置，用 AG-UI 协议流式对话。
 
-- **前端**：React 18 + Vite + TypeScript + Tailwind CSS v4 + shadcn/ui
-- **后端**：Java 21 + Spring Boot + AgentScope Java v2
-- **中间件**：PostgreSQL + Redis（内网）
+[![Java](https://img.shields.io/badge/Java-21-ED8B00?logo=openjdk&logoColor=white)](#)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)](#)
+[![AgentScope](https://img.shields.io/badge/AgentScope-2.0.4-4B8BBE)](#)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](#)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](#)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)](#)
+[![License](https://img.shields.io/badge/License-MIT-green)](#license)
 
-能力：大模型配置、Agent 配置、Skill 配置（含**从仓库链接导入标准 Skill**：SKILL.md + scripts/references/assets）、MCP 支持、**连接器（邮件：读/搜/附件/发信/回复/新邮件通知；Notion：搜索/读页面/查库/新建与修改页面；钉钉文档：列知识库/搜文档/读正文/新建·追加·覆盖）**、AG-UI 聊天卡片（审批卡 / 确认卡 / 映射卡 / 工具调用卡）、按用户维度的 Token 审计。
+> The README is written in Chinese (the project's primary language). See [English summary](#english-summary) at the bottom.
+
+---
+
+## 特性
+
+### 对话与交互（AG-UI）
+
+- **流式对话**：正文逐字流式、思考块（流式中展开、结束自动折叠）、工具调用卡、工具调用分组
+- **交互卡片**：选择卡（`ask_user_choice`）、映射卡（`propose_mapping`）、审批卡（HITL 中断），弹出即可点
+- **子 Agent**：`subagent` 的思考/工具/正文按**到达顺序**呈现，刷新后仍可还原
+- **上下文可控**：圆环显示上下文用量（token 数），支持一键压缩 / 清空
+- **刷新接续**：页面刷新不会丢正在跑的这一轮，运行中的思考/工具/正文按快照还原
+- **历史回放**：`agui_meta.replay` 记录每轮步骤，打开历史会话看到的内容与当时一致
+
+### 能力配置
+
+- **模型**：多家供应商（OpenAI 兼容 / DashScope / Anthropic），支持重试、上下文窗口与压缩阈值
+- **Agent**：系统提示、温度、最大迭代、权限模式、技能/MCP 绑定、用户分配、配额
+- **Skill**：标准 `SKILL.md` 结构的技能；支持**从 GitHub/GitLab 仓库一键导入**（预览 → 勾选 → 安装），带资源文件与安全扫描
+- **MCP**：MCP Server 注册、工具同步与缓存
+- **连接器**：邮件（收/搜/附件/发信/回复/新邮件通知）、Notion（搜索/读页/查库/新建/修改）、钉钉文档（知识库/搜索/读正文/新建/追加/删除）
+- **联网**：内置 [Agent Reach](docs/agent-reach-集成方案.md) 作为 Agent 访问互联网的**唯一出口**（搜索/读网页/GitHub/V2EX/B站/YouTube），带 SSRF 护栏
+- **浏览器**：本机浏览器扩展（Manifest V3）—— 在用户自己的真实标签页里操作，复用登录态，不传 Cookie、不持续传画面
+
+### 平台
+
+- **IM 渠道**：钉钉机器人（入站回灌 + 出站推送 + 长文本分片 + 图片/文件）
+- **定时任务**：分布式抢占（多实例不重复执行），支持 cron / 每日 / 每周，可选推送到 IM
+- **长期记忆**：`MEMORY.md` + 记忆台账**存数据库**，跨会话持久
+- **审计与配额**：按用户/模型维度的 token 用量、按 Agent 的日/月额度
+- **安全**：登录滑动验证码（服务端判定 + 行为分析 + 限流）、密码 RSA-OAEP 密文传输、JWT、连接器按用户隔离
+
+---
+
+## 架构
+
+```mermaid
+flowchart LR
+    subgraph Browser["浏览器"]
+        UI["React 18 + Vite<br/>Tailwind v4 + shadcn/ui"]
+        EXT["浏览器扩展<br/>MV3 + chrome.debugger"]
+    end
+
+    subgraph Server["后端（Java 21 / Spring Boot）"]
+        API["REST / SSE"]
+        AGUI["AG-UI 管线<br/>RunController"]
+        AGENT["AgentScope Harness<br/>Agent + Toolkit"]
+        TOOLS["工具<br/>Skill / MCP / 连接器<br/>联网 / 定时任务"]
+        BRIDGE["浏览器桥<br/>WSS + 设备令牌"]
+    end
+
+    subgraph Infra["基础设施"]
+        PG[("PostgreSQL 18<br/>会话 / 记忆 / 审计")]
+        RD[("Redis<br/>会话 / 缓存 / 分布式锁")]
+        MO[("MinIO<br/>产物对象存储")]
+    end
+
+    LLM["LLM 供应商"]
+
+    UI -->|REST / SSE| API
+    API --> AGUI --> AGENT --> TOOLS
+    AGENT --> LLM
+    TOOLS --> PG
+    TOOLS --> RD
+    TOOLS --> MO
+    EXT <-->|WSS| BRIDGE
+    BRIDGE --> AGENT
+```
+
+**关键设计取舍**
+
+- Agent 侧只走 **AgentScope 官方能力**（工具、HITL、中断、压缩、Skill、MCP、AG-UI），不自研运行时
+- 前后端通过 **AG-UI 事件流**通信，前端用 reducer 把事件折叠成消息树；同一套 reducer 也用于历史回放
+- 产物是"按 run 归属"的：`artifact.run_id == 消息.run_id` 才挂在对应气泡下面
+- 服务端**只跑运行时镜像**：编译与产物下载在本地完成（见[部署](#部署)）
+
+---
+
+## 快速开始
+
+### 方式一：Docker Compose（推荐）
+
+```bash
+git clone https://github.com/WinterChenS/my-agent.git
+cd my-agent
+
+cp .env.example .env
+# 至少修改：DB_* / REDIS_* / MINIO_* / JWT_SECRET / AGENT_CRYPTO_KEY
+vim .env
+
+docker compose up -d --build
+```
+
+- 前端：<http://localhost:18080>
+- 后端：`127.0.0.1:18081`（只对本机开放，外部经 nginx 反代）
+
+> 数据库迁移用 Flyway，启动时自动执行；首次启动会创建管理员账号（见 `.env` 中的初始化配置）。
+
+### 方式二：本地开发
+
+**环境要求**
+
+| 组件 | 版本 |
+|---|---|
+| JDK | 21+ |
+| Maven | 3.9+ |
+| Node.js | **≥ 20.10**（推荐 22/24）；项目提供 `.nvmrc` |
+| PostgreSQL | 16+（开发用 18） |
+| Redis | 7+ |
+| MinIO | 可选（不配置则产物存数据库） |
+
+**后端**
+
+```bash
+cd backend/agent-server
+export JAVA_HOME=/path/to/jdk-21
+mvn spring-boot:run          # 默认 8080，读取仓库根目录 .env
+```
+
+**前端**
+
+```bash
+cd frontend
+npm ci
+npm run dev                  # 5173，/api 与 /agui 代理到 8080
+```
+
+**自检**
+
+```bash
+cd backend/agent-server && mvn verify   # 后端单测 + 集成测试
+cd frontend && npm test && npm run lint && npm run build
+bash scripts/check-node.sh              # 检查 node 版本与所需 flag
+```
+
+---
+
+## 配置
+
+所有配置通过环境变量注入（仓库根 `.env` + `application.yml` 的 `${VAR:default}`）。**`.env` 已在 `.gitignore` 中，不要提交。**
+
+### 必填
+
+| 变量 | 说明 |
+|---|---|
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | PostgreSQL 连接 |
+| `REDIS_HOST` / `REDIS_PASSWORD` | Redis 连接 |
+| `JWT_SECRET` | JWT 签名密钥（≥32 字符） |
+| `AGENT_CRYPTO_KEY` | 连接器凭据的对称加密密钥（≥32 字符） |
+
+### 常用可选
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET` | — | 不配置则产物落数据库 |
+| `MYAGENT_WORKSPACE` | `./.myagent-workspace` | Agent 工作区（含用户 venv、技能缓存、产物） |
+| `MYAGENT_REACH_ENABLED` | `true` | 联网出口（Agent Reach） |
+| `MYAGENT_BROWSER_MODE` | `local-extension` | `local-extension` / `remote` / `disabled` |
+| `MYAGENT_PUBLIC_BASE_URL` | — | 平台对外地址（用于扩展打包、下载链接） |
+| `MYAGENT_CAPTCHA_ENABLED` | `true` | 登录滑动验证码 |
+| `MYAGENT_ALLOW_PLAINTEXT_PASSWORD` | `false` | 是否允许明文密码登录（**仅本地调试**） |
+| `SKILL_IMPORT_MAX_RESOURCES` | `600` | 单个技能的资源文件上限 |
+| `SKILL_IMPORT_MAX_FILE_KB` | `8192` | 单个资源文件大小上限 |
+
+完整清单见 `backend/agent-server/src/main/resources/application.yml` 与 `deploy/.env.example`。
+
+---
+
+## 部署
+
+设计约束：**编译与二进制下载都在本地完成，服务器只跑运行时镜像**（避免在服务器上拉 Maven Central / npm）。
+
+```bash
+export JAVA_HOME=/path/to/jdk-21
+./scripts/build-artifacts.sh                 # 后端 jar + 前端 dist + Chrome + Node 运行时
+
+MA_SSH_HOST=your-host MA_SSH_USER=you MA_SSH_PASSWORD=... \
+python scripts/deploy-docker.py              # 上传并 docker compose up -d --build
+```
+
+- `scripts/build-artifacts.sh` 会下载 `chrome-headless-shell`（远程浏览器模式用）与 Node.js 运行时
+  （技能脚本用）到 `deploy/artifacts/`，这些**不入库**
+- 部署成功后自动执行 `docker builder prune --keep-storage 2GB`，避免构建缓存把磁盘吃满
+- nginx 侧需要为 `/api/browser/bridge/ws` 配置 WebSocket Upgrade（见 `deploy/nginx.conf`）
+
+### 浏览器扩展（可选）
+
+```bash
+python scripts/build-extension.py --platform-url https://your-domain
+```
+
+产物在 `deploy/artifacts/my-agent-extension.zip`。安装：Chrome/Edge → `chrome://extensions` → 开发者模式 → 加载已解压的扩展程序。
+
+---
+
+## 项目结构
+
+```
+my-agent/
+├── backend/agent-server/          # Spring Boot 后端
+│   └── src/main/java/com/myagent/
+│       ├── agui/                  # AG-UI 管线、Agent 工厂、工具（skill/mcp/连接器/联网/浏览器）
+│       ├── auth/                  # 登录、验证码、RSA 密码加密、JWT
+│       ├── chat/                  # 会话、消息、上下文用量
+│       ├── connectorconfig/       # 连接器框架（凭据加密、按用户隔离）
+│       ├── schedule/              # 定时任务（分布式抢占）
+│       ├── artifact/              # 产物登记与存储
+│       └── config/                # 安全、MyBatis、Web 配置
+├── frontend/src/                  # React 前端
+│   ├── components/chat/           # 气泡、思考块、工具卡、卡片、产物预览、浏览器面板
+│   ├── lib/agui/                  # AG-UI 事件 reducer（实时 + 历史回放共用）
+│   └── pages/                     # 聊天 / 记忆 / 管理台
+├── browser-extension/             # MV3 浏览器扩展（原生 ES module，无需构建）
+├── deploy/                        # Dockerfile、nginx、构建产物目录
+├── scripts/                       # 构建、部署、导入与验证脚本
+├── docs/                          # 技术方案、接入调研、实施说明
+└── skills/                        # 内置技能（agui-interaction 等）
+```
+
+---
 
 ## 文档
 
-| 文档 | 说明 |
+| 文档 | 内容 |
 |---|---|
-| `docs/技术方案.md` | 架构、依赖版本、表设计、API 契约、卡片契约、防跑偏门禁 G1–G8 |
-| `docs/任务列表.md` | Phase 0–11 共 23 个任务及各自验收门禁 |
-| `docs/backlog.md` | 超范围需求登记（门禁 G7） |
-| `docs/连接器方案.md` | 连接器（通用框架 + 邮件）设计、安全护栏、实施记录与实测结论 |
-| `docs/notion-接入调研.md` | 接入 Notion 的三条路线对比（原生连接器 / 本地 MCP / Remote MCP）与推荐方案 |
-| `docs/dingtalk-doc-接入调研.md` | 接入钉钉文档/知识库的接口面、鉴权模型（企业应用 + operatorId）与推荐方案 |
-| `docs/comet/` | Comet Native change 产物（brief / specs / verification） |
-| `docs/acceptance/` | 全链路验收证据 |
+| [`docs/技术方案.md`](docs/技术方案.md) | 架构、依赖版本、表设计、API 契约、卡片契约、设计门禁 |
+| [`docs/连接器方案.md`](docs/连接器方案.md) | 连接器框架与邮件/Notion/钉钉的接入取舍与安全护栏 |
+| [`docs/agent-reach-集成方案.md`](docs/agent-reach-集成方案.md) | 把 Agent Reach 作为唯一联网出口的设计与 SSRF 防护 |
+| [`docs/登录滑动验证.md`](docs/登录滑动验证.md) | 验证码服务端判定、行为分析、限流与无障碍替代题 |
+| [`docs/本机浏览器扩展-实施说明.md`](docs/本机浏览器扩展-实施说明.md) | 浏览器扩展、WSS 设备通道、控制权状态机 |
+| [`docs/浏览器Agent-可行性调研.md`](docs/浏览器Agent-可行性调研.md) | 云端浏览器 vs 本机扩展的实测数据与取舍 |
+| [`docs/dingtalk-doc-接入调研.md`](docs/dingtalk-doc-接入调研.md) | 钉钉文档 API 的权限模型与踩坑记录 |
 
-## 环境要求
+---
 
-| 组件 | 版本 | 本机实测位置 |
-|---|---|---|
-| JDK | 21（Temurin） | `C:\Program Files\Java\jdk-21.0.3+9` |
-| Maven | 3.9.x | `C:\tools\apache-maven-3.9.16` |
-| Node | 20+（本机为 24） | `D:\Program Files\nodejs` |
-| PostgreSQL | 18.x（本机实测 18.3） | 连接由环境变量 `DB_*` 提供 |
-| Redis | 8.x（本机实测 8.6.3） | 连接由环境变量 `REDIS_*` 提供 |
+## 安全说明
 
-> 本机 **未安装 Docker**，因此不使用 Testcontainers / `docker compose`；集成测试直接连接专用测试库 `agent_platform_test`。
+- **`.env` 不入库**：仓库只提供 `.env.example`，其中的密钥都是占位符，请务必替换
+- **密码不明文传输**：登录走 RSA-OAEP(SHA-256)（公钥由后端下发，私钥只在内存）；明文登录默认关闭
+- **验证码在服务端判定**：答案只存数据库，前端拿不到；带原子抢占、限流冷却与行为分析
+- **连接器按用户隔离**：凭据加密存储，工具调用时按当前用户解析，不把凭据烘进工具实例
+- **产物预览是沙箱 iframe**：`sandbox="allow-scripts"` 且不给 `allow-same-origin`，读不到本站 token/存储
+- **联网有护栏**：Agent Reach 的 URL 策略会拒绝内网、本机、云元数据地址与非标准端口
+- **浏览器扩展最小权限**：单标签页授权、可随时暂停/撤销、不申请 cookies 权限
 
-监督工具链（本机 PATH 默认是 Java 8 与 Node 16，需显式指定）：
+发现安全问题请**不要开公开 issue**，请通过仓库主页的联系方式私下报告。
 
-```bash
-export JAVA_HOME="C:\\Program Files\\Java\\jdk-21.0.3+9"
-export PATH="/c/tools/apache-maven-3.9.16/bin:$PATH"
-export PATH="/d/Program Files/nodejs:$PATH"
-```
+---
 
-## 启动
+## 已知限制
 
-```bash
-# 后端（默认 dev profile）
-cd backend/agent-server && mvn spring-boot:run
+- 单后端实例假设：WebSocket 设备通道与"正在跑的 run"登记在进程内存，多实例需要额外路由
+- 产物预览只加载**单个文件**：多文件 HTML（如某些 PPT deck）依赖相对资源，预览侧会尽力按文件名内联，但仍建议导出单文件自包含版本
+- 钉钉文档的"我的文档"既有文档无法通过 API 读取正文（平台限制）
+- 浏览器扩展仅支持 Chrome/Edge 桌面版；未上架商店时需开发者模式加载
 
-# 前端
-cd frontend && npm install && npm run dev   # http://localhost:5173
-```
+---
 
-Vite 已代理 `/api` 与 `/agui` 到 `http://localhost:8080`。
+## 贡献
 
-## 连接配置（不含任何真实凭据）
+1. 开 issue 说明要解决的问题（避免重复劳动）
+2. Fork → 从 `master` 切功能分支
+3. 提交前跑：`mvn verify`、`npm test`、`npm run lint`、`npm run build`
+4. PR 描述里写清"改了什么 / 为什么 / 怎么验证"
 
-仓库里**不保存任何真实口令**：数据库/Redis/对象存储/MinIO 的连接与密钥全部由**环境变量**提供，
-`application*.yml` 里只有本地占位默认值。复制 `.env.example` 为 `.env`（已被 `.gitignore` 忽略）或直接导出：
+代码风格：后端遵循项目内既有注释习惯（**解释为什么**，而不是复述代码）；前端组件保持"一个文件一件事"。
 
-```bash
-# PostgreSQL（应用库与测试库）
-export DB_URL='jdbc:postgresql://<主机>:5432/agent_platform?stringtype=unspecified'
-export TEST_DB_URL='jdbc:postgresql://<主机>:5432/agent_platform_test?stringtype=unspecified'
-export DB_USERNAME='<用户名>'
-export DB_PASSWORD='<口令>'
+---
 
-# Redis
-export REDIS_HOST='<主机>'
-export REDIS_PASSWORD='<口令>'
-export REDIS_DATABASE=10          # 会话；测试用 REDIS_TEST_DATABASE=11
+## License
 
-# 对象存储（MinIO / S3 兼容）
-export MINIO_ENDPOINT='http://<主机>:9000'
-export MINIO_PUBLIC_ENDPOINT='http://<对外可达地址>:9000'
-export MINIO_ACCESS_KEY='<accessKey>'
-export MINIO_SECRET_KEY='<secretKey>'
-export MINIO_BUCKET='agent-platform'
+[MIT](LICENSE)
 
-# 诊断（可选）：把每轮最终系统提示的形态打到日志（技能清单是否注入、注入几个）
-export MYAGENT_AGUI_DEBUG_SYSTEM_PROMPT=true
+---
 
-# 应用自身的密钥（生产必须改）
-export JWT_SECRET='<>=32 字节随机串>'
-export AGENT_CRYPTO_KEY='<AES-GCM 主密钥>'
-```
+## English summary
 
-> 验收脚本（`scripts/verify-*.sh`）同样从 `DB_HOST` / `DB_USERNAME` / `DB_PASSWORD` 读连接信息，不内联口令。
+`my-agent` is a self-hostable agent platform: Spring Boot 3 + AgentScope (Java) on the backend, React 18 + Vite on the frontend, PostgreSQL / Redis / MinIO for state storage.
 
-### 安全提示
+Highlights: AG-UI streaming chat with thinking blocks, tool cards, interactive choice/approval cards and sub-agent traces; skill import from GitHub/GitLab; connectors for email, Notion and DingTalk Docs; a single guarded internet egress (Agent Reach); distributed scheduled tasks; database-backed long-term memory; and a Manifest V3 browser extension that drives the user's own logged-in tabs over a device-token WSS bridge.
 
-- `admin` 的初始口令是**公开的默认值**（见 `V2__seed.sql`，BCrypt 存储），首次登录后请立即修改。
-- 部署到非内网环境前，请改掉 `JWT_SECRET` 与 `AGENT_CRYPTO_KEY`，并开启 HTTPS。
-- 若曾把真实凭据写进过仓库，仅删文件不够：历史提交里仍可读到，需要重写历史（本仓库就是这么做的）。
-
-## 质量门禁
-
-```bash
-# 后端
-cd backend/agent-server && mvn verify
-
-# 前端
-cd frontend && npm run lint && npm run build && npx vitest run
-```
-
-## 连接器（邮件）
-
-管理台「能力 → 连接器」：添加自己的邮箱（IMAP 收信 + SMTP 发信，QQ/163/Gmail 用**授权码**），
-点「测试连接」验证两条链路，再「绑定 Agent」——绑定后**下一轮**对话该 Agent 才会有 `mail_*` 工具。
-
-- 工具：`mail_list` / `mail_search` / `mail_read` / `mail_get_attachment` / `mail_folders`（只读）、
-  `mail_send` / `mail_reply` / `mail_mark`（写，`REQUIRE_APPROVAL` 的 Agent 会弹审批卡）。
-- 归属：连接器属于**用户**；多人共用一个 Agent 时，各自只会用到自己的邮箱（工具调用时按当前用户解析）。
-- 护栏：发信开关、收件人白名单（支持 `@域名`）、禁止发给自己、每邮箱每小时发信上限（默认 60）、写操作全量审计（列表页「盾」图标可查）。
-- 新邮件处理：`只记录 / 推 IM 通知 / 交 Agent 自动回复`。自动回复带五道护栏（RFC3834 自动回复头、
-  Precedence bulk、系统邮箱、同线程只回一次、每小时上限），回复正文强制带 `Auto-Submitted: auto-replied`。
-- 配置项见 `application.yml` 的 `myagent.connector.*`（超时、附件上限、正文截断、发信/自动回复限流、轮询周期）。
-
-## 工作区根目录（注意）
-
-Agent 的工作区（记忆、上传物化、产物扫描、事件日志）默认是**相对路径** `./.myagent-workspace`，
-会被**按启动 jar 时的工作目录**解析——从不同目录启动会得到两个不同的工作区（实测踩过：从仓库根启动一份、
-从 `backend/agent-server` 启动又一份，导致"上传的文件在界面上看不到"）。
-
-- 启动时日志会打印已规范化的**绝对路径**：`Agent 工作区根目录（已规范为绝对路径）: ...`，用它核对。
-- 想固定位置就用绝对路径：`MYAGENT_WORKSPACE=D:/agent-workspace`（推荐部署时这么设）。
-- 本项目脚本一律在仓库根启动后端，因此工作区落在 `./.myagent-workspace`。
-
-## 验收脚本（可一键复跑）
-
-所有脚本都在 `scripts/`，每份都自带断言与证据输出：
-
-| 脚本 | 覆盖 | 关键断言 |
-|---|---|---|
-| `verify-p5-skills.sh` | Skill 同步与绑定生效 | 绑定 Agent 的提示词含 Skill 名称/描述、回复带桩标记；未绑定对照组无标记；官方仓库存有完整内容 |
-| `verify-p6-mcp.sh` | MCP 注册与真实调用 | sync-tools 得工具清单；`TOOL_CALL_START/RESULT`；结果来自 MCP server 真实回显 |
-| `verify-p7-hitl.sh` | HITL 审批链路 | 拦截无 TOOL_CALL_RESULT；`approval_record` PENDING；批准后 resume 且工具真执行；拒绝不执行；越权 403；重复 409 |
-| `verify-p72-cards.sh` | 确认卡 / 映射卡 | CUSTOM 事件 data 逐字段符合冻结契约 |
-| `verify-p8-audit.sh` | Token 审计 | summary/byModel/byDay；records 分页；ADMIN 看全员；USER 查他人 403 |
-| `verify-p9-acceptance.sh` | **全链路剧本 + 浏览器截图** | Playwright：工具卡 / 审批卡批准 / 拒绝 / 审计看板 |
-| `e2e-chat.sh` | 聊天主链路浏览器验收 | 流式气泡逐字出现、刷新后历史仍在、断连错误态 |
-| `verify-p10-artifacts.sh` | **产物/来源统一存储与自动登记** | 文本入 DB / 二进制进 MinIO；重复上传去重；下载 sha256 一致；上传物化后 Agent 真能读到；run 后识别 Agent 写出的文件且不带框架内部文件 |
-| `verify-p10-minio-down.sh` | 对象存储不可用时的降级 | 后端起得来（只告警）；二进制上传返回 `code=400` 明确错误；文本上传仍成功；对话主链路不受影响 |
-| `verify-p11-memory-read.sh` | **记忆与会话状态是否真在库里** | 往 `memory_store` 种标记→删掉工作区 `memory/*.md`→再跑一轮：库里记忆仍含标记且 payload 变大（读取来自库）；磁盘 memory 文件始终 0 |
-| `add-real-model.sh` | 一条命令接入真实大模型 | 建 provider/model → 连通性测试 → 建 Agent（无需 jq） |
-| `cleanup-e2e-data.sh` | 清理实施期测试数据 | 默认预览，`--yes` 才删 |
-
-管理台页面的浏览器验收在 `frontend/e2e/admin.spec.ts`（MCP 新建+同步工具+工具清单、模型连通测试、Skill 版本、Agent 列表），用 `cd frontend && npx playwright test e2e/admin.spec.ts` 运行。
-
-## 验收证据
-
-截图归档在 `docs/acceptance/`：
-
-| 文件 | 对应门禁 |
-|---|---|
-| `task-4.3-chat-streaming.png` | 流式气泡逐字出现 |
-| `task-4.3-chat-history.png` | 刷新后历史回放 |
-| `task-4.3-chat-error-state.png` | 后端不可用：错误态 + 重试 + 输入不丢 |
-| `task-8.2-audit-dashboard.png` | 审计看板展示真实数据 |
-| `task-8.2-audit-filtered.png` | 日期筛选生效（筛选后为空） |
-| `task-9.1-tool-call-card.png` | 工具调用卡（参数 + 结果） |
-| `task-9.1-approval-card.png` | **审批卡**（工具名 + 参数 + 批准/拒绝） |
-| `task-9.1-approval-approved.png` | 批准后卡片置灰、执行继续 |
-| `task-9.1-approval-denied.png` | 拒绝后卡片置灰、不执行 |
-| `task-repair-mcp-page.png` | **MCP 管理页**（新建 STDIO → 同步 13 个工具 → 工具清单） |
-| `task-repair-models-page.png` | 模型页（供应商/模型列表 + api_key 掩码 + 连通测试） |
-| `task-repair-skills-page.png` | Skill 页（新建 + 版本 v1） |
-| `task-repair-agents-page.png` | Agent 页（绑定与权限模式） |
-| `task-10-panel-upload.png` | **右侧栏**：来源文件 / 产物两区 + 上传后的来源文件 |
-| `task-10-artifact-area.png` | **产物区**：Agent 写出的文件在 run 结束后自动出现 |
-| `task-10-skill-block.png` | **`/` 选技能**：技能变成可删除的块，不进入输入框文本 |
-| `task-11-attachment-staging.png` | **附件暂存区**：文件显示在输入框上方、可移除，发送后才上传 |
-
-## 已知环境偏离（相对《技术方案》）
-
-| 项 | 方案 | 实际 | 原因 |
-|---|---|---|---|
-| Flyway | 10.x | **11.7.2** | PG 18 需 ≥11；Flyway 12 移除了 Boot 3.3.5 依赖的 `cleanOnValidationError` |
-| Redis db | db0/db1 | **db10/db11** | db0/db1 已被同实例其他应用占用 |
-| 集成测试 | Testcontainers | 连内网**专用测试库** | 机器未安装 Docker |
-| 前端 Markdown | 未指定库 | 新增 `react-markdown` | 方案要求 Markdown 渲染气泡但未指定实现 |
-| 权限拦截 | 依赖权限中间件 | 需显式 **ASK 规则** | 实测仅设 `PermissionMode.DEFAULT` 拦不住工具调用 |
-| AG-UI 入口 | 未指定 | 必须走官方 **`AguiRequestProcessor`** | 直接调 `adapter.run` 会让 `resume` 失效 |
-| SSE 出站 | — | 去掉值为 null 的字段 | 官方客户端 Zod `optional()` 不接受 null，否则整个 `RUN_FINISHED` 被丢弃 |
-
-## 未完成 / 超出当前范围
-
-- 见 `docs/backlog.md`（RAG/语音/A2A/多租户/国际化等，均属方案 G7 明确排除项）
-
-> 管理台四个页面（模型 / Agent / Skill / MCP）已按《技术方案》第 7 节实现：
-> `http://localhost:5173/admin/{models,agents,skills,mcp}`。
-
-## 数据库
-
-- 应用库：`agent_platform`（Flyway 管理，DDL 只允许出现在 `src/main/resources/db/migration/`）
-- 测试库：`agent_platform_test`
-- Redis 逻辑库：`db10` 会话、`db11` 缓存，键前缀 `myagent:`（`db0`/`db1` 已被同实例其他应用占用）
-
-## 本地模型桩（仅开发验证用）
-
-尚未配置真实模型端点时，可用仓库内的 OpenAI 兼容桩验证连通性测试与聊天链路：
-
-```bash
-python tools/llm-stub/stub.py        # 监听 127.0.0.1:8099，提供 /v1/chat/completions
-```
-
-该脚本只是开发期验证辅助，不是平台组件。
+Everything runs with Docker Compose; all secrets are provided via environment variables and are **not** committed to the repository.

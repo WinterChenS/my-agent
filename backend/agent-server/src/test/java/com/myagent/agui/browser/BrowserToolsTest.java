@@ -93,9 +93,9 @@ class BrowserToolsTest {
     @Test
     @DisplayName("打开内网地址在调用前就被拦掉，不会真的起浏览器")
     void openRejectsUnsafeUrl() {
-        when(registry.rejectUrl(any())).thenReturn("出于安全考虑，不能读取本机/内网地址：192.168.3.10");
+        when(registry.rejectUrl(any())).thenReturn("出于安全考虑，不能读取本机/内网地址：192.168.1.10");
 
-        String output = call(tools.tools().get(0), Map.of("url", "http://192.168.3.10:8080/"));
+        String output = call(tools.tools().get(0), Map.of("url", "http://192.168.1.10:8080/"));
 
         assertThat(output).contains("内网");
         // 被拦下就不应该去 acquire（会启动进程）

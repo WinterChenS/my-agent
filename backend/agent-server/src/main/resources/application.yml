@@ -288,7 +288,9 @@ myagent:
     # 私有仓库 / 私有制品库的 token（可选，不配按匿名访问）
     token: ${SKILL_IMPORT_TOKEN:}
   jwt:
-    secret: ${JWT_SECRET:dev-only-jwt-secret-change-me-0123456789abcdef}
+    # 生产必须通过 JWT_SECRET 覆盖；这里的占位值仅用于本地跑通
+    secret: ${JWT_SECRET:CHANGE_ME_JWT_SECRET_AT_LEAST_32_CHARS}
     expire-minutes: 720
   crypto:
-    key: ${AGENT_CRYPTO_KEY:dev-only-crypto-key-change-me-0123456789}
+    # 连接器凭据的对称加密密钥，生产必须覆盖（换掉后已保存的连接器凭据需要重新填）
+    key: ${AGENT_CRYPTO_KEY:CHANGE_ME_CRYPTO_KEY_AT_LEAST_32_CHARS}

@@ -96,3 +96,6 @@ deploy/artifacts/
 
 # 扩展签名私钥（只保留公钥在 manifest 里，私钥永不提交）
 browser-extension/.extension-key.pem
+
+# 扩展包是构建产物（scripts/build-extension.py 生成），不入库
+frontend/public/downloads/*.zip

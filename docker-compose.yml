@@ -1,6 +1,6 @@
 # my-agent 平台部署（只跑平台自身两个容器）
 #
-# 数据库 / Redis / MinIO 都复用**现有实例**（PG、Redis 在 192.168.3.10，MinIO 在 192.168.3.225），
+# 数据库 / Redis / MinIO 都复用**现有实例**（PG、Redis 在 localhost，MinIO 在 localhost），
 # 这里不启动它们，只通过 .env 注入连接信息。
 #
 # 用法：
