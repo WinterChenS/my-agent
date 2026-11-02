@@ -14,6 +14,18 @@
 
 ---
 
+## 演示
+
+![聊天界面：流式对话、思考块、上下文用量](docs/assets/chat-overview.png)
+
+<sub>流式对话：思考过程（结束后自动折叠）、Markdown 正文、输入框旁的上下文用量圆环</sub>
+
+![产物交付与预览：工具调用、产物挂到当轮气泡、右侧沙箱预览](docs/assets/artifact-preview.png)
+
+<sub>产物交付：工具调用过程可见，交付的文件挂在当轮气泡下方，右侧用沙箱 iframe 预览（HTML 报告）</sub>
+
+---
+
 ## 特性
 
 ### 对话与交互（AG-UI）
