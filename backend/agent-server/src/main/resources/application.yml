@@ -106,6 +106,10 @@ myagent:
     max-limit: ${MYAGENT_REACH_MAX_LIMIT:10}
   # 登录相关
   auth:
+    # 管理员初始口令（**仅当**管理员仍是 V2__seed.sql 里的默认口令时生效；
+    # 已经改过密码的库不会被覆盖）。开源默认口令是公共知识，公网部署务必设置它，
+    # 或者首次登录后立刻改密 —— 否则启动日志会一直 WARN。
+    admin-initial-password: ${MYAGENT_ADMIN_PASSWORD:}
     # 是否仍接受**明文**密码。默认 false：前端一律用下发的公钥做 RSA-OAEP 加密。
     # 只有本地联调脚本需要时才临时打开，生产必须保持 false。
     allow-plaintext-password: ${MYAGENT_ALLOW_PLAINTEXT_PASSWORD:false}

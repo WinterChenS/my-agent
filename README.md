@@ -119,7 +119,14 @@ docker compose up -d --build
 - 前端：<http://localhost:18080>
 - 后端：`127.0.0.1:18081`（只对本机开放，外部经 nginx 反代）
 
-> 数据库迁移用 Flyway，启动时自动执行；首次启动会创建管理员账号（见 `.env` 中的初始化配置）。
+> 数据库迁移用 Flyway，启动时自动执行：**首次启动会插入一个管理员账号 `admin`，初始口令 `admin123`**
+> （写死在 `V2__seed.sql` 里，不能靠环境变量"不创建"）。
+>
+> ⚠️ **公网部署务必二选一**：
+> 1. 在 `.env` 里设置 `MYAGENT_ADMIN_PASSWORD=<强口令>` —— 启动时自动替换默认口令（只对默认口令生效）；
+> 2. 首次登录后立刻修改密码。
+>
+> 否则每次启动都会在日志里打一条 WARN 提醒你还没改。
 
 ### 方式二：本地开发
 
@@ -182,6 +189,7 @@ bash scripts/check-node.sh              # 检查 node 版本与所需 flag
 | `MYAGENT_REACH_ENABLED` | `true` | 联网出口（Agent Reach） |
 | `MYAGENT_BROWSER_MODE` | `local-extension` | `local-extension` / `remote` / `disabled` |
 | `MYAGENT_PUBLIC_BASE_URL` | — | 平台对外地址（用于扩展打包、下载链接） |
+| `MYAGENT_ADMIN_PASSWORD` | — | 管理员初始口令：**仅当** admin 还是默认口令时生效，用来替换 `admin123` |
 | `MYAGENT_CAPTCHA_ENABLED` | `true` | 登录滑动验证码 |
 | `MYAGENT_ALLOW_PLAINTEXT_PASSWORD` | `false` | 是否允许明文密码登录（**仅本地调试**） |
 | `SKILL_IMPORT_MAX_RESOURCES` | `600` | 单个技能的资源文件上限 |
@@ -261,6 +269,8 @@ my-agent/
 ## 安全说明
 
 - **`.env` 不入库**：仓库只提供 `.env.example`，其中的密钥都是占位符，请务必替换
+- **默认管理员口令是公开的**（`admin` / `admin123`，来自 Flyway 种子）：部署到公网前必须设置
+  `MYAGENT_ADMIN_PASSWORD` 或登录后改密；启动日志会在仍是默认口令时持续 WARN
 - **密码不明文传输**：登录走 RSA-OAEP(SHA-256)（公钥由后端下发，私钥只在内存）；明文登录默认关闭
 - **验证码在服务端判定**：答案只存数据库，前端拿不到；带原子抢占、限流冷却与行为分析
 - **连接器按用户隔离**：凭据加密存储，工具调用时按当前用户解析，不把凭据烘进工具实例
